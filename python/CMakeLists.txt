@@ -101,7 +101,7 @@ add_custom_command(OUTPUT wheel.stamp
                    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/pygetm" pygetm
                    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:_pygetm>" pygetm/
                    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:_pygotm>" pygetm/
-                   COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/setup.py" bdist_wheel
+                   COMMAND ${Python3_EXECUTABLE} -m build --wheel --outdir "${CMAKE_CURRENT_BINARY_DIR}/dist" "${CMAKE_CURRENT_SOURCE_DIR}"
                    VERBATIM)
 add_custom_target(wheel ALL DEPENDS wheel.stamp)
 

@@ -14,6 +14,7 @@ dependencies:
   - cmake
   - fortran-compiler
   - cython
+  - python-build
   - pip
   - mpi4py
   - pyyaml

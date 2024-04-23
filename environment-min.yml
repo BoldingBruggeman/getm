@@ -11,6 +11,7 @@ dependencies:
   - cmake
   - pip
   - cython
+  - python-build
   - pyyaml
   - numpy
   - xarray
