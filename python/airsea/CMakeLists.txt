@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1.3)
+cmake_minimum_required(VERSION 3.15)
 
 # Create main project.
 project(airsea VERSION 0.1.0 LANGUAGES Fortran C)
@@ -30,7 +30,6 @@ add_library(cairsea
 target_compile_definitions(cairsea PRIVATE GUSTINESS)
 
 # Find target Python interpreter.
-set(Python_FIND_STRATEGY LOCATION)
 find_package(Python3 COMPONENTS Interpreter Development NumPy)
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/_pyairsea.c
