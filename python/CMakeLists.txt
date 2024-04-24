@@ -22,23 +22,9 @@ find_package(Python3 COMPONENTS Interpreter Development NumPy)
 set(CMAKE_Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
 include_directories("${CMAKE_CURRENT_BINARY_DIR}/modules")
 
-add_subdirectory(../extern/python-otps2 python-otps2 EXCLUDE_FROM_ALL)
-
-add_subdirectory(../extern/pygsw pygsw EXCLUDE_FROM_ALL)
-add_subdirectory(airsea pyairsea EXCLUDE_FROM_ALL)
-
 set(FLEXOUT_USE_NetCDF OFF CACHE BOOL "Enable output in NetCDF format" FORCE)
 mark_as_advanced(FLEXOUT_USE_NetCDF)
 add_subdirectory(../extern/gotm/extern/flexout flexout EXCLUDE_FROM_ALL)
-
-add_subdirectory(../extern/gotm/src/util gotm/util EXCLUDE_FROM_ALL)
-add_subdirectory(../extern/gotm/src/turbulence gotm/turbulence EXCLUDE_FROM_ALL)
-target_include_directories(turbulence PRIVATE ../extern/gotm/include)
-target_include_directories(util PRIVATE ../extern/gotm/include)
-if(${CMAKE_Fortran_COMPILER_ID} STREQUAL "GNU")
-  target_compile_options(turbulence PRIVATE -ffree-line-length-none)
-  target_compile_options(util PRIVATE -ffree-line-length-none)
-endif()
 
 set(GET_GIT_INFO_SCRIPT "../extern/fabm/src/cmake/Modules/GetGitInfo.cmake")
 add_custom_target(pygetm_version
@@ -65,14 +51,11 @@ add_library(cgetm
   src/momentum.F90
   src/radiation.F90
   src/interpolation.F90
+  src/gradient.F90
   src/internal_pressure.F90
 )
 
 target_link_libraries(cgetm getm_domain getm_operators getm_dynamics)
-
-add_library(cgotm
-  pygotm_wrapper.F90)
-target_link_libraries(cgotm turbulence util yaml)
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/_pygetm.c
   COMMAND cython -I ${CMAKE_CURRENT_BINARY_DIR} _pygetm.pyx
@@ -81,35 +64,8 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/_pygetm.c
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/_pygotm.c
-  COMMAND cython _pygotm.pyx
-  MAIN_DEPENDENCY _pygotm.pyx
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
 Python3_add_library(_pygetm MODULE
   _pygetm.c)
 target_link_libraries(_pygetm PRIVATE cgetm Python3::NumPy)
 
-
-Python3_add_library(_pygotm MODULE
-  _pygotm.c)
-target_link_libraries(_pygotm PRIVATE cgotm Python3::NumPy)
-
-# Build wheel
-add_custom_command(OUTPUT wheel.stamp
-                   COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/pygetm" pygetm
-                   COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:_pygetm>" pygetm/
-                   COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:_pygotm>" pygetm/
-                   COMMAND ${Python3_EXECUTABLE} -m build --wheel --outdir "${CMAKE_CURRENT_BINARY_DIR}/dist" "${CMAKE_CURRENT_SOURCE_DIR}"
-                   VERBATIM)
-add_custom_target(wheel ALL DEPENDS wheel.stamp)
-
-add_dependencies(wheel otps2_wheel pygsw_wheel airsea_wheel)
-
-# Let pip install the wheel
-option(PYGETM_USER_INSTALL "Install with pip --user" OFF)
-if(PYGETM_USER_INSTALL)
-  SET(EXTRA_PIP_ARGS "--user")
-endif()
-install(CODE "execute_process(COMMAND ${Python3_EXECUTABLE} -m pip install --no-index --find-links=${CMAKE_CURRENT_BINARY_DIR}/dist --find-links=${CMAKE_CURRENT_BINARY_DIR}/pyairsea/dist --find-links=${CMAKE_CURRENT_BINARY_DIR}/pygsw/dist --find-links=${CMAKE_CURRENT_BINARY_DIR}/python-otps2/dist ${EXTRA_PIP_ARGS} --force-reinstall --upgrade pygetm pyairsea pygsw otps2 WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/dist)")
+install(TARGETS _pygetm DESTINATION .)

@@ -31,3 +31,4 @@ ford/
 /python/examples/*.prof
 /python/examples/*.log
 /python/examples/*.nc
+/python/build

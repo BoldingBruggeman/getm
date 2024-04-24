@@ -4,10 +4,19 @@ set -e
 
 REPO_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+pip install -v ${REPO_DIR}/python
+
 WORK_DIR=`mktemp -d`
-cd ${WORK_DIR}
-cmake ${REPO_DIR}/python
-cmake --build . --config Release --parallel 4
-cmake --install .
-cd -
+
+cmake -S ${REPO_DIR}/extern/pygsw -B ${WORK_DIR} -DCMAKE_BUILD_TYPE=Release
+cmake --build ${WORK_DIR} --target install --config Release --parallel 4
+
+rm -rf ${WORK_DIR}/*
+cmake -S ${REPO_DIR}/extern/python-otps2 -B ${WORK_DIR} -DCMAKE_BUILD_TYPE=Release
+cmake --build ${WORK_DIR} --target install --config Release --parallel 4
+
+rm -rf ${WORK_DIR}/*
+cmake -S ${REPO_DIR}/python/airsea -B ${WORK_DIR} -DCMAKE_BUILD_TYPE=Release
+cmake --build ${WORK_DIR} --target install --config Release --parallel 4
+
 rm -rf ${WORK_DIR}
