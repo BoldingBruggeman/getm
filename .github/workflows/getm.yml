@@ -24,7 +24,7 @@ jobs:
       - name: Clone getm-setups
         run: |
           git clone https://git.code.sf.net/p/getm/getm-setups
-      - uses: conda-incubator/setup-miniconda@v2
+      - uses: conda-incubator/setup-miniconda@v3
         with:
           auto-update-conda: true
           python-version: ${{ matrix.python-version }}
