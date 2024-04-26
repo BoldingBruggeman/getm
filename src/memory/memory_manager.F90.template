@@ -1,0 +1,118 @@
+#if _RANK_ == 1
+#define _D_ :
+#define _LU_ l,u
+#define _BOUNDS_ l:u
+#endif
+#if _RANK_ == 2
+#define _D_ :,:
+#define _LU_ l(2),u(2)
+#define _BOUNDS_ l(1):u(1),l(2):u(2)
+#endif
+#if _RANK_ == 3
+#define _D_ :,:,:
+#define _LU_ l(3),u(3)
+#define _BOUNDS_ l(1):u(1),l(2):u(2),l(3):u(3)
+#endif
+
+!---------------------------------------------------------------------------
+
+SUBROUTINE _SUB_M_(name,a,b,def,stat)
+   !! Dynamic allocate [123]D array using F08 'mold' option
+   !! Optionally initialize the array
+
+   IMPLICIT NONE
+
+!  Subroutine arguments
+   character(len=*), intent(in) :: name
+   _TYPE_(_SIZE_), intent(inout), dimension(_D_), allocatable :: a
+   _TYPE_(_SIZE_), intent(in), dimension(_D_), allocatable :: b
+   _TYPE_(_SIZE_), intent(in), optional :: def
+   integer, intent(inout) :: stat
+!---------------------------------------------------------------------------
+!write(*,*) _SUB_M_
+   if (allocated(a)) return
+   allocate(a, mold=b, stat=stat)
+   if (stat > 0) return
+   if (present(def) ) a = def
+   return
+END SUBROUTINE _SUB_M_
+
+!---------------------------------------------------------------------------
+
+SUBROUTINE _SUB_P_(name,a,l,u,def,stat)
+   !! Dynamic allocate [123]D array using upper and lower bounds
+   !! Optionally initialize the array
+
+   IMPLICIT NONE
+
+!  Subroutine arguments
+   character(len=*), intent(in) :: name
+   _TYPE_(_SIZE_), intent(inout), dimension(_D_), pointer :: a
+   integer, intent(in) :: _LU_
+   _TYPE_(_SIZE_), intent(in), optional :: def
+   integer, intent(inout) :: stat
+!---------------------------------------------------------------------------
+!write(*,*) _SUB_P_
+!write(*,*) 'template: ',l,u
+   if (associated(a)) return
+   allocate(a(_BOUNDS_),stat=stat)
+   if (stat > 0) return
+   if (present(def)) a = def
+   return
+END SUBROUTINE _SUB_P_
+
+!---------------------------------------------------------------------------
+
+SUBROUTINE _SUB_S_(name,a,l,u,def,stat)
+   !! Dynamic allocate [123]D array using upper and lower bounds
+   !! Optionally initialize the array
+
+   IMPLICIT NONE
+
+!  Subroutine arguments
+   character(len=*), intent(in) :: name
+   _TYPE_(_SIZE_), intent(inout), dimension(_D_), allocatable :: a
+   integer, intent(in) :: _LU_
+   _TYPE_(_SIZE_), intent(in), optional :: def
+   integer, intent(inout) :: stat
+!---------------------------------------------------------------------------
+!write(*,*) _SUB_S_
+!write(*,*) 'template: ',l,u
+   if (allocated(a)) return
+   allocate(a(_BOUNDS_),stat=stat)
+   if (stat > 0) return
+   if (present(def)) a = def
+   return
+END SUBROUTINE _SUB_S_
+
+!---------------------------------------------------------------------------
+
+SUBROUTINE _PRINT_(name,a)
+   !! Print info on allocate [123]D
+   !! Supports 'any' type
+
+   IMPLICIT NONE
+
+!  Subroutine arguments
+   character(len=*), intent(in) :: name
+   _TYPE_(_SIZE_), intent(in), dimension(_D_) :: a
+!---------------------------------------------------------------------------
+   write(*,*) 'name:   ',trim(name)
+   write(*,*) 'rank:   ',rank(a)
+   write(*,*) 'size:   ',size(a)
+   write(*,*) 'shape:  ',shape(a)
+   write(*,*) 'lbound: ',lbound(a)
+   write(*,*) 'ubound: ',ubound(a)
+   return
+END SUBROUTINE _PRINT_
+
+#undef _D_
+#undef _LU_
+#undef _BOUNDS_
+
+#undef _TYPE_
+#undef _SIZE_
+#undef _SUB_M_
+#undef _SUB_P_
+#undef _SUB_S_
+#undef _PRINT_

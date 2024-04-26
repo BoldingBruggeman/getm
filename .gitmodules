@@ -1,6 +1,3 @@
-[submodule "extern/flom"]
-	path = extern/flom
-	url = ../../BoldingBruggeman/flom.git
 [submodule "extern/gotm"]
 	path = extern/gotm
 	url = ../../gotm-model/code.git

@@ -14,4 +14,4 @@ add_executable( getm_exe
 )
 set_property( TARGET getm_exe PROPERTY FOLDER getm )
 target_include_directories( getm_exe PRIVATE ${CMAKE_BINARY_DIR}/modules )
-target_link_libraries( getm_exe PRIVATE getm_domain getm_operators getm_physics getm_dynamics getm_input getm_output flom )
+target_link_libraries( getm_exe PRIVATE getm_domain getm_operators getm_physics getm_dynamics getm_input getm_output )

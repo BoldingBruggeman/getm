@@ -35,13 +35,7 @@ add_custom_target(pygetm_version
    VERBATIM
 )
 
-add_library( flom 
-  ../extern/flom/src/grid.F90
-  ../extern/flom/src/logging.F90
-  ../extern/flom/src/memory_manager.F90
-)
-set_property( TARGET flom PROPERTY FOLDER flom )
-
+add_subdirectory(../src/memory memory)
 add_subdirectory(../src/domain domain)
 add_subdirectory(../src/operators operators)
 add_subdirectory(../src/dynamics dynamics)

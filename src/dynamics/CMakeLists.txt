@@ -19,4 +19,4 @@ add_library(getm_dynamics
     slow_momentum_terms.F90
 )
 set_property( TARGET getm_dynamics PROPERTY FOLDER getm )
-target_link_libraries( getm_dynamics PRIVATE getm_operators getm_domain flom )
+target_link_libraries( getm_dynamics PRIVATE getm_operators getm_domain )

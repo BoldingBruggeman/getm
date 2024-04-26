@@ -15,4 +15,4 @@ add_library( getm_domain
     vertical_sigma.F90
 )
 set_property( TARGET getm_domain PROPERTY FOLDER getm )
-target_link_libraries(getm_domain flom field_manager)
+target_link_libraries(getm_domain PRIVATE getm_memory PUBLIC field_manager)
