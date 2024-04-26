@@ -35,6 +35,13 @@ add_custom_target(pygetm_version
    VERBATIM
 )
 
+add_subdirectory(../extern/python-otps2 python-otps2 EXCLUDE_FROM_ALL)
+add_subdirectory(../extern/pygsw pygsw EXCLUDE_FROM_ALL)
+add_subdirectory(airsea airsea EXCLUDE_FROM_ALL)
+
+add_custom_target(pip_install pip install -v "${CMAKE_SOURCE_DIR}" VERBATIM)
+add_dependencies(pip_install otps2_wheel pygsw_wheel airsea_wheel)
+
 add_subdirectory(../src/memory memory)
 add_subdirectory(../src/domain domain)
 add_subdirectory(../src/operators operators)
