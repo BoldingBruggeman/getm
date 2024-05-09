@@ -27,7 +27,9 @@ class Turbulence:
             units="m2 s-1",
             long_name="turbulent diffusivity of heat",
             fill_value=FILL_VALUE,
-            attrs={"_part_of_state": True},
+            attrs=dict(
+                _part_of_state=True, standard_name="ocean_vertical_heat_diffusivity"
+            ),
         )
         self.num = grid.array(
             z=INTERFACES,
@@ -35,7 +37,9 @@ class Turbulence:
             units="m2 s-1",
             long_name="turbulent diffusivity of momentum",
             fill_value=FILL_VALUE,
-            attrs={"_part_of_state": True},
+            attrs=dict(
+                _part_of_state=True, standard_name="ocean_vertical_momentum_diffusivity"
+            ),
         )
         self.nuh.fill(0.0)
         self.num.fill(0.0)
@@ -114,8 +118,7 @@ class GOTM(Turbulence):
         self.num.open_boundaries = ArrayOpenBoundaries(self.num, type=ZERO_GRADIENT)
 
     def _log(self):
-        """Copy lines written by GOTM to stdout/stderr to the log
-        """
+        """Copy lines written by GOTM to stdout/stderr to the log"""
         for line in itertools.chain(_pygotm.stdout, _pygotm.stderr):
             line = line.rstrip()
             if line:
