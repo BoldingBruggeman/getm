@@ -57,15 +57,17 @@ add_library(cgetm
 
 target_link_libraries(cgetm getm_domain getm_operators getm_dynamics)
 
-add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/_pygetm.c
-  COMMAND cython -I ${CMAKE_CURRENT_BINARY_DIR} _pygetm.pyx
+add_custom_command(OUTPUT _pygetm.c
+  COMMENT "Creating ${CMAKE_CURRENT_BINARY_DIR}/_pygetm.c from ${CMAKE_CURRENT_SOURCE_DIR}/_pygetm.pyx"
+  COMMAND Python3::Interpreter -m cython -I "${CMAKE_CURRENT_BINARY_DIR}" _pygetm.pyx -o "${CMAKE_CURRENT_BINARY_DIR}/_pygetm.c"
   MAIN_DEPENDENCY _pygetm.pyx
-  DEPENDS pygetm_version ${CMAKE_CURRENT_BINARY_DIR}/version.pxi
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  DEPENDS pygetm_version "${CMAKE_CURRENT_BINARY_DIR}/version.pxi"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  VERBATIM
 )
 
 Python3_add_library(_pygetm MODULE
-  _pygetm.c)
+  "${CMAKE_CURRENT_BINARY_DIR}/_pygetm.c")
 target_link_libraries(_pygetm PRIVATE cgetm Python3::NumPy)
 
 install(TARGETS _pygetm DESTINATION .)
