@@ -96,6 +96,14 @@ class Base:
             return self.grid._land3d
         return self.grid._land
 
+    @property
+    def halox(self) -> int:
+        return self.grid.halox
+
+    @property
+    def haloy(self) -> int:
+        return self.grid.haloy
+
 
 class WrappedArray(Base):
     __slots__ = ("_name", "values")
@@ -419,8 +427,8 @@ class Gather(UnivariateTransform):
 
     def __init__(self, source: Base, tiling: pygetm.parallel.Tiling):
         self.tiling = tiling
-        nx = tiling.nx_glob + source.shape[-1] - 4 - tiling.nx_sub
-        ny = tiling.ny_glob + source.shape[-2] - 4 - tiling.ny_sub
+        nx = tiling.nx_glob + source.shape[-1] - 2 * source.halox - tiling.nx_sub
+        ny = tiling.ny_glob + source.shape[-2] - 2 * source.haloy - tiling.ny_sub
         shape = source.shape[:-2] + (ny, nx)
         super().__init__(source, shape=shape, expression=source.expression)
         self.global_array = None
@@ -428,8 +436,12 @@ class Gather(UnivariateTransform):
             global_domain = source.grid.domain.glob
             if global_domain and not source.time_varying:
                 self.global_array = global_domain.fields.get(source.array.name)
-        local_shape = source.shape[:-2] + (source.shape[-2] - 4, source.shape[-1] - 4)
-        self._slice = (Ellipsis, slice(2, -2), slice(2, -2))
+        xstart = source.halox
+        ystart = source.haloy
+        xstop = source.shape[-1] - source.halox
+        ystop = source.shape[-2] - source.haloy
+        local_shape = source.shape[:-2] + (ystop - ystart, xstop - xstart)
+        self._slice = (Ellipsis, slice(ystart, ystop), slice(xstart, xstop))
         self._gather = pygetm.parallel.Gather(self.tiling, local_shape, self.dtype)
 
     def get(
@@ -459,11 +471,13 @@ class Slice(UnivariateTransform):
     __slots__ = "_slice"
 
     def __init__(self, source: Field):
-        shape = list(source.shape)
-        shape[-1] -= 4
-        shape[-2] -= 4
+        xstart = source.halox
+        ystart = source.haloy
+        xstop = source.shape[-1] - source.halox
+        ystop = source.shape[-2] - source.haloy
+        shape = source.shape[:-2] + (ystop - ystart, xstop - xstart)
         super().__init__(source, shape=tuple(shape), expression=source.expression)
-        self._slice = (Ellipsis, slice(2, -2), slice(2, -2))
+        self._slice = (Ellipsis, slice(ystart, ystop), slice(xstart, xstop))
 
     def get(
         self, out: Optional[ArrayLike] = None, slice_spec: Tuple[int, ...] = ()

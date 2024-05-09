@@ -85,7 +85,8 @@ class TestParallelAdvection(unittest.TestCase):
             # unused rank
             return
 
-        halo = subdomain.halo
+        halox = subdomain.halox
+        haloy = subdomain.haloy
         subdomain.initialize(runtype=pygetm.BAROTROPIC_2D)
         outman = pygetm.output.OutputManager(subdomain.fields, rank=rank)
 
@@ -199,10 +200,10 @@ class TestParallelAdvection(unittest.TestCase):
                         rank,
                         "outside",
                         rank,
-                        f.all_values[halo - 1, :].max(),
-                        f.all_values[-halo, :].max(),
-                        f.all_values[:, halo - 1].max(),
-                        f.all_values[:, -halo].max(),
+                        f.all_values[haloy - 1, :].max(),
+                        f.all_values[-haloy, :].max(),
+                        f.all_values[:, halox - 1].max(),
+                        f.all_values[:, -halox].max(),
                         flush=True,
                     )
 

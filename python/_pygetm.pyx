@@ -23,7 +23,7 @@ from pygetm.constants import *
 
 cdef extern void c_allocate_array(int n, int dtype, void** ptype, void** pdata) nogil
 cdef extern void c_deallocate_array(void* ptype) nogil
-cdef extern void* domain_create(int imin, int imax, int jmin, int jmax, int kmin, int kmax, int* halox, int* haloy, int* haloz) nogil
+cdef extern void* domain_create(int imin, int imax, int jmin, int jmax, int kmin, int kmax, int halox, int haloy, int haloz) nogil
 cdef extern void* domain_get_grid(void* domain, int grid_type, int imin, int imax, int jmin, int jmax, int kmin, int kmax, int halox, int haloy, int haloz) nogil
 cdef extern void domain_initialize(void* domain, int runtype, double Dmin, int method_vertical_coordinates, double ddl, double ddu, double Dgamma, int gamma_surf, double* maxdt) nogil
 cdef extern void grid_finalize(void* grid) nogil
@@ -66,7 +66,7 @@ cdef extern void c_advance_surface_elevation(int nx, int ny, int halox, int halo
 cdef extern void c_surface_pressure_gradient(int nx, int ny, int imin, int imax, int jmin, int jmax, int* umask, int* vmask, double* idxu, double* idyv, double* z, double* sp, double* H, double* D, double Dmin, double* dpdx, double* dpdy) nogil
 cdef extern void c_blumberg_mellor(int nx, int ny, int nz, int imin, int imax, int jmin, int jmax, const int* umask, const int* vmask, const double* idxu, const double* idyv, const double* hu, const double* hv, const double* zf, const double* buoy, double* idpdx, double* idpdy) nogil
 cdef extern void c_shchepetkin_mcwilliams(int nx, int ny, int nz, int imin, int imax, int jmin, int jmax, const int* mask, const int* umask, const int* vmask, const double* idxu, const double* idyv, const double* h, const double* z, const double* zc, const double* buoy, double* idpdx, double* idpdy) nogil
-cdef extern void c_vertical_advection_to_sources(int nx, int ny, int nz, int halo, const int* mask, const double* c, const double* w, const double* h, double* s)
+cdef extern void c_vertical_advection_to_sources(int nx, int ny, int nz, int halox, int haloy, const int* mask, const double* c, const double* w, const double* h, double* s)
 
 
 cpdef enum:
@@ -213,11 +213,14 @@ cdef class Domain:
     cdef readonly int halox, haloy, haloz
     cdef readonly double maxdt
 
-    def __init__(self, int imin, int imax, int jmin, int jmax, int kmin, int kmax):
-        self.p = domain_create(imin, imax, jmin, jmax, kmin, kmax, &self.halox, &self.haloy, &self.haloz)
+    def __init__(self, int imin, int imax, int jmin, int jmax, int kmin, int kmax, int halox, int haloy, int haloz=0):
+        self.p = domain_create(imin, imax, jmin, jmax, kmin, kmax, halox, haloy, haloz)
         self.nx = imax - imin + 1
         self.ny = jmax - jmin + 1
         self.nz = kmax - kmin + 1
+        self.halox = halox
+        self.haloy = haloy
+        self.haloz = haloz
         self.grids = {}
 
     def __dealloc__(self):
@@ -594,8 +597,8 @@ def multiply_add(double[::1] tgt, const double[::1] add, double scale_factor):
     if tgt.shape[0] != 0:
         c_multiply_add(<int>tgt.shape[0], &tgt[0], &add[0], scale_factor)
 
-def vertical_advection_to_sources(int halo, int[:, :, ::1] mask, double[:, : , ::1] c, double[:, : , ::1] w, double[:, : , ::1] h, double[:, : , ::1] s):
-    c_vertical_advection_to_sources(<int>c.shape[2], <int>c.shape[1], <int>c.shape[0], halo, &mask[0,0,0], &c[0,0,0], &w[0,0,0], &h[0,0,0], &s[0,0,0])
+def vertical_advection_to_sources(int halox, int haloy, int[:, :, ::1] mask, double[:, : , ::1] c, double[:, : , ::1] w, double[:, : , ::1] h, double[:, : , ::1] s):
+    c_vertical_advection_to_sources(<int>c.shape[2], <int>c.shape[1], <int>c.shape[0], halox, haloy, &mask[0,0,0], &c[0,0,0], &w[0,0,0], &h[0,0,0], &s[0,0,0])
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
@@ -669,20 +672,21 @@ cdef int get_from_map(const int[::1] map, int nrow, int ncol, int row, int col) 
 @cython.initializedcheck(False)
 cdef int get_cost(const int[::1] map, int nrow, int ncol, int nx, int ny, int weight_unmasked, int weight_any, int weight_halo) noexcept nogil:
     cdef int row, col, nint, nout, max_cost
-    cdef int halo = 2
+    cdef int halox = 2
+    cdef int haloy = 2
     max_cost = 0
     for row in range(nrow):
         for col in range(ncol):
             nint = map[row * ncol + col]  # unmasked cells only
             nout = 0
-            if get_from_map(map, nrow, ncol, row - 1, col - 1) > 0: nout += halo * halo
-            if get_from_map(map, nrow, ncol, row + 1, col - 1) > 0: nout += halo * halo
-            if get_from_map(map, nrow, ncol, row - 1, col + 1) > 0: nout += halo * halo
-            if get_from_map(map, nrow, ncol, row + 1, col + 1) > 0: nout += halo * halo
-            if get_from_map(map, nrow, ncol, row - 1, col) > 0: nout += halo * nx
-            if get_from_map(map, nrow, ncol, row + 1, col) > 0: nout += halo * nx
-            if get_from_map(map, nrow, ncol, row, col - 1) > 0: nout += halo * ny
-            if get_from_map(map, nrow, ncol, row, col + 1) > 0: nout += halo * ny
+            if get_from_map(map, nrow, ncol, row - 1, col - 1) > 0: nout += halox * haloy
+            if get_from_map(map, nrow, ncol, row + 1, col - 1) > 0: nout += halox * haloy
+            if get_from_map(map, nrow, ncol, row - 1, col + 1) > 0: nout += halox * haloy
+            if get_from_map(map, nrow, ncol, row + 1, col + 1) > 0: nout += halox * haloy
+            if get_from_map(map, nrow, ncol, row - 1, col) > 0: nout += nx * haloy
+            if get_from_map(map, nrow, ncol, row + 1, col) > 0: nout += nx * haloy
+            if get_from_map(map, nrow, ncol, row, col - 1) > 0: nout += halox * ny
+            if get_from_map(map, nrow, ncol, row, col + 1) > 0: nout += halox * ny
             max_cost = max(max_cost, weight_unmasked * nint + weight_halo * nout)
     if nx % 4 != 0: max_cost *= 2  # penalize non-alignment
     return max_cost + weight_any * nx * ny     # add an overhead for all cells - unmasked or not

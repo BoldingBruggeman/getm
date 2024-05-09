@@ -118,8 +118,9 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             # boundary array or scalar
             self.values = self.all_values[...]
         else:
+            ny, nx = self.all_values.shape[-2:]
             halox, haloy = self.grid.domain.halox, self.grid.domain.haloy
-            self.values = self.all_values[..., haloy:-haloy, halox:-halox]
+            self.values = self.all_values[..., haloy : ny - haloy, halox : nx - halox]
 
         self._shape = self.values.shape
         self._size = self.values.size
@@ -152,7 +153,8 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
         dist = parallel.DistributedArray(
             self.grid.domain.tiling,
             self.all_values,
-            self.grid.halo,
+            self.grid.halox,
+            self.grid.haloy,
             overlap=self.grid.overlap,
         )
         self.update_halos = dist.update_halos
@@ -169,7 +171,8 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             self._scatter = parallel.Scatter(
                 self.grid.domain.tiling,
                 self.all_values,
-                halo=self.grid.halo,
+                halox=self.grid.halox,
+                haloy=self.grid.haloy,
                 fill_value=self._fill_value,
             )
         self._scatter(None if global_data is None else global_data.all_values)

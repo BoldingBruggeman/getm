@@ -1376,7 +1376,7 @@ class InputManager:
             local_shape,
             global_shape,
         ) = grid.domain.tiling.subdomain2slices(
-            exclude_halos=not include_halos, halo_sub=2
+            exclude_halos=not include_halos, halox_sub=grid.halox, haloy_sub=grid.haloy
         )
 
         def _map_to_grid():
