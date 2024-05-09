@@ -32,4 +32,6 @@ ford/
 /python/examples/*.log
 /python/examples/*.nc
 /python/build
+/python/airsea/build
 /python/pygetm.egg-info
+/python/airsea/pyairsea.egg-info

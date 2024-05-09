@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 # Create main project.
-project(airsea VERSION 0.1.0 LANGUAGES Fortran C)
-
+project(airsea VERSION 0.1.1 LANGUAGES Fortran C)
 
 # Specify position-independent code since we will build a shared library.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -43,13 +42,4 @@ Python3_add_library(_pyairsea MODULE
   "${CMAKE_CURRENT_BINARY_DIR}/_pyairsea.c")
 target_link_libraries(_pyairsea PRIVATE cairsea Python3::NumPy)
 
-# Build wheel
-add_custom_command(OUTPUT airsea_wheel.stamp
-                   COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/pyairsea" pyairsea
-                   COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:_pyairsea>" pyairsea/
-                   COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/setup.py" bdist_wheel
-                   VERBATIM)
-add_custom_target(airsea_wheel ALL DEPENDS airsea_wheel.stamp)
-
-# Let pip install the wheel
-install(CODE "execute_process(COMMAND ${Python3_EXECUTABLE} -m pip install --no-index --find-links=${CMAKE_CURRENT_BINARY_DIR}/dist --user --force-reinstall --upgrade pyairsea WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/dist)")
+install(TARGETS _pyairsea DESTINATION .)

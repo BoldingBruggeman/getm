@@ -89,12 +89,7 @@ git clone --recursive https://github.com/BoldingBruggeman/getm-rewrite.git
 cd getm-rewrite
 conda env create -f environment-min.yml
 conda activate pygetm
-
-mkdir build
-cd build
-cmake ..\python
-cmake --build . --config Release
-cmake --install .
+install.bat
 ```
 
 #### Staying up to date

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools >= 61.0.0", "wheel", "numpy", "cython"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyairsea"
+version = "0.1.1"
+authors = [
+  {name = "Jorn Bruggeman", email = "jorn@bolding-bruggeman.com"},
+  {name = "Karsten Bolding", email = "karsten@bolding-bruggeman.com"}
+]
+description = "Air-water exchange of heat and momentum"
+dependencies = [
+  "numpy"
+]
+requires-python = ">=3.8"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+  "Operating System :: OS Independent"
+]
