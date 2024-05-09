@@ -1,3 +1,34 @@
 [build-system]
 requires = ["setuptools >= 61.0.0", "wheel", "numpy", "cython"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "pygetm"
+version = "0.1.1"
+authors = [
+  {name = "Jorn Bruggeman", email = "jorn@bolding-bruggeman.com"},
+  {name = "Karsten Bolding", email = "karsten@bolding-bruggeman.com"}
+]
+description = "Python implementation of the General Estuarine Transport Model (GETM)"
+dependencies = [
+  "numpy",
+  "xarray",
+  "mpi4py",
+  "netCDF4"
+]
+requires-python = ">=3.8"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+  "Operating System :: OS Independent"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/BoldingBruggeman/getm-rewrite"
+"Documentation" = "https://pygetm.readthedocs.io/"
+"Repository" = "https://github.com/BoldingBruggeman/getm-rewrite"
+
+[project.scripts]
+pygetm-subdiv = "pygetm.subdiv:main"
+pygetm-test-scaling = "pygetm.parallel:test_scaling_command"
+pygetm-compare-nc = "pygetm.util.compare_nc:compare_command"
