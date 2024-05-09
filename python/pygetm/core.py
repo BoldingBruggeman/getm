@@ -157,19 +157,6 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             self.grid.haloy,
             overlap=self.grid.overlap,
         )
-
-        def update_halos(*args, **kwargs):
-            with self.grid.domain.timers(f"{self.name}.update_halos"):
-                dist.update_halos(*args, **kwargs)
-
-        def update_halos_start(*args, **kwargs):
-            with self.grid.domain.timers(f"{self.name}.update_halos_start"):
-                dist.update_halos_start(*args, **kwargs)
-
-        def update_halos_finish(*args, **kwargs):
-            with self.grid.domain.timers(f"{self.name}.update_halos_finish"):
-                dist.update_halos_finish(*args, **kwargs)
-
         self.update_halos = dist.update_halos
         self.update_halos_start = dist.update_halos_start
         self.update_halos_finish = dist.update_halos_finish
@@ -398,20 +385,6 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
                 target_array = target_array[None, ...]
             interpolate = self.grid.interpolator(target.grid)
             interpolate(source_array, target_array)
-        return target
-
-    def gradient_x(self, target: Optional["Array"] = None) -> "Array":
-        target_grid, calculator = self.grid.gradient_x_calculator
-        if target is None:
-            target = Array.create(target_grid, dtype=self._dtype, z=self.z)
-        calculator(self.all_values, target.all_values)
-        return target
-
-    def gradient_y(self, target: Optional["Array"] = None) -> "Array":
-        target_grid, calculator = self.grid.gradient_y_calculator
-        if target is None:
-            target = Array.create(target_grid, dtype=self._dtype, z=self.z)
-        calculator(self.all_values, target.all_values)
         return target
 
     def __array__(self, dtype: Optional[DTypeLike] = None) -> np.ndarray:
