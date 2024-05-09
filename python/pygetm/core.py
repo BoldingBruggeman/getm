@@ -118,8 +118,9 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             # boundary array or scalar
             self.values = self.all_values[...]
         else:
+            ny, nx = self.all_values.shape[-2:]
             halox, haloy = self.grid.domain.halox, self.grid.domain.haloy
-            self.values = self.all_values[..., haloy:-haloy, halox:-halox]
+            self.values = self.all_values[..., haloy : ny - haloy, halox : nx - halox]
 
         self._shape = self.values.shape
         self._size = self.values.size
@@ -152,9 +153,23 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
         dist = parallel.DistributedArray(
             self.grid.domain.tiling,
             self.all_values,
-            self.grid.halo,
+            self.grid.halox,
+            self.grid.haloy,
             overlap=self.grid.overlap,
         )
+
+        def update_halos(*args, **kwargs):
+            with self.grid.domain.timers(f"{self.name}.update_halos"):
+                dist.update_halos(*args, **kwargs)
+
+        def update_halos_start(*args, **kwargs):
+            with self.grid.domain.timers(f"{self.name}.update_halos_start"):
+                dist.update_halos_start(*args, **kwargs)
+
+        def update_halos_finish(*args, **kwargs):
+            with self.grid.domain.timers(f"{self.name}.update_halos_finish"):
+                dist.update_halos_finish(*args, **kwargs)
+
         self.update_halos = dist.update_halos
         self.update_halos_start = dist.update_halos_start
         self.update_halos_finish = dist.update_halos_finish
@@ -169,7 +184,8 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             self._scatter = parallel.Scatter(
                 self.grid.domain.tiling,
                 self.all_values,
-                halo=self.grid.halo,
+                halox=self.grid.halox,
+                haloy=self.grid.haloy,
                 fill_value=self._fill_value,
             )
         self._scatter(None if global_data is None else global_data.all_values)
@@ -382,6 +398,20 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
                 target_array = target_array[None, ...]
             interpolate = self.grid.interpolator(target.grid)
             interpolate(source_array, target_array)
+        return target
+
+    def gradient_x(self, target: Optional["Array"] = None) -> "Array":
+        target_grid, calculator = self.grid.gradient_x_calculator
+        if target is None:
+            target = Array.create(target_grid, dtype=self._dtype, z=self.z)
+        calculator(self.all_values, target.all_values)
+        return target
+
+    def gradient_y(self, target: Optional["Array"] = None) -> "Array":
+        target_grid, calculator = self.grid.gradient_y_calculator
+        if target is None:
+            target = Array.create(target_grid, dtype=self._dtype, z=self.z)
+        calculator(self.all_values, target.all_values)
         return target
 
     def __array__(self, dtype: Optional[DTypeLike] = None) -> np.ndarray:

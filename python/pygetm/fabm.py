@@ -21,12 +21,14 @@ class FABM:
         bioshade_feedback: bool = False,
         libname: str = os.path.join(os.path.dirname(__file__), "fabm"),
         time_varying: TimeVarying = TimeVarying.MACRO,
+        squeeze: bool = False,
     ):
         self.path = path
         self.repair = repair
         self.bioshade_feedback: bool = bioshade_feedback
         self.libname = libname
         self.time_varying = time_varying
+        self.squeeze = squeeze
 
         self._variable2array: MutableMapping[pyfabm.Variable, core.Array] = {}
 
@@ -50,7 +52,7 @@ class FABM:
             grid.lat.fabm_standard_name = "latitude"
 
         def variable_to_array(
-            variable: pyfabm.Variable, send_data: bool = False, **kwargs
+            variable: pyfabm.Variable, data: Optional[np.ndarray] = None, **kwargs
         ):
             kwargs.setdefault("attrs", {})["_time_varying"] = self.time_varying
             ar = core.Array(
@@ -62,19 +64,36 @@ class FABM:
                 grid=grid,
                 **kwargs,
             )
-            if send_data:
-                ar.wrap_ndarray(variable.data, register=False)
+            if data is not None:
+                ar.wrap_ndarray(data, register=False)
             ar.register()
             self._variable2array[variable] = ar
 
         shape = grid.hn.all_values.shape  # shape including halos
-        halo = grid.domain.halo
+        fabm_shape = shape
+        halox = grid.domain.halox
+        haloy = grid.domain.haloy
+        domain_start = (0, haloy, halox)
+        domain_stop = (shape[0], shape[1] - haloy, shape[2] - halox)
+        if self.squeeze:
+            keep = [n != 1 for n in grid.hn.shape]
+            print(
+                grid.domain.nx,
+                grid.domain.ny,
+                grid.domain.nz,
+                shape,
+                grid.hn.shape,
+                keep,
+            )
+            fabm_shape = tuple(n for (n, k) in zip(shape, keep) if k)
+            domain_start = tuple(n for (n, k) in zip(domain_start, keep) if k)
+            domain_stop = tuple(n for (n, k) in zip(domain_stop, keep) if k)
         model = self.model = pyfabm.Model(
             self.path,
-            shape=shape,
+            shape=fabm_shape,
             libname=self.libname,
-            start=(0, halo, halo),
-            stop=(shape[0], shape[1] - halo, shape[2] - halo),
+            start=domain_start,
+            stop=domain_stop,
         )
 
         # State variables
@@ -84,9 +103,9 @@ class FABM:
         self.vertical_velocity = np.zeros_like(model.interior_state)
         for i, variable in enumerate(model.interior_state_variables):
             ar_w = core.Array(grid=grid)
-            ar_w.wrap_ndarray(self.vertical_velocity[i, ...])
+            ar_w.wrap_ndarray(self.vertical_velocity[i, ...].reshape(shape))
             ar = tracer_collection.add(
-                data=variable.data,
+                data=variable.data.reshape(shape),
                 vertical_velocity=ar_w,
                 name=variable.output_name,
                 units=variable.units,
@@ -97,7 +116,8 @@ class FABM:
             )
             self._variable2array[variable] = ar
         for variable in model.surface_state_variables + model.bottom_state_variables:
-            variable_to_array(variable, send_data=True, attrs=dict(_part_of_state=True))
+            data = variable.data.reshape(shape[1:])
+            variable_to_array(variable, data=data, attrs=dict(_part_of_state=True))
 
         # Add diagnostics, initially without associated data
         # Data will be sent later, only if the variable is selected for output,
@@ -107,17 +127,28 @@ class FABM:
             variable_to_array(variable, shape=current_shape)
 
         # Required inputs: mask and cell thickness
-        if hasattr(grid.domain, "mask3d"):
-            model.link_mask(grid.domain.mask3d.all_values, grid.mask.all_values)
-        else:
-            model.link_mask(grid.mask.all_values)
+        if model.fabm.mask_type != 0:
+            if hasattr(grid.domain, "mask3d"):
+                model.link_mask(
+                    grid.domain.mask3d.all_values.reshape(model.interior_domain_shape),
+                    grid.mask.all_values.reshape(model.horizontal_domain_shape),
+                )
+            else:
+                model.link_mask(
+                    grid.mask.all_values.reshape(model.horizontal_domain_shape)
+                )
         if hasattr(grid.domain, "bottom_indices"):
-            model.link_bottom_index(grid.domain.bottom_indices.all_values)
-        model.link_cell_thickness(grid.hn.all_values)
+            bottom_indices = grid.domain.bottom_indices.all_values
+            model.link_bottom_index(
+                bottom_indices.reshape(model.horizontal_domain_shape)
+            )
+        model.link_cell_thickness(
+            grid.hn.all_values.reshape(model.interior_domain_shape)
+        )
 
         # Conserved quantities (depth-integrated)
         self.conserved_quantity_totals = np.empty(
-            (len(model.conserved_quantities),) + shape[1:],
+            (len(model.conserved_quantities),) + model.horizontal_domain_shape,
             dtype=self.sources_interior.dtype,
         )
         for i, variable in enumerate(model.conserved_quantities):
@@ -130,7 +161,8 @@ class FABM:
                 grid=grid,
                 attrs=dict(_time_varying=self.time_varying),
             )
-            ar.wrap_ndarray(self.conserved_quantity_totals[i, ...], register=False)
+            data = self.conserved_quantity_totals[i, ...]
+            ar.wrap_ndarray(data.reshape(shape[1:]), register=False)
             tracer_totals.append(tracer.TracerTotal(ar))
 
         # Optionally request PAR attenuation coefficient from FABM for
@@ -206,22 +238,30 @@ class FABM:
             array = self._variable2array[variable]
             if array.saved:
                 # Provide the array with data (NB it has been registered before)
-                array.wrap_ndarray(variable.data, register=False)
+                current_shape = (
+                    self.grid.H if variable.horizontal else self.grid.hn
+                ).all_values.shape
+                array.wrap_ndarray(variable.data.reshape(current_shape), register=False)
             else:
                 # Remove the array from the list of available fields
                 del self.grid.domain.fields[array.name]
 
         # Apply mask to all state variables (interior, bottom, surface)
         for variable in self.model.interior_state_variables:
+            array = self._variable2array[variable]
             mask = getattr(self.grid, "_land3d", self.grid._land)
-            variable.value[..., mask] = variable.missing_value
+            array.all_values[..., mask] = variable.missing_value
         for variable in self.model.bottom_state_variables:
-            variable.value[..., self.grid._land] = variable.missing_value
+            array = self._variable2array[variable]
+            array.all_values[..., self.grid._land] = variable.missing_value
         for variable in self.model.surface_state_variables:
-            variable.value[..., self.grid._land] = variable.missing_value
+            array = self._variable2array[variable]
+            array.all_values[..., self.grid._land] = variable.missing_value
 
         if self.kc_variable is not None:
-            self.kc.wrap_ndarray(self.kc_variable.value, register=False)
+            data = self.kc_variable.value
+            data = data.reshape(self.grid.hn.all_values.shape)
+            self.kc.wrap_ndarray(data, register=False)
 
     def has_dependency(self, name: str) -> bool:
         try:
@@ -242,21 +282,27 @@ class FABM:
         """
         variable = self.model.dependencies.find(name)
         if array is None:
+            shape = self.grid.hn.shape
+            shape_ = self.grid.hn.all_values.shape
+            if variable in self.model.horizontal_dependencies:
+                shape = shape[1:]
+                shape_ = shape_[1:]
+            elif variable in self.model.scalar_dependencies:
+                shape = shape_ = ()
             array = core.Array(
                 name=variable.output_name,
                 units=variable.units,
                 long_name=variable.long_path,
-                shape=variable.shape,
+                shape=shape,
                 dtype=self.model.fabm.numpy_dtype,
                 grid=self.grid,
                 attrs=dict(_time_varying=self.time_varying),
             )
-            data = np.empty(variable.shape, dtype=self.model.fabm.numpy_dtype)
+            data = np.empty(shape_, dtype=self.model.fabm.numpy_dtype)
             array.wrap_ndarray(data, register=False)
             array.register()
-        else:
-            data = array.all_values.view()
-            data.shape = variable.shape
+        data = array.all_values.view()
+        data.shape = variable.shape
         variable.link(data)
         return array
 
@@ -280,14 +326,17 @@ class FABM:
         self.model.get_vertical_movement(self.vertical_velocity)
 
     def add_vertical_movement_to_sources(self):
+        if self.grid.nz == 1:
+            return
         h = self.grid.hn.all_values
-        halo = self.grid.domain.halo
+        halox = self.grid.domain.halox
+        haloy = self.grid.domain.haloy
         mask = self.grid.domain.mask3d.all_values
         for itracer in range(self.model.interior_state.shape[0]):
             w = self.vertical_velocity[itracer, ...]
             c = self.model.interior_state[itracer, ...]
             s = self.sources_interior[itracer, ...]
-            _pygetm.vertical_advection_to_sources(halo, mask, c, w, h, s)
+            _pygetm.vertical_advection_to_sources(halox, haloy, mask, c, w, h, s)
 
     def update_totals(self):
         """Ensure sums of conserved quantities are up to date."""

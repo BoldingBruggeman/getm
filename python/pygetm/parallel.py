@@ -285,8 +285,10 @@ class Tiling:
         self,
         irow: Optional[int] = None,
         icol: Optional[int] = None,
-        halo_sub: int = 0,
-        halo_glob: int = 0,
+        halox_sub: int = 0,
+        haloy_sub: int = 0,
+        halox_glob: int = 0,
+        haloy_glob: int = 0,
         scale: int = 1,
         share: int = 0,
         exclude_halos: bool = True,
@@ -324,17 +326,19 @@ class Tiling:
 
         assert isinstance(share, int)
         assert isinstance(scale, int)
-        assert isinstance(halo_sub, int)
-        assert isinstance(halo_glob, int)
+        assert isinstance(halox_sub, int)
+        assert isinstance(haloy_sub, int)
+        assert isinstance(halox_glob, int)
+        assert isinstance(haloy_glob, int)
 
         # Shapes of local and global arrays (including halos and inactive strips)
         local_shape = (
-            scale * self.ny_sub + 2 * halo_sub + share,
-            scale * self.nx_sub + 2 * halo_sub + share,
+            scale * self.ny_sub + 2 * haloy_sub + share,
+            scale * self.nx_sub + 2 * halox_sub + share,
         )
         global_shape = (
-            scale * self.ny_glob + 2 * halo_glob + share,
-            scale * self.nx_glob + 2 * halo_glob + share,
+            scale * self.ny_glob + 2 * haloy_glob + share,
+            scale * self.nx_glob + 2 * halox_glob + share,
         )
 
         if irow is None:
@@ -350,10 +354,10 @@ class Tiling:
         ystop_glob = scale * ((irow + 1) * self.ny_sub + self.yoffset_global)
 
         # Adjust for halos and any overlap ("share")
-        xstart_glob += -halo_sub + halo_glob
-        xstop_glob += halo_sub + halo_glob + share
-        ystart_glob += -halo_sub + halo_glob
-        ystop_glob += halo_sub + halo_glob + share
+        xstart_glob += -halox_sub + halox_glob
+        xstop_glob += halox_sub + halox_glob + share
+        ystart_glob += -haloy_sub + haloy_glob
+        ystop_glob += haloy_sub + haloy_glob + share
 
         # Local start and stop
         xstart_loc = 0
@@ -362,15 +366,17 @@ class Tiling:
         ystop_loc = ystop_glob - ystart_glob
 
         # Calculate offsets based on limits of the global domain
-        extra_offset = halo_sub if exclude_halos else 0
-        margin_glob = halo_glob if exclude_global_halos else 0
-        xstart_offset = max(xstart_glob + extra_offset, margin_glob) - xstart_glob
+        extra_offsetx = halox_sub if exclude_halos else 0
+        extra_offsety = haloy_sub if exclude_halos else 0
+        marginx_glob = halox_glob if exclude_global_halos else 0
+        marginy_glob = haloy_glob if exclude_global_halos else 0
+        xstart_offset = max(xstart_glob + extra_offsetx, marginx_glob) - xstart_glob
         xstop_offset = (
-            min(xstop_glob - extra_offset, global_shape[1] - margin_glob) - xstop_glob
+            min(xstop_glob - extra_offsetx, global_shape[1] - marginx_glob) - xstop_glob
         )
-        ystart_offset = max(ystart_glob + extra_offset, margin_glob) - ystart_glob
+        ystart_offset = max(ystart_glob + extra_offsety, marginy_glob) - ystart_glob
         ystop_offset = (
-            min(ystop_glob - extra_offset, global_shape[0] - margin_glob) - ystop_glob
+            min(ystop_glob - extra_offsety, global_shape[0] - marginy_glob) - ystop_glob
         )
         assert xstart_offset >= 0 and xstop_offset <= 0
         assert ystart_offset >= 0 and ystop_offset <= 0
@@ -534,7 +540,8 @@ class DistributedArray:
         self,
         tiling: Tiling,
         field: np.ndarray,
-        halo: int,
+        halox: int,
+        haloy: int,
         overlap: int = 0,
         share_caches: bool = False,
     ):
@@ -549,7 +556,7 @@ class DistributedArray:
         ] = [([], [], [], []) for _ in range(max(Neighbor) + 1)]
         self.halo2name = {}
 
-        key = (field.shape, halo, overlap, field.dtype)
+        key = (field.shape, halox, haloy, overlap, field.dtype)
         caches = None if not share_caches else tiling._caches.get(key)
         owncaches = []
 
@@ -562,8 +569,8 @@ class DistributedArray:
                 f"Wrong type for neighbor {name}:"
                 f" {neighbor} (type {type(neighbor)})"
             )
-            assert inner.shape == outer.shape
-            if neighbor != -1:
+            assert inner.shape == outer.shape, f"{inner.shape!r} vs {outer.shape!r}"
+            if neighbor != -1 and inner.size > 0:
                 if caches:
                     inner_cache, outer_cache = caches[len(owncaches)]
                     assert inner.shape == inner_cache.shape
@@ -590,55 +597,58 @@ class DistributedArray:
                     recv_reqs.append(recv_req)
                     recv_data.append((outer, outer_cache))
 
-        in_start = halo + overlap
-        in_stop = in_start + halo
+        in_startx = halox + overlap
+        in_starty = haloy + overlap
+        in_stopx = in_startx + halox
+        in_stopy = in_starty + haloy
+        ny, nx = field.shape[-2:]
         add_task(
             Neighbor.BOTTOMLEFT,
             Neighbor.TOPRIGHT,
-            field[..., :halo, :halo],
-            field[..., in_start:in_stop, in_start:in_stop],
+            field[..., :haloy, :halox],
+            field[..., in_starty:in_stopy, in_startx:in_stopx],
         )
         add_task(
             Neighbor.BOTTOM,
             Neighbor.TOP,
-            field[..., :halo, halo:-halo],
-            field[..., in_start:in_stop, halo:-halo],
+            field[..., :haloy, halox : nx - halox],
+            field[..., in_starty:in_stopy, halox : nx - halox],
         )
         add_task(
             Neighbor.BOTTOMRIGHT,
             Neighbor.TOPLEFT,
-            field[..., :halo, -halo:],
-            field[..., in_start:in_stop, -in_stop:-in_start],
+            field[..., :haloy, nx - halox :],
+            field[..., in_starty:in_stopy, nx - in_stopx : nx - in_startx],
         )
         add_task(
             Neighbor.LEFT,
             Neighbor.RIGHT,
-            field[..., halo:-halo, :halo],
-            field[..., halo:-halo, in_start:in_stop],
+            field[..., haloy : ny - haloy, :halox],
+            field[..., haloy : ny - haloy, in_startx:in_stopx],
         )
         add_task(
             Neighbor.RIGHT,
             Neighbor.LEFT,
-            field[..., halo:-halo, -halo:],
-            field[..., halo:-halo, -in_stop:-in_start],
+            field[..., haloy : ny - haloy, nx - halox :],
+            field[..., haloy : ny - haloy, nx - in_stopx : nx - in_startx],
         )
         add_task(
             Neighbor.TOPLEFT,
             Neighbor.BOTTOMRIGHT,
-            field[..., -halo:, :halo],
-            field[..., -in_stop:-in_start, in_start:in_stop],
+            field[..., ny - haloy :, :halox],
+            field[..., ny - in_stopy : ny - in_starty, in_startx:in_stopx],
         )
         add_task(
             Neighbor.TOP,
             Neighbor.BOTTOM,
-            field[..., -halo:, halo:-halo],
-            field[..., -in_stop:-in_start, halo:-halo],
+            field[..., ny - haloy :, halox : nx - halox],
+            field[..., ny - in_stopy : ny - in_starty, halox : nx - halox],
         )
         add_task(
             Neighbor.TOPRIGHT,
             Neighbor.BOTTOMLEFT,
-            field[..., -halo:, -halo:],
-            field[..., -in_stop:-in_start, -in_stop:-in_start],
+            field[..., ny - haloy :, nx - halox :],
+            field[..., ny - in_stopy : ny - in_starty, nx - in_stopx : nx - in_startx],
         )
         if caches is None and share_caches:
             tiling._caches[key] = owncaches
@@ -747,7 +757,8 @@ class Scatter:
         self,
         tiling: Tiling,
         field: np.ndarray,
-        halo: int,
+        halox: int,
+        haloy: int,
         share: int = 0,
         fill_value=0.0,
         scale: int = 1,
@@ -756,9 +767,6 @@ class Scatter:
     ):
         self.field = field
         self.recvbuf = np.ascontiguousarray(field)
-        self.rankmap = tiling.map
-        self.halo = halo
-        self.share = share
         self.sendbuf = None
         if tiling.comm.rank == root:
             self.buffers = []
@@ -777,8 +785,10 @@ class Scatter:
                     ) = tiling.subdomain2slices(
                         irow,
                         icol,
-                        halo_sub=halo,
-                        halo_glob=halo,
+                        halox_sub=halox,
+                        haloy_sub=haloy,
+                        halox_glob=halox,
+                        haloy_glob=haloy,
                         share=share,
                         scale=scale,
                         exclude_halos=exclude_halos,

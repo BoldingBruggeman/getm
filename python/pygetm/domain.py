@@ -61,7 +61,8 @@ class Grid(_pygetm.Grid):
         + [f"_{n}i_" for n in _coordinate_arrays]
     )
     __slots__ = _all_arrays + (
-        "halo",
+        "halox",
+        "haloy",
         "type",
         "ioffset",
         "joffset",
@@ -168,7 +169,8 @@ class Grid(_pygetm.Grid):
         vgrid: Optional["Grid"] = None,
     ):
         _pygetm.Grid.__init__(self, domain, grid_type)
-        self.halo = domain.halo
+        self.halox = domain.halox
+        self.haloy = domain.haloy
         self.type = grid_type
         self.ioffset = ioffset
         self.joffset = joffset
@@ -277,7 +279,7 @@ class Grid(_pygetm.Grid):
             setattr(
                 self,
                 f"_{name}i",
-                values_i[self.halo : -self.halo, self.halo : -self.halo],
+                values_i[self.haloy : -self.haloy, self.halox : -self.halox],
             )
 
         return array
@@ -384,8 +386,10 @@ class Grid(_pygetm.Grid):
         ):
             return None
         local_slice, _, _, _ = self.domain.tiling.subdomain2slices(
-            halo_sub=self.halo,
-            halo_glob=self.halo,
+            halox_sub=self.halox,
+            haloy_sub=self.haloy,
+            halox_glob=self.halox,
+            haloy_glob=self.haloy,
             share=self.overlap,
             exclude_halos=not include_halos,
             exclude_global_halos=True,
@@ -1006,6 +1010,27 @@ def load(path: str, nz: int, **kwargs) -> "Domain":
     return create(nx, ny, nz, spherical=spherical, **kwargs)
 
 
+def _haloslice(shape: Tuple[int], halox: int, haloy: int, x: int, y: int):
+    ny, nx = shape[-2:]
+    xslice = {
+        -1: slice(0, halox),
+        0: slice(halox, nx - halox),
+        1: slice(nx - halox, nx),
+        None: slice(None),
+    }[x]
+    yslice = {
+        -1: slice(0, haloy),
+        0: slice(haloy, ny - haloy),
+        1: slice(ny - haloy, ny),
+        None: slice(None),
+    }[y]
+    return (Ellipsis, yslice, xslice)
+
+
+def _halo(array: np.ndarray, halox: int, haloy: int, x: int, y: int):
+    return array[_haloslice(array.shape, halox, haloy, x, y)]
+
+
 class Domain(_pygetm.Domain):
     @staticmethod
     def partition(
@@ -1014,7 +1039,8 @@ class Domain(_pygetm.Domain):
         ny: int,
         nz: int,
         global_domain: Optional["Domain"],
-        halo: int = 2,
+        halox: int = 2,
+        haloy: int = 2,
         has_xy: bool = True,
         has_lonlat: bool = True,
         logger: Optional[logging.Logger] = None,
@@ -1033,12 +1059,15 @@ class Domain(_pygetm.Domain):
 
         # supergrid metrics: double extent/halos, one point overlap between subdomains
         SCALE = 2
-        HALO = SCALE * halo
+        HALOX = SCALE * halox
+        HALOY = SCALE * haloy
         SHARE = 1
 
         local_slice, _, _, _ = tiling.subdomain2slices(
-            halo_sub=HALO,
-            halo_glob=HALO,
+            halox_sub=HALOX,
+            haloy_sub=HALOY,
+            halox_glob=HALOX,
+            haloy_glob=HALOY,
             scale=SCALE,
             share=SHARE,
             exclude_halos=False,
@@ -1055,12 +1084,18 @@ class Domain(_pygetm.Domain):
         for name, att in coordinates.items():
             c = np.empty(
                 (
-                    SCALE * tiling.ny_sub + 2 * HALO + SHARE,
-                    SCALE * tiling.nx_sub + 2 * HALO + SHARE,
+                    SCALE * tiling.ny_sub + 2 * HALOY + SHARE,
+                    SCALE * tiling.nx_sub + 2 * HALOX + SHARE,
                 )
             )
             scatterer = parallel.Scatter(
-                tiling, c, halo=HALO, share=SHARE, scale=SCALE, fill_value=np.nan
+                tiling,
+                c,
+                halox=HALOX,
+                haloy=HALOY,
+                share=SHARE,
+                scale=SCALE,
+                fill_value=np.nan,
             )
             scatterer(
                 None if global_domain is None else getattr(global_domain, att + "_")
@@ -1071,18 +1106,25 @@ class Domain(_pygetm.Domain):
             kwargs[name] = c
 
         domain = Domain(
-            tiling.nx_sub, tiling.ny_sub, nz, tiling=tiling, logger=logger, **kwargs
+            tiling.nx_sub,
+            tiling.ny_sub,
+            nz,
+            tiling=tiling,
+            logger=logger,
+            halox=halox,
+            haloy=haloy,
+            **kwargs,
         )
 
-        parallel.Scatter(tiling, domain.mask_, halo=HALO, share=SHARE, scale=SCALE)(
-            None if global_domain is None else global_domain.mask_
-        )
-        parallel.Scatter(tiling, domain.H_, halo=HALO, share=SHARE, scale=SCALE)(
-            None if global_domain is None else global_domain.H_
-        )
-        parallel.Scatter(tiling, domain.z0b_min_, halo=HALO, share=SHARE, scale=SCALE)(
-            None if global_domain is None else global_domain.z0b_min_
-        )
+        parallel.Scatter(
+            tiling, domain.mask_, halox=HALOX, haloy=HALOY, share=SHARE, scale=SCALE
+        )(None if global_domain is None else global_domain.mask_)
+        parallel.Scatter(
+            tiling, domain.H_, halox=HALOX, haloy=HALOY, share=SHARE, scale=SCALE
+        )(None if global_domain is None else global_domain.H_)
+        parallel.Scatter(
+            tiling, domain.z0b_min_, halox=HALOX, haloy=HALOY, share=SHARE, scale=SCALE
+        )(None if global_domain is None else global_domain.z0b_min_)
 
         return domain
 
@@ -1100,7 +1142,9 @@ class Domain(_pygetm.Domain):
             data.shape == expected_shape
         ), f"Wrong shape: got {data.shape}, expected {expected_shape}."
 
-        HALO = 4  # supergrid
+        SCALE = 2  # supergrid
+        HALOX = SCALE * self.halox
+        HALOY = SCALE * self.haloy
         fill_value = 0 if np.issubdtype(data.dtype, np.integer) else FILL_VALUE
         valid_before = data != fill_value
         assert np.isfinite(data).all(), str(data)
@@ -1108,21 +1152,39 @@ class Domain(_pygetm.Domain):
         # Expand the data array one each side
         shape_ext = (data.shape[0] + 2, data.shape[1] + 2)
         data_ext = np.full(shape_ext, fill_value, dtype=data.dtype)
-        data_ext[1 + HALO : -1 - HALO, 1 + HALO : -1 - HALO] = data[
-            HALO:-HALO, HALO:-HALO
-        ]
+        _halo(data_ext, HALOX + 1, HALOY + 1, 0, 0)[...] = _halo(
+            data, HALOX, HALOY, 0, 0
+        )
+
         if relative_in_x or relative_in_y:
             # Pre-fill the halo zones with existing values
             # This is needed in cases where some neighbors are missing
-            data_ext[: HALO + 1, : HALO + 1] = data[: HALO + 1, : HALO + 1]
-            data_ext[: HALO + 1, HALO + 1 : -HALO - 1] = data[: HALO + 1, HALO:-HALO]
-            data_ext[: HALO + 1, -HALO - 1 :] = data[: HALO + 1, -HALO - 1 :]
-            data_ext[HALO + 1 : -HALO - 1, : HALO + 1] = data[HALO:-HALO, : HALO + 1]
-            data_ext[HALO + 1 : -HALO - 1, -HALO - 1 :] = data[HALO:-HALO, -HALO - 1 :]
-            data_ext[-HALO - 1 :, : HALO + 1] = data[-HALO - 1 :, : HALO + 1]
-            data_ext[-HALO - 1 :, HALO + 1 : -HALO - 1] = data[-HALO - 1 :, HALO:-HALO]
-            data_ext[-HALO - 1 :, -HALO - 1 :] = data[-HALO - 1 :, -HALO - 1 :]
-        self.tiling.wrap(data_ext, HALO + 1).update_halos()
+            _halo(data_ext, HALOX + 1, HALOY + 1, -1, -1)[...] = _halo(
+                data, HALOX + 1, HALOY + 1, -1, -1
+            )
+            _halo(data_ext, HALOX + 1, HALOY + 1, 0, -1)[...] = _halo(
+                data, HALOX, HALOY + 1, 0, -1
+            )
+            _halo(data_ext, HALOX + 1, HALOY + 1, 1, -1)[...] = _halo(
+                data, HALOX + 1, HALOY + 1, 1, -1
+            )
+            _halo(data_ext, HALOX + 1, HALOY + 1, -1, 0)[...] = _halo(
+                data, HALOX + 1, HALOY, -1, 0
+            )
+            _halo(data_ext, HALOX + 1, HALOY + 1, 1, 0)[...] = _halo(
+                data, HALOX + 1, HALOY, 1, 0
+            )
+            _halo(data_ext, HALOX + 1, HALOY + 1, 1, 1)[...] = _halo(
+                data, HALOX + 1, HALOY + 1, -1, 1
+            )
+            _halo(data_ext, HALOX + 1, HALOY + 1, 0, 1)[...] = _halo(
+                data, HALOX, HALOY + 1, 0, 1
+            )
+            _halo(data_ext, HALOX + 1, HALOY + 1, 1, 1)[...] = _halo(
+                data, HALOX + 1, HALOY + 1, 1, 1
+            )
+
+        self.tiling.wrap(data_ext, halox=HALOX + 1, haloy=HALOY + 1).update_halos()
 
         # For values in the halo, compute their difference with the outer boundary of
         # the subdomain we exchanged with (now the innermost halo point). Then use that
@@ -1130,18 +1192,22 @@ class Domain(_pygetm.Domain):
         # This ensures coordinate variables are monotonically increasing in interior
         # AND halos, even if periodic boundary conditions are used.
         if relative_in_x:
-            data_ext[:, : HALO + 1] += (
-                data_ext[:, HALO + 1 : HALO + 2] - data_ext[:, HALO : HALO + 1]
+            nx = data_ext.shape[-1]
+            data_ext[:, : HALOX + 1] += (
+                data_ext[:, HALOX + 1 : HALOX + 2] - data_ext[:, HALOX : HALOX + 1]
             )
-            data_ext[:, -HALO - 1 :] += (
-                data_ext[:, -HALO - 2 : -HALO - 1] - data_ext[:, -HALO - 1 : -HALO]
+            data_ext[:, nx - HALOX - 1 :] += (
+                data_ext[:, nx - HALOX - 2 : nx - HALOX - 1]
+                - data_ext[:, nx - HALOX - 1 : nx - HALOX]
             )
         if relative_in_y:
-            data_ext[: HALO + 1, :] += (
-                data_ext[HALO + 1 : HALO + 2, :] - data_ext[HALO : HALO + 1, :]
+            ny = data_ext.shape[-2]
+            data_ext[: HALOY + 1, :] += (
+                data_ext[HALOY + 1 : HALOY + 2, :] - data_ext[HALOY : HALOY + 1, :]
             )
-            data_ext[-HALO - 1 :, :] += (
-                data_ext[-HALO - 2 : -HALO - 1, :] - data_ext[-HALO - 1 : -HALO, :]
+            data_ext[ny - HALOY - 1 :, :] += (
+                data_ext[ny - HALOY - 2 : ny - HALOY - 1, :]
+                - data_ext[ny - HALOY - 1 : ny - HALOY, :]
             )
 
         # Since subdomains share the outer boundary, that boundary will be replicated
@@ -1150,21 +1216,31 @@ class Domain(_pygetm.Domain):
         # inwards to eliminate that overlapping point
         # Where we do not have a subdomain neighbor, we keep the original values.
         if self.tiling.bottomleft != -1:
-            data[:HALO, :HALO] = data_ext[:HALO, :HALO]
+            _halo(data, HALOX, HALOY, -1, -1)[...] = _halo(
+                data_ext, HALOX, HALOY, -1, -1
+            )
         if self.tiling.bottom != -1:
-            data[:HALO, HALO:-HALO] = data_ext[:HALO, HALO + 1 : -HALO - 1]
+            _halo(data, HALOX, HALOY, 0, -1)[...] = _halo(
+                data_ext, HALOX + 1, HALOY, 0, -1
+            )
         if self.tiling.bottomright != -1:
-            data[:HALO, -HALO:] = data_ext[:HALO, -HALO:]
+            _halo(data, HALOX, HALOY, 1, -1)[...] = _halo(data_ext, HALOX, HALOY, 1, -1)
         if self.tiling.left != -1:
-            data[HALO:-HALO, :HALO] = data_ext[HALO + 1 : -HALO - 1, :HALO]
+            _halo(data, HALOX, HALOY, -1, 0)[...] = _halo(
+                data_ext, HALOX, HALOY + 1, -1, 0
+            )
         if self.tiling.right != -1:
-            data[HALO:-HALO, -HALO:] = data_ext[HALO + 1 : -HALO - 1, -HALO:]
+            _halo(data, HALOX, HALOY, 1, 0)[...] = _halo(
+                data_ext, HALOX, HALOY + 1, 1, 0
+            )
         if self.tiling.topleft != -1:
-            data[-HALO:, :HALO] = data_ext[-HALO:, :HALO]
+            _halo(data, HALOX, HALOY, -1, 1)[...] = _halo(data_ext, HALOX, HALOY, -1, 1)
         if self.tiling.top != -1:
-            data[-HALO:, HALO:-HALO] = data_ext[-HALO:, HALO + 1 : -HALO - 1]
+            _halo(data, HALOX, HALOY, 0, 1)[...] = _halo(
+                data_ext, HALOX + 1, HALOY, 0, 1
+            )
         if self.tiling.topright != -1:
-            data[-HALO:, -HALO:] = data_ext[-HALO:, -HALO:]
+            _halo(data, HALOX, HALOY, 1, 1)[...] = _halo(data_ext, HALOX, HALOY, 1, 1)
 
         # Values in halos where there is no matching neighbor should have been preserved
         # Therefore we cannot have gained invalid values anywhere - verify this.
@@ -1181,13 +1257,17 @@ class Domain(_pygetm.Domain):
             (self.ny + 2 * self.haloy) * 2 + 1,
             (self.nx + 2 * self.halox) * 2 + 1,
         )
-        assert target.shape[-2:] == supergrid_shape
+        assert (
+            target.shape[-2:] == supergrid_shape
+        ), f"{target.shape[-2:]!r} vs. {supergrid_shape!r}"
         nx_glob, ny_glob = self.tiling.nx_glob, self.tiling.ny_glob
         source_shape = np.shape(source)
 
         target_slice, source_slice, _, _ = self.tiling.subdomain2slices(
-            halo_sub=4,
-            halo_glob=0,
+            halox_sub=2 * self.halox,
+            haloy_sub=2 * self.haloy,
+            halox_glob=0,
+            haloy_glob=0,
             scale=2,
             share=1,
             exclude_halos=False,
@@ -1207,7 +1287,9 @@ class Domain(_pygetm.Domain):
         # - a very common case!
         if cast((self.ny * 2 + 1, self.nx * 2 + 1)):
             # local domain, supergrid EXcluding halos
-            target_slice = (Ellipsis, slice(4, -4), slice(4, -4))
+            target_slice = _haloslice(
+                supergrid_shape, 2 * self.halox, 2 * self.haloy, 0, 0
+            )
             source_slice = (Ellipsis,)
         elif cast(target.shape):
             # local domain, supergrid INcluding halos
@@ -1216,12 +1298,16 @@ class Domain(_pygetm.Domain):
         elif cast((self.ny, self.nx)):
             # local domain, T grid, no halos
             source = centers_to_supergrid_2d(source, 0, 0, self.nx, self.ny)
-            target_slice = (Ellipsis, slice(4, -4), slice(4, -4))
+            target_slice = _haloslice(
+                supergrid_shape, 2 * self.halox, 2 * self.haloy, 0, 0
+            )
             source_slice = (Ellipsis,)
         elif cast((self.ny + 1, self.nx + 1)):
             # local domain, X grid, no halos
             source = interfaces_to_supergrid_2d(source)
-            target_slice = (Ellipsis, slice(4, -4), slice(4, -4))
+            target_slice = _haloslice(
+                supergrid_shape, 2 * self.halox, 2 * self.haloy, 0, 0
+            )
             source_slice = (Ellipsis,)
         elif cast((ny_glob, nx_glob)):
             # global domain, T grid
@@ -1260,6 +1346,8 @@ class Domain(_pygetm.Domain):
         ddu: float = 0.0,
         Dgamma: float = 0.0,
         gamma_surf: bool = True,
+        halox: int = 2,
+        haloy: int = 2,
         **kwargs,
     ):
         """Create domain with coordinates, bathymetry, mask defined on the supergrid.
@@ -1332,14 +1420,20 @@ class Domain(_pygetm.Domain):
         self.kmin, self.kmax = 1, nz
 
         super().__init__(
-            self.imin, self.imax, self.jmin, self.jmax, self.kmin, self.kmax
+            self.imin,
+            self.imax,
+            self.jmin,
+            self.jmax,
+            self.kmin,
+            self.kmax,
+            halox,
+            haloy,
         )
 
-        halo = 2
-
         shape = (2 * ny + 1, 2 * nx + 1)
-        superhalo = 2 * halo
-        shape_ = (shape[0] + 2 * superhalo, shape[1] + 2 * superhalo)
+        SUPERHALOX = 2 * halox
+        SUPERHALOY = 2 * haloy
+        shape_ = (shape[0] + 2 * SUPERHALOY, shape[1] + 2 * SUPERHALOX)
 
         # Set up subdomain partition information to enable halo exchanges
         if tiling is None:
@@ -1360,7 +1454,7 @@ class Domain(_pygetm.Domain):
             if optional and source is None:
                 return None, None
             data = np.full(shape_, fill_value, dtype)
-            data_int = data[superhalo:-superhalo, superhalo:-superhalo]
+            data_int = _halo(data, SUPERHALOX, SUPERHALOY, 0, 0)
             if source is not None:
                 self._map_array(source, data)
                 self._exchange_metric(data, relative_in_x, relative_in_y)
@@ -1471,8 +1565,7 @@ class Domain(_pygetm.Domain):
         self.x_is_1d = self.x is not None and (self.x[:1, :] == self.x[:, :]).all()
         self.y_is_1d = self.y is not None and (self.y[:, :1] == self.y[:, :]).all()
 
-        self.halo = self.halox
-        self.shape = (nz, ny + 2 * self.halo, nx + 2 * self.halo)
+        self.shape = (nz, ny + 2 * self.haloy, nx + 2 * self.halox)
 
         # Advection grids (two letters: first for advected quantity, second for
         # advection direction)
@@ -1549,7 +1642,12 @@ class Domain(_pygetm.Domain):
         # The user could modify mask, bathymetry, bottom roughness freely until now.
         # Ensure they are marked invalid inside halos and outside the global domain.
         local_slice, _, _, _ = self.tiling.subdomain2slices(
-            halo_sub=4, scale=2, share=1, exclude_halos=True, exclude_global_halos=True
+            halox_sub=2 * self.halox,
+            haloy_sub=2 * self.haloy,
+            scale=2,
+            share=1,
+            exclude_halos=True,
+            exclude_global_halos=True,
         )
         outside = np.full(self.H_.shape, True)
         outside[local_slice] = False
@@ -1907,7 +2005,13 @@ class Domain(_pygetm.Domain):
         x_, y_ = (self.lon_, self.lat_) if spherical else (self.x_, self.y_)
 
         local_slice, _, _, _ = self.tiling.subdomain2slices(
-            halo_sub=0, halo_glob=4, scale=2, share=1, exclude_global_halos=True
+            halox_sub=0,
+            haloy_sub=0,
+            halox_glob=2 * self.halox,
+            haloy_glob=2 * self.haloy,
+            scale=2,
+            share=1,
+            exclude_global_halos=True,
         )
         if show_mask:
             c = ax.pcolormesh(
@@ -2110,8 +2214,10 @@ class Domain(_pygetm.Domain):
         if spherical is None:
             spherical = self.spherical
         local_slice, _, _, _ = self.tiling.subdomain2slices(
-            halo_sub=4,
-            halo_glob=4,
+            halox_sub=2 * self.halox,
+            haloy_sub=2 * self.haloy,
+            halox_glob=2 * self.halox,
+            haloy_glob=2 * self.haloy,
             scale=2,
             share=1,
             exclude_halos=not include_halos,

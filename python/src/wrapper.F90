@@ -46,8 +46,7 @@ contains
    end subroutine
 
    function domain_create(imin, imax, jmin, jmax, kmin, kmax, halox, haloy, haloz) result(pdomain) bind(c)
-      integer(c_int), intent(in), value :: imin, imax, jmin, jmax, kmin, kmax
-      integer(c_int), intent(out)       :: halox, haloy, haloz
+      integer(c_int), intent(in), value :: imin, imax, jmin, jmax, kmin, kmax, halox, haloy, haloz
       type(c_ptr)                       :: pdomain
 
       type (type_getm_domain), pointer :: domain
@@ -55,12 +54,9 @@ contains
 
       allocate(domain)
       domain%have_metrics = .true.
-      call domain%configure(imin=imin,imax=imax,jmin=jmin,jmax=jmax,kmin=kmin,kmax=kmax)
+      call domain%configure(imin=imin,imax=imax,jmin=jmin,jmax=jmax,kmin=kmin,kmax=kmax,halo=(/halox, haloy, haloz/))
       pdomain = c_loc(domain)
       domain%domain_type = 1
-      halox = imin - lbound(domain%T%c1, 1)
-      haloy = jmin - lbound(domain%T%c2, 1)
-      haloz = 0
    end function
 
    subroutine domain_finalize(pdomain) bind(c)
@@ -494,9 +490,9 @@ contains
       where (mask /= 0) z = max(-H + Dmin, z)
    end subroutine
 
-   subroutine c_vertical_advection_to_sources(nx, ny, nz, halo, mask, c, w, h, s) bind(c)
+   subroutine c_vertical_advection_to_sources(nx, ny, nz, halox, haloy, mask, c, w, h, s) bind(c)
       ! first-order upstream-biased advection, e.g., for integrating FABM sinking/floating into source term
-      integer(c_int), intent(in), value :: nx, ny, nz, halo
+      integer(c_int), intent(in), value :: nx, ny, nz, halox, haloy
       integer(c_int), intent(in)        :: mask(nx, ny, nz)
       real(c_double), intent(in)        :: c(nx, ny, nz), w(nx, ny, nz), h(nx, ny, nz)
       real(c_double), intent(inout)     :: s(nx, ny, nz)
@@ -508,16 +504,16 @@ contains
 
       active = .false.
       outer: do k=1,nz
-         do j=1+halo,ny-halo
-            active = any(w(1+halo:nx-halo,j,k) /= 0.0_c_double)  ! Note FABM guarantees w is 0 in masked points
+         do j=1+haloy,ny-haloy
+            active = any(w(1+halox:nx-halox,j,k) /= 0.0_c_double)  ! Note FABM guarantees w is 0 in masked points
             if (active) exit outer
          end do
       end do outer
       if (.not. active) return
 
       do k=1,nz-1
-         do j=1+halo,ny-halo
-            do i=1+halo,nx-halo
+         do j=1+haloy,ny-haloy
+            do i=1+halox,nx-halox
                if (mask(i,j,k) == 1 .and. mask(i,j,k+1) == 1) then
                   local_w = upward * 0.5_c_double * (w(i,j,k) + w(i,j,k+1))
                   if (local_w > 0.0_c_double) then

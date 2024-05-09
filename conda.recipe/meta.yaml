@@ -29,7 +29,7 @@ requirements:
     - xarray
     - mpi4py
     - netCDF4
-    - pyfabm>=2
+    - pyfabm>=2.0.1
 
 test:
   requires:

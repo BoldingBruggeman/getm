@@ -39,7 +39,6 @@ MODULE getm_domain
    PRIVATE  ! Private scope by default
 
 !  Module constants
-   integer, parameter :: halo(3)=(/2,2,0/)
    integer, parameter :: cartesian=1, spherical=2, curvilinear=3
       !! Fortran precision
    real(real64), parameter, public :: g = 9.81_real64
@@ -344,7 +343,7 @@ CONTAINS
 
 !-----------------------------------------------------------------------------
 
-SUBROUTINE domain_configure(self,imin,imax,jmin,jmax,kmin,kmax,logs,fm)
+SUBROUTINE domain_configure(self,imin,imax,jmin,jmax,kmin,kmax,halo,logs,fm)
 
    !! Configure the type_grid
 
@@ -352,7 +351,7 @@ SUBROUTINE domain_configure(self,imin,imax,jmin,jmax,kmin,kmax,logs,fm)
 
 !  Subroutine arguments
    class(type_getm_domain), intent(inout) :: self
-   integer, intent(in) :: imin,imax,jmin,jmax,kmin,kmax
+   integer, intent(in) :: imin,imax,jmin,jmax,kmin,kmax,halo(3)
    class(type_logging), intent(in), target, optional :: logs
    TYPE(type_field_manager), intent(inout), target, optional :: fm
 
