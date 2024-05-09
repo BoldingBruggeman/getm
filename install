@@ -4,7 +4,8 @@ set -e
 
 REPO_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-pip install -v ${REPO_DIR}/python ${REPO_DIR}/python/airsea
+pip install -v ${REPO_DIR}/python
+pip install -v ${REPO_DIR}/python/airsea
 
 WORK_DIR=`mktemp -d`
 
