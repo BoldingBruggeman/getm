@@ -119,6 +119,9 @@ class NetCDFFile(File):
                     "time_bnds", float, ("time", "nv")
                 )
                 self.nctime.bounds = "time_bnds"
+                for att in ("units", "calendar"):
+                    if hasattr(self.nctime, att):
+                        setattr(self.nctime_bnds, att, getattr(self.nctime, att))
                 self.previous_time_coord = self.time_offset + seconds_passed
 
         for field in self.fields.values():
