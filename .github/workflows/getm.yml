@@ -15,7 +15,9 @@ jobs:
           python-version: ["3.8", "3.9", "3.10", "3.11"]
       steps:
       - name: Install dependencies
-        run: sudo apt-get install gfortran-9 mpich
+        run: |
+          sudo apt-get update
+          sudo apt-get install mpich
       - name: Clone
         uses: actions/checkout@v4
         with:
