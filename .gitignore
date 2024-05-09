@@ -32,3 +32,4 @@ ford/
 /python/examples/*.log
 /python/examples/*.nc
 /python/build
+/python/pygetm.egg-info
