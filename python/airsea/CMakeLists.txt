@@ -32,14 +32,15 @@ target_compile_definitions(cairsea PRIVATE GUSTINESS)
 # Find target Python interpreter.
 find_package(Python3 COMPONENTS Interpreter Development NumPy)
 
-add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/_pyairsea.c
-  COMMAND cython _pyairsea.pyx
-  MAIN_DEPENDENCY _pyairsea.pyx
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+add_custom_command(OUTPUT _pyairsea.c
+  COMMENT "Creating ${CMAKE_CURRENT_BINARY_DIR}/_pyairsea.c from ${CMAKE_CURRENT_SOURCE_DIR}/_pyairsea.pyx"
+  COMMAND Python3::Interpreter -m cython "${CMAKE_CURRENT_SOURCE_DIR}/_pyairsea.pyx" -o "${CMAKE_CURRENT_BINARY_DIR}/_pyairsea.c"
+  DEPENDS _pyairsea.pyx
+  VERBATIM
 )
 
 Python3_add_library(_pyairsea MODULE
-  _pyairsea.c)
+  "${CMAKE_CURRENT_BINARY_DIR}/_pyairsea.c")
 target_link_libraries(_pyairsea PRIVATE cairsea Python3::NumPy)
 
 # Build wheel

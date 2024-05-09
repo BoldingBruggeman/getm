@@ -41,14 +41,15 @@ add_library(cgotm
   pygotm_wrapper.F90)
 target_link_libraries(cgotm turbulence util yaml)
 
-add_custom_command(OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/_pygotm.c
-  COMMAND cython _pygotm.pyx
-  MAIN_DEPENDENCY _pygotm.pyx
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+add_custom_command(OUTPUT _pygotm.c
+  COMMENT "Creating ${CMAKE_CURRENT_BINARY_DIR}/_pygotm.c from ${CMAKE_CURRENT_SOURCE_DIR}/_pygotm.pyx"
+  COMMAND Python3::Interpreter -m cython "${CMAKE_CURRENT_SOURCE_DIR}/_pygotm.pyx" -o "${CMAKE_CURRENT_BINARY_DIR}/_pygotm.c"
+  DEPENDS _pygotm.pyx
+  VERBATIM
 )
 
 Python3_add_library(_pygotm MODULE
-  _pygotm.c)
+  "${CMAKE_CURRENT_BINARY_DIR}/_pygotm.c")
 target_link_libraries(_pygotm PRIVATE cgotm Python3::NumPy)
 
 install(TARGETS _pygotm DESTINATION .)
