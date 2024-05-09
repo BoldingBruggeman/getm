@@ -155,12 +155,16 @@ mpiexec -n <NCPUS> python <RUNSCRIPT.py> [OPTIONS]
 
 How to contribute to the development:
 
-  1. Make a [fork](https://github.com/BoldingBruggeman/getm-rewrite/projects/4) - upper right - of the repository to you private GitHub account(\*) 
-  2. Make a [pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests)
+  1. [Make a fork](https://github.com/BoldingBruggeman/getm-rewrite/fork) of the
+     repository under your private GitHub account(\*)
+  2. Commit your changes to your forked repository
+  3. Make a [pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests)
 
-Note that all communication in relation to development of GETM is done via GitHub using [issues](https://github.com/BoldingBruggeman/tickets/issues).
+Note that all communication in relation to development of GETM is done via
+GitHub using [issues](https://github.com/BoldingBruggeman/tickets/issues).
 
 
-(\*) If you use a service other than GitHub for your daily work - please have a look [here](https://stackoverflow.com/questions/37672694/can-i-submit-a-pull-request-from-gitlab-com-to-github)
+(\*) If you use a service other than GitHub for your daily work - please have a
+look [here](https://stackoverflow.com/questions/37672694/can-i-submit-a-pull-request-from-gitlab-com-to-github)
 
 https://yarchive.net/comp/linux/collective_work_copyright.html
