@@ -33,6 +33,9 @@ jobs:
       - name: Compile
         run: |
           source ./install
+      - name: Verify source directory is clean
+        run: |
+          git status --porcelain
       - name: Run test suite
         run: |
           cd python/tests
