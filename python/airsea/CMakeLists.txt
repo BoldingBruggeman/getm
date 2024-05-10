@@ -9,10 +9,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Use solution folders in IDEs
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-if (MSVC)
-  add_compile_options(/libs:static)
-endif()
-
 add_library(cairsea
    src/airsea_fluxes.F90
    src/airsea_variables.F90
@@ -27,6 +23,10 @@ add_library(cairsea
    src/shortwave_radiation.F90
 )
 target_compile_definitions(cairsea PRIVATE GUSTINESS)
+
+if (MSVC)
+  target_compile_options(cairsea PRIVATE /libs:static)
+endif()
 
 # Find target Python interpreter.
 find_package(Python3 COMPONENTS Interpreter Development NumPy)
