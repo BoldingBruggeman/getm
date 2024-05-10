@@ -1,5 +1,5 @@
-# Ensure FindPython3 supports NumPy
-cmake_minimum_required(VERSION 3.14)
+# Ensure FindPython3 supports NumPy and CMP0094
+cmake_minimum_required(VERSION 3.15)
 
 # Create main project.
 project(pygetm VERSION 0.1.0 LANGUAGES Fortran C)
@@ -15,8 +15,6 @@ if (MSVC)
 endif()
 
 # Find target Python interpreter.
-set(Python_FIND_STRATEGY LOCATION)
-set(Python3_FIND_STRATEGY LOCATION)
 find_package(Python3 COMPONENTS Interpreter Development NumPy)
 
 set(CMAKE_Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
@@ -24,7 +22,7 @@ include_directories("${CMAKE_CURRENT_BINARY_DIR}/modules")
 
 set(FLEXOUT_USE_NetCDF OFF CACHE BOOL "Enable output in NetCDF format" FORCE)
 mark_as_advanced(FLEXOUT_USE_NetCDF)
-add_subdirectory(../extern/gotm/extern/flexout flexout EXCLUDE_FROM_ALL)
+add_subdirectory(../extern/flom/extern/flexout flexout EXCLUDE_FROM_ALL)
 
 set(GET_GIT_INFO_SCRIPT "../extern/fabm/src/cmake/Modules/GetGitInfo.cmake")
 add_custom_target(pygetm_version

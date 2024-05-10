@@ -78,9 +78,6 @@ setup(
         # "pygetm.pyfabm": ["*.so", "*.dll", "*.dylib", "*.pyd"],
     },
     ext_modules=[
-        CMakeExtension(
-            "pygetm._pygotm", os.path.join(os.path.dirname(__file__), "pygotm"), False
-        ),
         CMakeExtension("pygetm._pygetm", os.path.dirname(__file__), False),
         CMakeExtension(
             "pygetm.fabm",

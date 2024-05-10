@@ -1,6 +1,3 @@
-[submodule "extern/gotm"]
-	path = extern/gotm
-	url = ../../gotm-model/code.git
 [submodule "extern/python-otps2"]
 	path = extern/python-otps2
 	url = ../python-otps2.git
@@ -13,3 +10,6 @@
 [submodule "extern/awex"]
 	path = extern/awex
 	url = ../awex.git
+[submodule "extern/pygotm"]
+	path = extern/pygotm
+	url = ../pygotm.git

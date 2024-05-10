@@ -4,7 +4,7 @@ set -e
 
 REPO_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-pip install -v ${REPO_DIR}/extern/awex ${REPO_DIR}/python
+pip install -v ${REPO_DIR}/extern/awex ${REPO_DIR}/extern/pygotm ${REPO_DIR}/python
 
 WORK_DIR=`mktemp -d`
 
