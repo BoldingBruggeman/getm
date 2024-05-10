@@ -7,7 +7,7 @@ import numpy as np
 from . import core
 from . import domain
 from .open_boundaries import ArrayOpenBoundaries
-from . import _pygotm
+from pygotm import _pygotm
 from .constants import INTERFACES, FILL_VALUE, ZERO_GRADIENT
 
 
