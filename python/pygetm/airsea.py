@@ -1,11 +1,11 @@
 import numpy as np
 import cftime
 
-import pyairsea
+import awex
 import pygetm.domain
 from . import core
 from .constants import FILL_VALUE, RHO0, TimeVarying
-from pyairsea import HumidityMeasure, LongwaveMethod, AlbedoMethod
+from awex import HumidityMeasure, LongwaveMethod, AlbedoMethod
 
 CPA = 1008.0  #: specific heat capacity of air (J kg-1 K-1)
 
@@ -155,7 +155,7 @@ class FluxesFromMeteo(Fluxes):
         calculate_evaporation: bool = False,
     ):
         """Calculate air-water fluxes of heat and momentum, as well as surface air
-        pressure, using the :mod:`pyairsea` library. The heat flux is the sum of the
+        pressure, using the :mod:`awex` library. The heat flux is the sum of the
         sensible heat flux, the latent heat flux, and net downwelling longwave
         radiation.
 
@@ -395,7 +395,7 @@ class FluxesFromMeteo(Fluxes):
         Args:
             sst: temperature of the water surface (degrees Celsius)
         """
-        pyairsea.humidity(
+        awex.humidity(
             self.humidity_measure,
             self.hum.all_values,
             self.sp.all_values,
@@ -416,7 +416,7 @@ class FluxesFromMeteo(Fluxes):
         """
         sst_K = sst.all_values + 273.15
         t2m_K = self.t2m.all_values + 273.15
-        pyairsea.longwave_radiation(
+        awex.longwave_radiation(
             self.longwave_method,
             self.lat.all_values,
             sst_K,
@@ -437,17 +437,17 @@ class FluxesFromMeteo(Fluxes):
         """
         hh = time.hour + time.minute / 60.0 + time.second / 3600.0
         yday = time.dayofyr  # 1 for all of 1 January
-        pyairsea.solar_zenith_angle(
+        awex.solar_zenith_angle(
             yday, hh, self.lon.all_values, self.lat.all_values, self.zen.all_values
         )
-        pyairsea.shortwave_radiation(
+        awex.shortwave_radiation(
             yday,
             self.zen.all_values,
             self.lat.all_values,
             self.tcc.all_values,
             self.swr.all_values,
         )
-        pyairsea.albedo_water(
+        awex.albedo_water(
             self.albedo_method, self.zen.all_values, yday, self.albedo.all_values
         )
         self.swr.all_values *= 1.0 - self.albedo.all_values
@@ -464,7 +464,7 @@ class FluxesFromMeteo(Fluxes):
         sst_K = sst.all_values + 273.15
         t2m_K = self.t2m.all_values + 273.15
 
-        pyairsea.transfer_coefficients(
+        awex.transfer_coefficients(
             1,
             sst_K,
             t2m_K,

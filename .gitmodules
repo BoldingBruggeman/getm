@@ -10,3 +10,6 @@
 [submodule "extern/fabm"]
 	path = extern/fabm
 	url = ../../fabm-model/fabm-plus.git
+[submodule "extern/awex"]
+	path = extern/awex
+	url = ../awex.git
