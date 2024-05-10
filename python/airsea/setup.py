@@ -16,7 +16,7 @@ class CMakeExtension(Extension):
 
 class CMakeBuild(build_ext):
     user_options = build_ext.user_options + [
-        ("cmake_opts=", None, "additional options to pass to cmake"),
+        ("cmake-opts=", None, "additional options to pass to cmake"),
     ]
 
     def run(self):
