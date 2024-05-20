@@ -26,6 +26,8 @@ jobs:
       - name: Clone getm-setups
         run: |
           git clone https://git.code.sf.net/p/getm/getm-setups
+        env:
+          GIT_CLONE_PROTECTION_ACTIVE: false
       - uses: conda-incubator/setup-miniconda@v3
         with:
           auto-update-conda: true
