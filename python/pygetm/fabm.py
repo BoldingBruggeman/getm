@@ -76,15 +76,10 @@ class FABM:
         domain_start = (0, haloy, halox)
         domain_stop = (shape[0], shape[1] - haloy, shape[2] - halox)
         if self.squeeze:
-            keep = [n != 1 for n in grid.hn.shape]
-            print(
-                grid.domain.nx,
-                grid.domain.ny,
-                grid.domain.nz,
-                shape,
-                grid.hn.shape,
-                keep,
-            )
+            # Squeeze out singleton dimensions (lengh 1 AND no halos)
+            # If there are any such dimensions, the domain rank for FABM
+            # becomes 0D, 1D or 2D rather than 3D
+            keep = [n != 1 for n in grid.hn.all_values.shape]
             fabm_shape = tuple(n for (n, k) in zip(shape, keep) if k)
             domain_start = tuple(n for (n, k) in zip(domain_start, keep) if k)
             domain_stop = tuple(n for (n, k) in zip(domain_stop, keep) if k)
@@ -214,7 +209,11 @@ class FABM:
                     continue
                 if not variable.is_set:
                     field.saved = True
-                    variable.link(field.all_values)
+                    if field.z:
+                        shape = self.model.interior_domain_shape
+                    else:
+                        shape = self.model.horizontal_domain_shape
+                    variable.link(field.all_values.reshape(shape))
 
         try:
             self._yearday = self.model.dependencies.find(
@@ -333,9 +332,9 @@ class FABM:
         haloy = self.grid.domain.haloy
         mask = self.grid.domain.mask3d.all_values
         for itracer in range(self.model.interior_state.shape[0]):
-            w = self.vertical_velocity[itracer, ...]
-            c = self.model.interior_state[itracer, ...]
-            s = self.sources_interior[itracer, ...]
+            w = self.vertical_velocity[itracer, ...].reshape(mask.shape)
+            c = self.model.interior_state[itracer, ...].reshape(mask.shape)
+            s = self.sources_interior[itracer, ...].reshape(mask.shape)
             _pygetm.vertical_advection_to_sources(halox, haloy, mask, c, w, h, s)
 
     def update_totals(self):
