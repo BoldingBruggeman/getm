@@ -1378,7 +1378,7 @@ class Domain(_pygetm.Domain):
             vertical_coordinate_method: type of vertical coordinate to use
             ddl: dimensionless factor for zooming towards the bottom (0: no zooming,
                 > 2: strong zooming)
-            ddl: dimensionless factor for zooming towards the surface (0: no zooming,
+            ddu: dimensionless factor for zooming towards the surface (0: no zooming,
                 > 2: strong zooming)
             Dgamma: depth (m) range over which z-like coordinates should be used
             gamma_surf: use z-like coordinates in surface layer (as opposed to bottom
