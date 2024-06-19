@@ -10,6 +10,7 @@ dependencies:
   - python-build
   - pip
   - mpi4py
+  - mpich
   - numpy
   - xarray
   - netcdf4
