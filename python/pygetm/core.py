@@ -387,6 +387,20 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             interpolate(source_array, target_array)
         return target
 
+    def gradient_x(self, target: Optional["Array"] = None) -> "Array":
+        target_grid, calculator = self.grid.gradient_x_calculator
+        if target is None:
+            target = Array.create(target_grid, dtype=self._dtype, z=self.z)
+        calculator(self.all_values, target.all_values)
+        return target
+
+    def gradient_y(self, target: Optional["Array"] = None) -> "Array":
+        target_grid, calculator = self.grid.gradient_y_calculator
+        if target is None:
+            target = Array.create(target_grid, dtype=self._dtype, z=self.z)
+        calculator(self.all_values, target.all_values)
+        return target
+
     def __array__(self, dtype: Optional[DTypeLike] = None) -> np.ndarray:
         """Return interior of the array as a NumPy array.
         No copy will be made unless the requested data type differs from that

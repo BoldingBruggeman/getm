@@ -321,6 +321,32 @@ class Grid(_pygetm.Grid):
         self._interpolators[target] = ip
         return ip
 
+    @property
+    def gradient_x_calculator(self):
+        target_grid = self.ugrid
+        assert (self.ioffset + 1 - target_grid.ioffset) % 2 == 0
+        assert (self.joffset - target_grid.joffset) % 2 == 0
+        ioffset = (self.ioffset + 1 - target_grid.ioffset) // 2
+        joffset = (self.joffset - target_grid.joffset) // 2
+        assert ioffset in (0, 1)
+        assert joffset in (-1, 0, 1)
+        return target_grid, functools.partial(
+            _pygetm.gradient_x, self.idx.all_values, ioffset=ioffset, joffset=joffset
+        )
+
+    @property
+    def gradient_y_calculator(self):
+        target_grid = self.vgrid
+        assert (self.ioffset - target_grid.ioffset) % 2 == 0
+        assert (self.joffset + 1 - target_grid.joffset) % 2 == 0
+        ioffset = (self.ioffset - target_grid.ioffset) // 2
+        joffset = (self.joffset + 1 - target_grid.joffset) // 2
+        assert ioffset in (-1, 0, 1)
+        assert joffset in (0, 1)
+        return target_grid, functools.partial(
+            _pygetm.gradient_y, self.idy.all_values, ioffset=ioffset, joffset=joffset
+        )
+
     def rotate(
         self, u: ArrayLike, v: ArrayLike, to_grid: bool = True
     ) -> Tuple[ArrayLike, ArrayLike]:
