@@ -466,7 +466,7 @@ class Tiling:
                     ax.text(
                         0.5 * (x[j] + x[j + 1]),
                         0.5 * (y[i] + y[i + 1]),
-                        "%i" % self.map[i, j],
+                        str(self.map[i, j]),
                         horizontalalignment="center",
                         verticalalignment="center",
                     )

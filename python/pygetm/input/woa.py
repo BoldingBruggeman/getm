@@ -92,7 +92,7 @@ def convert(
         nctime.calendar = "standard"
         logger.info("  - monthly data:")
         for imonth in range(1, 13):
-            logger.info("    - %i" % imonth)
+            logger.info(f"    - {imonth}")
             dt = datetime.datetime(2000, imonth, 15, 12)
             with netCDF4.Dataset(template % imonth) as ncin:
                 nctime[imonth - 1] = (dt - time_ref).days

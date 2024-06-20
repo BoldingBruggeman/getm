@@ -80,11 +80,11 @@ if args.output:
     sim.logger.info("Setting up output")
     basename = os.path.splitext(os.path.basename(__file__))[0]
     output = sim.output_manager.add_netcdf_file(
-        "%s_2d.nc" % basename, interval=datetime.timedelta(hours=1)
+        f"{basename}_2d.nc", interval=datetime.timedelta(hours=1)
     )
     output.request("zt", "Dt", "u1", "v1", "tausxu", "tausyv")
     output = sim.output_manager.add_netcdf_file(
-        "%s_3d.nc" % basename, interval=datetime.timedelta(hours=1)
+        f"{basename}_3d.nc", interval=datetime.timedelta(hours=1)
     )
     output.request("uk", "vk", "ww", "SS", "num")
     output.request("temp", "salt", "rho", "NN", "sst", "hnt", "nuh", "idpdx", "idpdy")
