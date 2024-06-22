@@ -127,8 +127,8 @@ class Momentum(pygetm._pygetm.Momentum):
             long_name="depth-integrated transport in y-direction",
             attrs=dict(_part_of_state=True, _mask_output=True),
         ),
-        "Ui": dict(units="m2 s-1", attrs=dict(_part_of_state=True, _mask_output=True),),
-        "Vi": dict(units="m2 s-1", attrs=dict(_part_of_state=True, _mask_output=True),),
+        "Ui": dict(units="m2 s-1", attrs=dict(_part_of_state=True, _mask_output=True)),
+        "Vi": dict(units="m2 s-1", attrs=dict(_part_of_state=True, _mask_output=True)),
         "u1": dict(
             units="m s-1",
             long_name="depth-averaged velocity in x-direction",
@@ -205,16 +205,16 @@ class Momentum(pygetm._pygetm.Momentum):
             long_name="slow bottom friction in y-direction",
             attrs=dict(_mask_output=True),
         ),
-        "fU": dict(attrs=dict(_mask_output=True),),
-        "fV": dict(attrs=dict(_mask_output=True),),
-        "fpk": dict(attrs=dict(_mask_output=True),),
-        "fqk": dict(attrs=dict(_mask_output=True),),
-        "advU": dict(attrs=dict(_mask_output=True),),
-        "advV": dict(attrs=dict(_mask_output=True),),
-        "advpk": dict(attrs=dict(_mask_output=True),),
-        "advqk": dict(attrs=dict(_mask_output=True),),
-        "rru": dict(attrs=dict(_mask_output=True),),
-        "rrv": dict(attrs=dict(_mask_output=True),),
+        "fU": dict(attrs=dict(_mask_output=True)),
+        "fV": dict(attrs=dict(_mask_output=True)),
+        "fpk": dict(attrs=dict(_mask_output=True)),
+        "fqk": dict(attrs=dict(_mask_output=True)),
+        "advU": dict(attrs=dict(_mask_output=True)),
+        "advV": dict(attrs=dict(_mask_output=True)),
+        "advpk": dict(attrs=dict(_mask_output=True)),
+        "advqk": dict(attrs=dict(_mask_output=True)),
+        "rru": dict(attrs=dict(_mask_output=True)),
+        "rrv": dict(attrs=dict(_mask_output=True)),
     }
 
     def __init__(
@@ -268,7 +268,7 @@ class Momentum(pygetm._pygetm.Momentum):
             setattr(
                 self,
                 f"_{name}",
-                self.wrap(core.Array(name=name, **kwargs), name.encode("ascii"),),
+                self.wrap(core.Array(name=name, **kwargs), name.encode("ascii")),
             )
 
         self.logger = logger
@@ -716,7 +716,7 @@ class Momentum(pygetm._pygetm.Momentum):
         pygetm._pygetm.w_momentum_3d(self.pk, self.qk, timestep, self.ww)
 
         # Compute 3D velocities (m s-1) from 3D transports (m2 s-1) by dividing by
-        # layer heights Both velocities and U/V thicknesses are now at time 1/2
+        # layer heights. Both velocities and U/V thicknesses are now at time 1/2.
         np.divide(
             self.pk.all_values, self.pk.grid.hn.all_values, out=self.uk.all_values
         )
@@ -728,9 +728,9 @@ class Momentum(pygetm._pygetm.Momentum):
         # (interior only, not in halos)
         self.shear_frequency(self.uk, self.vk, viscosity, self.SS)
 
-        # Calculate bottom friction from updated velocities (and syncronized layer
+        # Calculate bottom friction from updated velocities (and synchronized layer
         # thicknesses hn). This needs to be done before derived quantities such as
-        # bottom stress are calculated
+        # bottom stress are calculated.
         if self.apply_bottom_friction:
             self.bottom_friction(
                 self.u_bot, self.v_bot, self.hU_bot, self.hV_bot, self.rru, self.rrv
@@ -747,7 +747,7 @@ class Momentum(pygetm._pygetm.Momentum):
         )
         if self.taub.saved:
             # compute total bottom stress in Pa for e.g. FABM
-            self.taub.all_values[...] = self.ustar_b.all_values ** 2 * RHO0
+            self.taub.all_values[...] = self.ustar_b.all_values**2 * RHO0
 
         # Advect 3D u and v velocity from time=1/2 to 1 1/2 using velocities
         # interpolated to its own advection grids. Store the resulting trend, which
@@ -756,30 +756,39 @@ class Momentum(pygetm._pygetm.Momentum):
         # depth-integrated momentum equations.
         # JB the alternative would be to interpolate transports and then divide by
         # (colocated) layer heights, like we do for 2D
+
+        # Advection of 3D u velocity (uk)
         self.advpk.all_values[...] = self.uk.all_values
         self.uadv.apply_3d(
             self.uk.interp(self.uua3d),
             self.vk.interp(self.uva3d),
             self.ww.interp(self.uk.grid),
             timestep,
-            self.advpk,
+            self.advpk,  # the "tracer" (velocity u) being advected; updated in-place
             new_h=True,
             skip_initial_halo_exchange=True,
         )
+        # Reconstruct the change in transport pk from updated velocity (in advpk),
+        # updated layer thickness (uadv.h), and old transport pk.
+        # The result (m2 s-2) goes into advpk.
         pygetm._pygetm.reconstruct_transport_change(
             self.advpk, self.uadv.h, self.pk, timestep
         )
 
+        # Advection of 3D v velocity (vk)
         self.advqk.all_values[...] = self.vk.all_values
         self.vadv.apply_3d(
             self.uk.interp(self.vua3d),
             self.vk.interp(self.vva3d),
             self.ww.interp(self.vk.grid),
             timestep,
-            self.advqk,
+            self.advqk,  # the "tracer" (velocity v) being advected; updated in-place
             new_h=True,
             skip_initial_halo_exchange=True,
         )
+        # Reconstruct the change in transport qk from updated velocity (in advqk),
+        # updated layer thickness (vadv.h), and old transport qk.
+        # The result (m2 s-2) goes into advqk.
         pygetm._pygetm.reconstruct_transport_change(
             self.advqk, self.vadv.h, self.qk, timestep
         )
@@ -897,9 +906,7 @@ class Momentum(pygetm._pygetm.Momentum):
         self.uua.all_values /= self.domain.UU.D.all_values
         self.uva.all_values /= self.domain.UV.D.all_values
         advU.all_values[...] = self.u1.all_values
-        self.uadv(
-            self.uua, self.uva, timestep, advU, skip_initial_halo_exchange=True,
-        )
+        self.uadv(self.uua, self.uva, timestep, advU, skip_initial_halo_exchange=True)
         pygetm._pygetm.reconstruct_transport_change(advU, self.uadv.D, U, timestep)
 
         # Advection of v velocity (v1)
@@ -908,9 +915,7 @@ class Momentum(pygetm._pygetm.Momentum):
         self.vua.all_values /= self.domain.VU.D.all_values
         self.vva.all_values /= self.domain.VV.D.all_values
         advV.all_values[...] = self.v1.all_values
-        self.vadv(
-            self.vua, self.vva, timestep, advV, skip_initial_halo_exchange=True,
-        )
+        self.vadv(self.vua, self.vva, timestep, advV, skip_initial_halo_exchange=True)
         pygetm._pygetm.reconstruct_transport_change(advV, self.vadv.D, V, timestep)
 
     def bottom_friction(

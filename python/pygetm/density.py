@@ -205,9 +205,7 @@ class Density:
         """
         gridsrc = salt if isinstance(salt, xr.DataArray) else temp
 
-        def _broadcast_coordinate(
-            c: xr.DataArray,
-        ) -> Union[xr.DataArray, np.ndarray]:
+        def _broadcast_coordinate(c: xr.DataArray) -> Union[xr.DataArray, np.ndarray]:
             if c.ndim == gridsrc.ndim:
                 return c
             s = [np.newaxis] * gridsrc.ndim
@@ -222,13 +220,13 @@ class Density:
             lat = _broadcast_coordinate(gridsrc.getm.latitude)
         if p is None:
             p = _broadcast_coordinate(gridsrc.getm.z)
-        lon = np.asarray(lon)
-        lat = np.asarray(lat)
-        p = np.asarray(p)
+        lon = np.asarray(lon, dtype=float)
+        lat = np.asarray(lat, dtype=float)
+        p = np.asarray(p, dtype=float)
         salt = salt if not isinstance(salt, xr.DataArray) else salt.variable
         temp = temp if not isinstance(temp, xr.DataArray) else temp.variable
-        csalt = LazyConvert(salt, temp, lon, lat, p, in_situ, True)
-        ctemp = LazyConvert(salt, temp, lon, lat, p, in_situ, False)
+        csalt = LazyConvert(salt, temp, lon, lat, p, in_situ=in_situ, return_salt=True)
+        ctemp = LazyConvert(salt, temp, lon, lat, p, in_situ=in_situ, return_salt=False)
         return (
             xr.DataArray(csalt, coords=gridsrc.coords, dims=gridsrc.dims),
             xr.DataArray(ctemp, coords=gridsrc.coords, dims=gridsrc.dims),
@@ -246,11 +244,11 @@ class LazyConvert(Operator):
         in_situ: bool = False,
         return_salt: bool = True,
     ):
-        if np.all(p < 0):
-            p = -p
         lon = np.asarray(lon, dtype=float)
         lat = np.asarray(lat, dtype=float)
         p = np.asarray(p, dtype=float)
+        if np.all(p <= 0.0):
+            p = -p
         super().__init__(salt, temp, lon, lat, p, passthrough=True)
         self.in_situ = in_situ
         self.return_salt = return_salt

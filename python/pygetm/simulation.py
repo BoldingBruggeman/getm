@@ -564,7 +564,7 @@ class Simulation:
                 current time, used as indicator of simulation progress
             report_totals: time interval or number of microtimesteps between reporting
                 of integrals over the global domain
-            profile: base name for the file to write profiling results to. The proces
+            profile: base name for the file to write profiling results to. The process
                 rank and extension ``.prof`` will be appended, so that the final name
                 becomes ``<profile>-<rank>.prof``. If the argument is not provided,
                 profiling is disabled.
@@ -627,9 +627,7 @@ class Simulation:
             # explicitly set them (here: T.zio/T.ho) to NaN to make it easier to detect
             # algorithms depending on them.
             # As a result of that, all new metrics on the U, V, X grids will be NaN too!
-            self.domain.T.z.all_values[
-                ...
-            ] = (
+            self.domain.T.z.all_values[...] = (
                 self.domain.T.zio.all_values
             )  # to become T.zin when update_depth is called
             self.domain.T.zio.fill(np.nan)
