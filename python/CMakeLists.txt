@@ -59,7 +59,7 @@ add_custom_command(OUTPUT _pygetm.c
   COMMENT "Creating ${CMAKE_CURRENT_BINARY_DIR}/_pygetm.c from ${CMAKE_CURRENT_SOURCE_DIR}/_pygetm.pyx"
   COMMAND Python3::Interpreter -m cython -I "${CMAKE_CURRENT_BINARY_DIR}" _pygetm.pyx -o "${CMAKE_CURRENT_BINARY_DIR}/_pygetm.c"
   MAIN_DEPENDENCY _pygetm.pyx
-  DEPENDS pygetm_version "${CMAKE_CURRENT_BINARY_DIR}/version.pxi"
+  DEPENDS pygetm_version
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   VERBATIM
 )
