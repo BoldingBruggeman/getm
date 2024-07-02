@@ -7,7 +7,7 @@ import sys
 import numpy as np
 import netCDF4
 
-import pygsw
+from pygetm import pygsw
 from ..woa import copyNcVariable
 
 
