@@ -10,11 +10,11 @@ WORK_DIR=`mktemp -d`
 
 cmake -S "${REPO_DIR}/extern/pygsw" -B "${WORK_DIR}" -DCMAKE_BUILD_TYPE=Release
 cmake --build "${WORK_DIR}" --target pygsw_wheel --config Release --parallel 4
-PYGETM_DIR=`python -c "import pygetm,os;print(os.path.dirname(pygetm.__file__))"`
-cp -rv "${WORK_DIR}/dist/pygsw" "${PYGETM_DIR}/pygsw"
+PYFABM_DIR=`python -c "import pyfabm,os;print(os.path.dirname(pyfabm.__file__))"`
+cp -rv "${WORK_DIR}/dist/pygsw" "${PYFABM_DIR}../pygetm/pygsw"
 
 rm -rf ${WORK_DIR}/*
-cmake -S ${REPO_DIR}/extern/python-otps2 -B ${WORK_DIR} -DCMAKE_BUILD_TYPE=Release
-cmake --build ${WORK_DIR} --target install --config Release --parallel 4
+cmake -S "${REPO_DIR}/extern/python-otps2" -B "${WORK_DIR}" -DCMAKE_BUILD_TYPE=Release
+cmake --build "${WORK_DIR}" --target install --config Release --parallel 4
 
-rm -rf ${WORK_DIR}
+rm -rf "${WORK_DIR}"
