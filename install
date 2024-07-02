@@ -15,6 +15,7 @@ cp -rv "${WORK_DIR}/pygsw" "${PYFABM_DIR}/../pygetm/pygsw"
 
 rm -rf ${WORK_DIR}/*
 cmake -S "${REPO_DIR}/extern/python-otps2" -B "${WORK_DIR}" -DCMAKE_BUILD_TYPE=Release
-cmake --build "${WORK_DIR}" --target install --config Release --parallel 4
+cmake --build "${WORK_DIR}" --target otps2_wheel --config Release --parallel 4
+cp -rv "${WORK_DIR}/otps2" "${PYFABM_DIR}/../pygetm/otps2"
 
 rm -rf "${WORK_DIR}"

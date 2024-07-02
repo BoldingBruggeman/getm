@@ -4,7 +4,7 @@ from typing import Tuple, Mapping
 import numpy
 import cftime
 import xarray as xr
-import otps2
+from pygetm import otps2
 from numpy.typing import ArrayLike
 
 import pygetm.input
