@@ -1,3 +1,4 @@
+# Copy setup.cfg.template to setup.cfg and edit the latter file.
 # In the [build_ext] section below, you can set the following options
 # to control the build process:
 # - cmake_opts=<CMAKE_OPTIONS> to set additional options to pass to cmake.
@@ -9,4 +10,11 @@
 #   It defaults to "build/temp.<PLATFORM>" in the local directory
 # - force=1 to start every time from a clean build directory
 #   (anything in that directory will be removed prior to building)
+# - '-G Ninja' to use the Ninja single build system
+# - '-G Ninja Multi-Config' to use the Ninja multi build system
+#   in both these cases Ninja - https://ninja-build.org/ - must be installed
+#   and the Fortran compiler must be in the PATH. It is NOT necessary to
+#   have VisualStudio installed.
+#   On Windows by executing: C:\Program Files (x86)\Intel\oneAPI\setvars.bat
+#   On Linux/Mac the Fortran compiler is typically already available
 [build_ext]
