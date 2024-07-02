@@ -8,7 +8,7 @@ pip install -v -r requirements.txt
 
 WORK_DIR=`mktemp -d`
 
-cmake -S "${SRC_DIR}/extern/pygsw" -B "${WORK_DIR}" -DCMAKE_BUILD_TYPE=Release
+cmake -S "${REPO_DIR}/extern/pygsw" -B "${WORK_DIR}" -DCMAKE_BUILD_TYPE=Release
 cmake --build "${WORK_DIR}" --target pygsw_wheel --config Release --parallel 4
 PYGETM_DIR=`python -c "import pygetm,os;print(os.path.dirname(pygetm.__file__))"`
 cp -rv "${WORK_DIR}/dist/pygsw" "${PYGETM_DIR}/pygsw"
