@@ -8,7 +8,7 @@ from . import core
 from . import _pygetm
 from .constants import INTERFACES
 from .input import Operator, LazyArray
-import pygsw
+from pygetm import pygsw
 
 # Below we package up all equation-of-state/TEOS10 methods in a class.
 # This allows users to substitute other methods (e..g, alternative equation of state
