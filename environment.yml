@@ -22,7 +22,7 @@ dependencies:
   - xarray
   - netcdf4
   - scipy
-  - pyfabm>=2
+  - pyfabm>=2.1
   - matplotlib
   - cmocean
   - cartopy
