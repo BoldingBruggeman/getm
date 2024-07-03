@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 61.0.0", "wheel", "numpy", "cython"]
+requires = ["setuptools >= 61.0.0", "wheel", "numpy >= 2.0", "cython"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,7 +11,7 @@ authors = [
 ]
 description = "Python implementation of the General Estuarine Transport Model (GETM)"
 dependencies = [
-  "numpy",
+  "numpy >= 1.23.5",
   "xarray",
   "mpi4py",
   "netCDF4"
