@@ -3,6 +3,7 @@ import logging
 import functools
 import pickle
 import enum
+import weakref
 
 import mpi4py
 
@@ -120,7 +121,10 @@ class Tiling:
         periodic_y: bool = False,
         ncpus: Optional[int] = None,
     ):
-        self.comm = comm or MPI.COMM_WORLD.Dup()
+        if comm is None:
+            comm = MPI.COMM_WORLD.Dup()
+            weakref.finalize(self, comm.Free)
+        self.comm = comm
         self.rank: int = self.comm.rank
         self.n = ncpus if ncpus is not None else self.comm.size
 
