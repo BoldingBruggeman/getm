@@ -834,9 +834,8 @@ def find_optimal_divison(
     logger: Optional[logging.Logger] = None,
     comm: Optional[MPI.Comm] = None,
 ) -> Optional[Mapping[str, Any]]:
-    comm = comm or MPI.COMM_WORLD.Dup()
     if ncpus is None:
-        ncpus = comm.size
+        ncpus = MPI.COMM_WORLD.size
 
     # If we only have 1 CPU, just use the full domain
     if ncpus == 1:
@@ -849,6 +848,10 @@ def find_optimal_divison(
             "cost": 0,
             "map": np.ones((1, 1), dtype=np.intc),
         }
+
+    own_comm = comm is None
+    if own_comm:
+        comm = MPI.COMM_WORLD.Dup()
 
     # Determine mask extent excluding any outer fully masked strips
     mask = np.asarray(mask)
@@ -909,6 +912,8 @@ def find_optimal_divison(
     solution = min(filter(None, solutions), key=lambda x: x["cost"], default=None)
     if logger and solution:
         logger.info(f"Optimal subdomain decomposition: {solution}")
+    if own_comm:
+        comm.Free()
     return solution
 
 
