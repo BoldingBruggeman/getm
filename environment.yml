@@ -23,6 +23,8 @@ dependencies:
   - netcdf4
   - scipy
   - pyfabm>=2.1
+  - awex
+  - pygotm
   - matplotlib
   - cmocean
   - cartopy

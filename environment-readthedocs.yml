@@ -16,4 +16,6 @@ dependencies:
   - netcdf4
   - scipy
   - pyfabm>=2.1
+  - awex
+  - pygotm
   - sphinx_rtd_theme
