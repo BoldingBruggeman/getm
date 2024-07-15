@@ -22,7 +22,7 @@ include_directories("${CMAKE_CURRENT_BINARY_DIR}/modules")
 
 set(FLEXOUT_USE_NetCDF OFF CACHE BOOL "Enable output in NetCDF format" FORCE)
 mark_as_advanced(FLEXOUT_USE_NetCDF)
-add_subdirectory(../extern/pygotm/extern/gotm/extern/flexout flexout EXCLUDE_FROM_ALL)
+add_subdirectory(../extern/flexout flexout EXCLUDE_FROM_ALL)
 
 set(GET_GIT_INFO_SCRIPT "../extern/fabm/src/cmake/Modules/GetGitInfo.cmake")
 add_custom_target(pygetm_version
