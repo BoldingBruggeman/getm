@@ -220,7 +220,7 @@ class LazyArray(numpy.lib.mixins.NDArrayOperatorsMixin):
 
         return UFunc(ufunc, method, *args, **kwargs)
 
-    def __array__(self, dtype=None) -> np.ndarray:
+    def __array__(self, dtype=None, copy=None) -> np.ndarray:
         raise NotImplementedError
 
     def __getitem__(self, slices) -> np.ndarray:
@@ -371,7 +371,7 @@ class Operator(LazyArray):
     def apply(self, *args: np.ndarray, dtype=None, **kwargs) -> np.ndarray:
         raise NotImplementedError
 
-    def __array__(self, dtype=None) -> np.ndarray:
+    def __array__(self, dtype=None, copy=None) -> np.ndarray:
         args = map(np.asarray, self.args)
         kwargs = self.kwargs
         if self._sliced_kwargs:
@@ -415,7 +415,7 @@ class Slice(UnaryOperator):
         self._slices = []
         self.passthrough_own_slices = True
 
-    def __array__(self, dtype=None) -> np.ndarray:
+    def __array__(self, dtype=None, copy=None) -> np.ndarray:
         data = np.empty(self.shape, dtype or self.dtype)
         for src_slice, tgt_slice in self._slices:
             if self.passthrough_own_slices:
@@ -477,7 +477,7 @@ class Concatenate(Operator):
         self.axis = axis
         super().__init__(*arrays, shape=shape, **kwargs)
 
-    def __array__(self, dtype=None) -> np.ndarray:
+    def __array__(self, dtype=None, copy=None) -> np.ndarray:
         arrays = [np.asarray(array, dtype=dtype) for array in self.args]
         return np.concatenate(arrays, axis=self.axis)
 
@@ -718,7 +718,7 @@ class Transpose(UnaryOperator):
         for inew, iold in enumerate(self.axes):
             self.oldaxes[iold] = inew
 
-    def __array__(self, dtype=None) -> np.ndarray:
+    def __array__(self, dtype=None, copy=None) -> np.ndarray:
         return np.asarray(self._source).transpose(self.axes)
 
     def __getitem__(self, slices) -> np.ndarray:
@@ -913,7 +913,7 @@ class HorizontalInterpolation(UnaryOperator):
         self.npre = npre
         self.npost = npost
 
-    def __array__(self, dtype=None) -> np.ndarray:
+    def __array__(self, dtype=None, copy=None) -> np.ndarray:
         return self._ip(np.asarray(self._source))
 
     def __getitem__(self, slices) -> np.ndarray:
@@ -1146,7 +1146,7 @@ class TemporalInterpolation(UnaryOperator):
                         f" cache size of {self.MAX_CACHE_SIZE} MB"
                     )
 
-    def __array__(self, dtype=None) -> np.ndarray:
+    def __array__(self, dtype=None, copy=None) -> np.ndarray:
         return self._current
 
     def __getitem__(self, slices) -> np.ndarray:

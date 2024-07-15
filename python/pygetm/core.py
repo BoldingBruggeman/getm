@@ -401,7 +401,7 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
         calculator(self.all_values, target.all_values)
         return target
 
-    def __array__(self, dtype: Optional[DTypeLike] = None) -> np.ndarray:
+    def __array__(self, dtype: Optional[DTypeLike] = None, copy=None) -> np.ndarray:
         """Return interior of the array as a NumPy array.
         No copy will be made unless the requested data type differs from that
         of the underlying array.
