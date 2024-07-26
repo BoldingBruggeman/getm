@@ -979,7 +979,7 @@ def vertical_interpolation(
         isourcedim += 1
     coords = {}
     for n, c in source.coords.items():
-        if n == source.dims[izdim]:
+        if n == source_z.name:
             coords[n + "_"] = (
                 [source.dims[target2sourcedim[i]] for i in range(target_z.ndim)],
                 target_z,
