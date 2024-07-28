@@ -4,43 +4,10 @@ import datetime
 import logging
 
 import netCDF4
-import scipy.spatial
 import numpy as np
 
-
-def copyNcVariable(
-    ncvar,
-    nctarget,
-    dimensions=None,
-    copy_data=True,
-    chunksizes=None,
-    name=None,
-    zlib=False,
-):
-    if name is None:
-        name = ncvar.name
-    if dimensions is None:
-        dimensions = ncvar.dimensions
-    for dim in dimensions:
-        if dim not in nctarget.dimensions:
-            length = ncvar.shape[ncvar.dimensions.index(dim)]
-            nctarget.createDimension(dim, length)
-    fill_value = None if not hasattr(ncvar, "_FillValue") else ncvar._FillValue
-    ncvarnew = nctarget.createVariable(
-        name,
-        ncvar.dtype,
-        dimensions,
-        fill_value=fill_value,
-        chunksizes=chunksizes,
-        zlib=zlib,
-    )
-    ncvarnew.setncatts(
-        {att: getattr(ncvar, att) for att in ncvar.ncattrs() if att != "_FillValue"}
-    )
-    ncvarnew.set_auto_maskandscale(False)
-    if copy_data:
-        ncvarnew[...] = ncvar[...]
-    return ncvarnew
+from pygetm.util.nctools import copy_variable
+from pygetm.util.fill import Filler
 
 
 def convert(
@@ -80,9 +47,9 @@ def convert(
         logger.info("  - mean climatology")
         with netCDF4.Dataset(template % 0) as ncin:
             ncin.set_auto_maskandscale(False)
-            copyNcVariable(ncin["depth"], ncout)
-            copyNcVariable(ncin["lon"], ncout)
-            copyNcVariable(ncin["lat"], ncout)
+            copy_variable(ncin["depth"], ncout)
+            copy_variable(ncin["lon"], ncout)
+            copy_variable(ncin["lat"], ncout)
             ncvar = ncin[varname]
             andata = ncvar[...]
             dim = ncvar.dimensions[1]
@@ -99,7 +66,7 @@ def convert(
                 ncin.set_auto_maskandscale(False)
                 ncvar = ncin[varname]
                 if imonth == 1:
-                    ncvar_mo = copyNcVariable(
+                    ncvar_mo = copy_variable(
                         ncvar,
                         ncout,
                         dimensions=("time", dim, "lat", "lon"),
@@ -122,15 +89,11 @@ def fill(path: str, varname: str, logger: Optional[logging.Logger] = None):
         coords = np.moveaxis(np.indices(ncvar.shape[1:], dtype=float), 0, -1)
         coords[:, 0] *= 0.9  # favour nearby depths over nearby lon/lat
         masked = np.ma.getmaskarray(ncvar[0, :, :, :])
-        unmasked = ~masked
-        logger.info("  - building KDTree")
-        tree = scipy.spatial.cKDTree(coords[unmasked, :])
-        logger.info("  - finding nearest neighbors")
-        dist, inearest = tree.query(coords[masked, :], workers=-1)
+        filler = Filler(masked, (0.9, 1.0, 1.0), logger)
         for itime in range(ncvar.shape[0]):
             logger.info(f"  - writing time {itime}")
             data = ncvar[itime, ...]
-            data[masked] = data[unmasked][inearest]
+            filler(data)
             ncvar[itime, :, :, :] = data
 
 

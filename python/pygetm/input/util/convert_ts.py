@@ -8,7 +8,7 @@ import numpy as np
 import netCDF4
 
 from pygetm import pygsw
-from ..woa import copyNcVariable
+from pygetm.util.nctools import copy_variable
 
 
 def convert_ts(
@@ -59,12 +59,12 @@ def convert_ts(
         assert nc_t.ndim == 4
         assert nc_t.shape == nc_s.shape
 
-        nc_ct = copyNcVariable(nc_t, ncout, name=ctname, copy_data=False)
-        nc_sa = copyNcVariable(nc_s, ncout, name=saname, copy_data=False)
-        copyNcVariable(nc_t_file["depth"], ncout)
-        copyNcVariable(nc_t_file["lon"], ncout)
-        copyNcVariable(nc_t_file["lat"], ncout)
-        copyNcVariable(nc_t_file["time"], ncout)
+        nc_ct = copy_variable(nc_t, ncout, name=ctname, copy_data=False)
+        nc_sa = copy_variable(nc_s, ncout, name=saname, copy_data=False)
+        copy_variable(nc_t_file["depth"], ncout)
+        copy_variable(nc_t_file["lon"], ncout)
+        copy_variable(nc_t_file["lat"], ncout)
+        copy_variable(nc_t_file["time"], ncout)
         _replace_nc_attrs(nc_sa, {"sea_water_salinity": "sea_water_absolute_salinity"})
         nc_sa.units = "g kg-1"
         _replace_nc_attrs(
