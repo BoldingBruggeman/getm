@@ -156,6 +156,48 @@ class TestInput(unittest.TestCase):
                 np.asarray(xdata), 0.5 * (data[8] + data[9]), places=NDEC
             )
 
+        # Different calendars
+
+        data = np.random.random(360)
+        days = np.arange(data.size)
+        ref = "days since 2015-01-01 00:00:00"
+
+        dates = cftime.num2date(days, ref, calendar="proleptic_gregorian")
+        array = xr.DataArray(data, {"time": dates}, name="test_series")
+        xdata = pygetm.input.temporal_interpolation(array).variable._data
+        self.assertTrue(xdata.update(cftime.datetime(2015, 6, 1, calendar="standard")))
+        self.assertTrue(xdata.update(cftime.datetime(2015, 8, 1, calendar="standard")))
+        self.assertTrue(xdata.update(cftime.datetime(2015, 2, 1, calendar="standard")))
+
+        dates = cftime.num2date(days, ref, calendar="proleptic_gregorian")
+        array = xr.DataArray(data, {"time": dates}, name="test_series")
+        ip = pygetm.input.temporal_interpolation(array, climatology=True)
+        xdata = ip.variable._data
+        self.assertTrue(xdata.update(cftime.datetime(2015, 6, 1, calendar="standard")))
+        self.assertTrue(xdata.update(cftime.datetime(2018, 7, 1, calendar="standard")))
+        self.assertTrue(xdata.update(cftime.datetime(2015, 2, 1, calendar="standard")))
+
+        dates = cftime.num2date(days, ref, calendar="360_day")
+        array = xr.DataArray(data, {"time": dates}, name="test_series")
+        xdata = pygetm.input.temporal_interpolation(array).variable._data
+        self.assertTrue(xdata.update(cftime.datetime(2015, 6, 1, calendar="360_day")))
+
+        for clim in (True, False):
+            with self.assertRaisesRegex(
+                Exception,
+                (
+                    "Calendar 360_day used by test_series is incompatible"
+                    " with simulation calendar standard."
+                ),
+            ):
+                dates = cftime.num2date(np.arange(data.size), ref, calendar="360_day")
+                array = xr.DataArray(data, {"time": dates}, name="test_series")
+                ip = pygetm.input.temporal_interpolation(array, climatology=clim)
+                xdata = ip.variable._data
+                self.assertTrue(
+                    xdata.update(cftime.datetime(2018, 6, 1, calendar="standard"))
+                )
+
     def test_concatenate(self):
         axis = 1
         a1 = np.random.random((100, 10))

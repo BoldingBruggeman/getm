@@ -1185,10 +1185,13 @@ class TemporalInterpolation(UnaryOperator):
 
     def _start(self, time: cftime.datetime):
         if time.calendar != self.times[0].calendar:
-            raise Exception(
-                f"Simulation calendar {time.calendar} does not match calendar"
-                f" {self.times[0].calendar} used by {self._source_name}."
-            )
+            try:
+                time.change_calendar(self.times[0].calendar)
+            except ValueError:
+                raise Exception(
+                    f"Calendar {self.times[0].calendar} used by {self._source_name}"
+                    f" is incompatible with simulation calendar {time.calendar}."
+                )
 
         # Find the time index (_inext) just before the left bound of the window we need.
         # We will subsequently call _move_to_next twice to load the actual window.
