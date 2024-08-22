@@ -1186,7 +1186,7 @@ class TemporalInterpolation(UnaryOperator):
     def _start(self, time: cftime.datetime):
         if time.calendar != self.times[0].calendar:
             try:
-                time.change_calendar(self.times[0].calendar)
+                time = time.change_calendar(self.times[0].calendar)
             except ValueError:
                 raise Exception(
                     f"Calendar {self.times[0].calendar} used by {self._source_name}"
