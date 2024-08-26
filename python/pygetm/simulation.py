@@ -19,6 +19,7 @@ from .constants import (
     RHO0,
     CENTERS,
     GRAVITY,
+    TimeVarying,
 )
 from . import _pygetm
 from . import core
@@ -81,8 +82,14 @@ def log_exceptions(method):
     return wrapper
 
 
-class Simulation:
-    _time_arrays = (
+class BaseSimulation:
+    __slots__ = (
+        "logger",
+        "domain",
+        "output_manager",
+        "input_manager",
+        "default_time_reference",
+        "_initialized_variables",
         "timestep",
         "macrotimestep",
         "split_factor",
@@ -91,18 +98,287 @@ class Simulation:
         "istep",
         "report",
         "report_totals",
-        "default_time_reference",
+        "_start_time",
+        "_profile",
     )
+
+    def __init__(self, domain: pygetm.domain.Domain, log_level: Optional[int] = None):
+        self.logger = domain.root_logger
+        if log_level is not None:
+            self.logger.setLevel(log_level)
+
+        self.domain = domain
+
+        self.output_manager = pygetm.output.OutputManager(
+            self.domain.fields,
+            rank=domain.tiling.rank,
+            logger=self.logger.getChild("output_manager"),
+        )
+
+        self.input_manager = self.domain.input_manager
+        self.input_manager.set_logger(self.logger.getChild("input_manager"))
+
+        self.default_time_reference: Optional[cftime.datetime] = None
+        self._initialized_variables = set()
+
+    def __getitem__(self, key: str) -> core.Array:
+        return self.output_manager.fields[key]
+
+    @log_exceptions
+    def load_restart(
+        self, path: str, time: Optional[cftime.datetime] = None, **kwargs
+    ) -> cftime.datetime:
+        """Load the model state from a restart file.
+        This must be called before :meth:`start`.
+
+        Args:
+            path: NetCDF file to load restart state from
+            time: time coordinate to take restart information from. This is only
+                relevant of the restart file contains the model state at multiple times.
+                If not provided, the last time from the file will be used.
+            **kwargs: additional keyword arguments passed to :func:`xarray.open_dataset`
+
+        Returns:
+            The time from which the restart information was taken.
+        """
+        kwargs.setdefault("decode_times", True)
+        kwargs["use_cftime"] = True
+        with xr.open_dataset(path, **kwargs) as ds:
+            timevar = ds["time"]
+            if timevar.ndim > 1:
+                raise Exception(
+                    "Time coordinate must be 0D or 1D"
+                    f" ({timevar.ndim} dimensions found)"
+                )
+
+            # Use time reference of restart as default time reference for new output
+            self.default_time_reference = cftime.num2date(
+                0.0,
+                units=timevar.encoding["units"],
+                calendar=timevar.encoding["calendar"],
+            )
+
+            # Determine time index to load restart information from
+            time_coord = timevar.values.reshape((-1,))
+            itime = -1
+            if time is not None:
+                # Find time index that matches requested time
+                time = to_cftime(time)
+                (itimes,) = (time_coord == time).nonzero()
+                if itimes.size == 0:
+                    raise Exception(
+                        f"Requested restart time {time} not found in {path!r},"
+                        f" which spans {time_coord[0]} - {time_coord[-1]}"
+                    )
+                itime = itimes[0]
+            elif time_coord.size > 1:
+                self.logger.info(
+                    f"Restart file {path!r} contains {time_coord.size} time points."
+                    f" Using last: {time_coord[-1]}"
+                )
+
+            # Slice restart file at the required time index
+            if timevar.ndim == 1:
+                ds = ds.isel({timevar.dims[0]: itime})
+
+            # Load all fields that are part of the model state
+            missing = []
+            for name, field in self.output_manager.fields.items():
+                if field.attrs.get("_part_of_state", False):
+                    if name not in ds:
+                        missing.append(name)
+                    else:
+                        field.set(ds[name], on_grid=pygetm.input.OnGrid.ALL, mask=True)
+                        self._initialized_variables.add(name)
+            if missing:
+                raise Exception(
+                    "The following field(s) are part of the model state but not found "
+                    f"in {path!r}: {', '.join(missing)}"
+                )
+
+        self._after_restart()
+
+        return time_coord[itime]
+
+    def _after_restart(self):
+        pass
+
+    @log_exceptions
+    def start(
+        self,
+        time: Union[cftime.datetime, datetime.datetime],
+        timestep: Union[float, datetime.timedelta],
+        split_factor: int = 1,
+        report: Union[int, datetime.timedelta] = 10,
+        report_totals: Union[int, datetime.timedelta] = datetime.timedelta(days=1),
+        profile: Optional[str] = None,
+    ):
+        """Start a simulation by configuring the time, zeroing velocities, updating
+        diagnostics to match the start time, and optionally saving output.
+
+        This should be called after the output configuration is complete
+        (because we need to know when variables need to be saved),
+        and after the FABM model has been provided with all dependencies.
+
+        Args:
+            time (:class:`cftime.datetime`): start time
+            timestep: micro time step (s) used for 2D barotropic processes
+            split_factor: number of microtimesteps per macrotimestep
+            report: time interval or number of microtimesteps between reporting of the
+                current time, used as indicator of simulation progress
+            report_totals: time interval or number of microtimesteps between reporting
+                of integrals over the global domain
+            profile: base name for the file to write profiling results to. The process
+                rank and extension ``.prof`` will be appended, so that the final name
+                becomes ``<profile>-<rank>.prof``. If the argument is not provided,
+                profiling is disabled.
+        """
+        self.time = to_cftime(time)
+        self.logger.info(f"Starting simulation at {self.time}")
+
+        if isinstance(timestep, datetime.timedelta):
+            timestep = timestep.total_seconds()
+        self.timestep = timestep
+        self.timedelta = datetime.timedelta(seconds=timestep)
+
+        self.split_factor = split_factor
+        self.macrotimestep = self.timestep * self.split_factor
+
+        self.istep = 0
+        if isinstance(report, datetime.timedelta):
+            report = int(round(report.total_seconds() / self.timestep))
+        self.report = report
+        if isinstance(report_totals, datetime.timedelta):
+            report_totals = int(round(report_totals.total_seconds() / self.timestep))
+        self.report_totals = report_totals
+
+        self._start()
+
+        # Update all inputs and diagnostics.
+        # This includes forcing for the future state update (e.g., tracer source terms)
+        self.domain.input_manager.update(self.time, macro=True)
+        self._update_forcing_and_diagnostics(macro_active=True)
+
+        # Start output manager
+        self.output_manager.start(
+            self.istep, self.time, default_time_reference=self.default_time_reference
+        )
+
+        # Verify all fields have finite values. Do this after self.output_manager.start
+        # so the user can diagnose issues by reviewing the output
+        self.check_finite()
+
+        # Record true start time for performance analysis
+        self._start_time = timeit.default_timer()
+
+        # Start profiling if requested
+        self._profile = None
+        if profile:
+            import cProfile
+
+            pr = cProfile.Profile()
+            self._profile = (profile, pr)
+            pr.enable()
+
+    def _start(self):
+        pass
+
+    @log_exceptions
+    def advance(self, check_finite: bool = False):
+        """Advance the model state by one microtimestep.
+        If this completes the current macrotimestep, the part of the state associated
+        with that timestep will be advanced too.
+
+        Args:
+            check_finite: after the state update, verify that all fields only contain
+                finite values
+        """
+        # Update time-averaged outputs with the values at the start of the time step
+        macro_updated = self.istep % self.split_factor == 0
+        self.output_manager.prepare_save(macro=macro_updated)
+
+        # Update the time
+        self.time += self.timedelta
+        self.istep += 1
+        macro_active = self.istep % self.split_factor == 0
+        if self.report != 0 and self.istep % self.report == 0:
+            self.logger.info(self.time)
+
+        self._advance_state(macro_active)
+
+        # Update all inputs and (state-dependent) diagnostics.
+        # This includes forcing for the future state update (e.g., tracer source terms)
+        self.domain.input_manager.update(self.time, macro=macro_active)
+        self._update_forcing_and_diagnostics(macro_active)
+
+        # Perform output. This is done before the call to check_finite,
+        # so that the user can diagnose non-finite values from the output files.
+        self.output_manager.save(self.timestep * self.istep, self.istep, self.time)
+
+        if check_finite:
+            self.check_finite(macro_active)
+
+    @log_exceptions
+    def finish(self):
+        """Clean-up after simulation: save profiling result (if any), write output
+        where appropriate (restarts), and close output files
+        """
+        if self._profile:
+            name, pr = self._profile
+            pr.disable()
+            profile_path = f"{name}-{self.domain.tiling.rank:03}.prof"
+            self.logger.info(f"Writing profiling report to {profile_path}")
+            with open(profile_path, "w") as f:
+                ps = pstats.Stats(pr, stream=f).sort_stats(pstats.SortKey.TIME)
+                ps.print_stats()
+                self._summarize_profiling_result(ps)
+        nsecs = timeit.default_timer() - self._start_time
+        self.logger.info(f"Time spent in main loop: {nsecs:.3f} s")
+        self.output_manager.close(self.timestep * self.istep, self.time)
+
+    def check_finite(self, macro_active: bool = True):
+        """Verify that all fields available for output contain finite values.
+        Fields with non-finite values are reported in the log as error messages.
+        Finally, if any non-finite values were found, an exception is raised.
+
+        Args:
+            macro_active: also check fields updated on the 3d (macro) timestep
+        """
+        nbad = 0
+        for field in self.domain.fields.values():
+            default_time_varying = TimeVarying.MACRO if field.z else TimeVarying.MICRO
+            time_varying = field.attrs.get("_time_varying", default_time_varying)
+            if field.ndim == 0 or (
+                time_varying == TimeVarying.MACRO and not macro_active
+            ):
+                continue
+            finite = np.isfinite(field.values)
+            unmasked = True
+            if not field.on_boundary:
+                unmasked = np.isin(field.grid.mask.values, (1, 2))
+            unmasked = np.broadcast_to(unmasked, field.shape)
+            if not finite.all(where=unmasked):
+                nbad += 1
+                unmasked_count = unmasked.sum()
+                bad_count = unmasked_count - finite.sum(where=unmasked)
+                self.logger.error(
+                    f"Field {field.name} has {bad_count} non-finite values"
+                    f" (out of {unmasked_count} unmasked values)."
+                )
+        if nbad:
+            raise Exception(f"Non-finite values found in {nbad} fields")
+
+    def _summarize_profiling_result(self, ps: pstats.Stats):
+        pass
+
+
+class Simulation(BaseSimulation):
     __slots__ = (
-        "domain",
         "runtype",
-        "output_manager",
-        "input_manager",
         "fabm",
         "_yearday",
         "tracers",
         "tracer_totals",
-        "logger",
         "momentum",
         "airsea",
         "ice",
@@ -138,15 +414,12 @@ class Simulation:
         "dpdxo",
         "dpdyo",
         "_cum_river_height_increase",
-        "_start_time",
-        "_profile",
         "radiation",
-        "_initialized_variables",
         "delay_slow_ip",
         "total_volume_ref",
         "total_area",
         "nuh_ct",
-    ) + _time_arrays
+    )
 
     domain: pygetm.domain.Domain
     runtype: int
@@ -179,21 +452,10 @@ class Simulation:
                 behind the 3d internal pressure terms. This can help stabilize
                 density-driven flows in deep water
         """
-        self.logger = domain.root_logger
-        if log_level is not None:
-            self.logger.setLevel(log_level)
-        self.output_manager = output.OutputManager(
-            domain.fields,
-            rank=domain.tiling.rank,
-            logger=self.logger.getChild("output_manager"),
-        )
-        self.input_manager = domain.input_manager
-
-        self.input_manager.set_logger(self.logger.getChild("input_manager"))
+        super().__init__(domain, log_level)
 
         assert not domain._initialized
         domain.initialize(runtype)
-        self.domain = domain
         self.runtype = runtype
 
         # Flag selected domain/grid fields (elevations, thicknesses, bottom roughness)
@@ -455,135 +717,12 @@ class Simulation:
         self.domain.update_depth(_3d=runtype > BAROTROPIC_2D)
         self.domain.update_depth(_3d=runtype > BAROTROPIC_2D)
 
-        self.default_time_reference: Optional[cftime.datetime] = None
-        self._initialized_variables = set()
-
-    def __getitem__(self, key: str) -> core.Array:
-        return self.output_manager.fields[key]
-
-    @log_exceptions
-    def load_restart(
-        self, path: str, time: Optional[cftime.datetime] = None, **kwargs
-    ) -> cftime.datetime:
-        """Load the model state from a restart file.
-        This must be called before :meth:`start`.
-
-        Args:
-            path: NetCDF file to load restart state from
-            time: time coordinate to take restart information from. This is only
-                relevant of the restart file contains the model state at multiple times.
-                If not provided, the last time from the file will be used.
-            **kwargs: additional keyword arguments passed to :func:`xarray.open_dataset`
-
-        Returns:
-            The time from which the restart information was taken.
-        """
-        kwargs.setdefault("decode_times", True)
-        kwargs["use_cftime"] = True
-        with xr.open_dataset(path, **kwargs) as ds:
-            timevar = ds["zt"].getm.time
-            if timevar.ndim > 1:
-                raise Exception(
-                    "Time coordinate must be 0D or 1D"
-                    f" ({timevar.ndim} dimensions found)"
-                )
-
-            # Use time reference of restart as default time reference for new output
-            self.default_time_reference = cftime.num2date(
-                0.0,
-                units=timevar.encoding["units"],
-                calendar=timevar.encoding["calendar"],
-            )
-
-            # Determine time index to load restart information from
-            time_coord = timevar.values.reshape((-1,))
-            itime = -1
-            if time is not None:
-                # Find time index that matches requested time
-                time = to_cftime(time)
-                itimes = np.where(time_coord == time)[0]
-                if itimes.size == 0:
-                    raise Exception(
-                        f"Requested restart time {time} not found in {path!r},"
-                        f" which spans {time_coord[0]} - {time_coord[-1]}"
-                    )
-                itime = itimes[0]
-            elif time_coord.size > 1:
-                self.logger.info(
-                    f"Restart file {path!r} contains {time_coord.size} time points."
-                    f" Using last: {time_coord[-1]}"
-                )
-
-            # Slice restart file at the required time index
-            if time_coord.size > 1:
-                ds = ds.isel({timevar.dims[0]: itime})
-
-            # Load all fields that are part of the model state
-            missing = []
-            for name, field in self.output_manager.fields.items():
-                if field.attrs.get("_part_of_state", False):
-                    if name not in ds:
-                        missing.append(name)
-                    else:
-                        field.set(ds[name], on_grid=pygetm.input.OnGrid.ALL, mask=True)
-                        self._initialized_variables.add(name)
-            if missing:
-                raise Exception(
-                    "The following field(s) are part of the model state but not found "
-                    f"in {path!r}: {', '.join(missing)}"
-                )
-
+    def _after_restart(self):
         if self.runtype > BAROTROPIC_2D:
             # Restore elevation from before open boundary condition was applied
             self.domain.T.z.all_values[...] = self.domain.T.zin.all_values
 
-        return time_coord[itime]
-
-    @log_exceptions
-    def start(
-        self,
-        time: Union[cftime.datetime, datetime.datetime],
-        timestep: float,
-        split_factor: int = 1,
-        report: Union[int, datetime.timedelta] = 10,
-        report_totals: Union[int, datetime.timedelta] = datetime.timedelta(days=1),
-        profile: Optional[str] = None,
-    ):
-        """Start a simulation by configuring the time, zeroing velocities, updating
-        diagnostics to match the start time, and optionally saving output.
-
-        This should be called after the output configuration is complete
-        (because we need to know when variables need to be saved),
-        and after the FABM model has been provided with all dependencies.
-
-        Args:
-            time (:class:`cftime.datetime`): start time
-            timestep: micro time step (s) used for 2D barotropic processes
-            split_factor: number of microtimesteps per macrotimestep
-            report: time interval or number of microtimesteps between reporting of the
-                current time, used as indicator of simulation progress
-            report_totals: time interval or number of microtimesteps between reporting
-                of integrals over the global domain
-            profile: base name for the file to write profiling results to. The process
-                rank and extension ``.prof`` will be appended, so that the final name
-                becomes ``<profile>-<rank>.prof``. If the argument is not provided,
-                profiling is disabled.
-        """
-        time = to_cftime(time)
-        self.logger.info(f"Starting simulation at {time}")
-        self.timestep = timestep
-        self.split_factor = split_factor
-        self.macrotimestep = self.timestep * self.split_factor
-        self.timedelta = datetime.timedelta(seconds=timestep)
-        self.time = time
-        self.istep = 0
-        if isinstance(report, datetime.timedelta):
-            report = int(round(report.total_seconds() / self.timestep))
-        self.report = report
-        if isinstance(report_totals, datetime.timedelta):
-            report_totals = int(round(report_totals.total_seconds() / self.timestep))
-        self.report_totals = report_totals
-
+    def _start(self):
         self.momentum.start()
         self.tracers.start()
         self.domain.open_boundaries.start(
@@ -654,51 +793,8 @@ class Simulation:
         # Update all forcing, which includes the final 2D depth update based on
         # (original) z
         self.domain.T.z.all_values[...] = z_backup
-        self.update_forcing(macro_active=self.runtype > BAROTROPIC_2D)
 
-        # Start output manager
-        self.output_manager.start(
-            self.istep, self.time, default_time_reference=self.default_time_reference
-        )
-
-        # Verify all fields have finite values. Do this after self.output_manager.start
-        # so the user can diagnose issues by reviewing the output
-        self.check_finite(_3d=self.runtype > BAROTROPIC_2D)
-
-        # Record true start time for performance analysis
-        self._start_time = timeit.default_timer()
-
-        # Start profiling if requested
-        self._profile = None
-        if profile:
-            import cProfile
-
-            pr = cProfile.Profile()
-            self._profile = (profile, pr)
-            pr.enable()
-
-    @log_exceptions
-    def advance(self, check_finite: bool = False):
-        """Advance the model state by one microtimestep.
-        If this completes the current macrotimestep, the part of the state associated
-        with that timestep will be advanced too.
-
-        Args:
-            check_finite: after the state update, verify that all fields only contain
-                finite values
-        """
-        # Update the time
-        macro_updated = self.istep % self.split_factor == 0
-        self.time += self.timedelta
-        self.istep += 1
-        macro_active = self.istep % self.split_factor == 0
-        if self.report != 0 and self.istep % self.report == 0:
-            self.logger.info(self.time)
-
-        self.output_manager.prepare_save(
-            self.timestep * self.istep, self.istep, self.time, macro=macro_updated
-        )
-
+    def _advance_state(self, macro_active: bool):
         # Update transports U and V from time=-1/2 to +1/2, using surface stresses and
         # pressure gradients defined at time=0
         # Inputs and outputs are on U and V grids. Stresses and pressure gradients have
@@ -796,26 +892,7 @@ class Simulation:
                         axis=0, out=self.momentum.SyB.all_values
                     )
 
-        # Update all inputs and fluxes that will drive the next state update
-        self.update_forcing(
-            macro_active,
-            skip_2d_coriolis=True,
-            update_z0b=self.runtype == BAROTROPIC_2D,
-        )
-
-        self.output_manager.save(self.timestep * self.istep, self.istep, self.time)
-
-        if check_finite:
-            self.check_finite(_3d=macro_active)
-
-        return macro_active
-
-    def update_forcing(
-        self,
-        macro_active: bool,
-        skip_2d_coriolis: bool = False,
-        update_z0b: bool = False,
-    ):
+    def _update_forcing_and_diagnostics(self, macro_active: bool):
         """Update all inputs and fluxes that will drive the next state update.
 
         Args:
@@ -826,8 +903,8 @@ class Simulation:
             update_z0b: update bottom roughness z0b as part of the depth-integrated
                 bottom friction calculation
         """
-        # Update all inputs.
-        self.domain.input_manager.update(self.time, macro=macro_active)
+        skip_2d_coriolis = self.istep != 0
+        update_z0b = self.istep != 0 and self.runtype == BAROTROPIC_2D
 
         baroclinic_active = self.runtype == BAROCLINIC and macro_active
         if baroclinic_active:
@@ -941,46 +1018,31 @@ class Simulation:
 
         if baroclinic_active:
             # Update surface shear velocity (used by GOTM). This requires updated
-            # surface stresses and there can only be done after the airesea update.
+            # surface stresses and there can only be done after the airsea update.
             _pygetm.surface_shear_velocity(
                 self.airsea.taux, self.airsea.tauy, self.ustar_s
             )
 
-            # Update radiation. This must come after the airsea update, which is
-            # responsible for calculating swr
+            # Update radiation in the interior.
+            # This must come after the airsea update, which is responsible for
+            # calculating downwelling shortwave radiation at the water surface (swr)
             self.radiation(self.airsea.swr, self.fabm.kc if self.fabm else None)
 
+            # If we need vertical tracer diffusivity at layer centers (for FABM),
+            # calculate it by interpolating diffusivity at the layer interfaces.
             if self.nuh_ct is not None:
                 self.turbulence.nuh.interp(self.nuh_ct)
 
             # Update source terms of biogeochemistry, using the new tracer
             # concentrations. Do this last because FABM could depend on any of the
-            # variables computed before
+            # variables computed before (radiation, diffusivity, etc.)
             if self.fabm:
                 self.fabm.update_sources(self.timestep * self.istep, self.time)
 
         if self.report_totals != 0 and self.istep % self.report_totals == 0:
             self.report_domain_integrals()
 
-    @log_exceptions
-    def finish(self):
-        """Clean-up after simulation: save profiling result (if any), write output
-        where appropriate (restarts), and close output files
-        """
-        if self._profile:
-            name, pr = self._profile
-            pr.disable()
-            profile_path = f"{name}-{self.domain.tiling.rank:03}.prof"
-            self.logger.info(f"Writing profiling report to {profile_path}")
-            with open(profile_path, "w") as f:
-                ps = pstats.Stats(pr, stream=f).sort_stats(pstats.SortKey.TIME)
-                ps.print_stats()
-                self.summary_profiling_result(ps)
-        nsecs = timeit.default_timer() - self._start_time
-        self.logger.info(f"Time spent in main loop: {nsecs:.3f} s")
-        self.output_manager.close(self.timestep * self.istep, self.time)
-
-    def summary_profiling_result(self, ps: pstats.Stats):
+    def _summarize_profiling_result(self, ps: pstats.Stats):
         if not hasattr(ps, "get_stats_profile"):
             # python < 3.9
             return
@@ -1164,35 +1226,6 @@ class Simulation:
 
     def update_surface_pressure_gradient(self, z: core.Array, sp: core.Array):
         _pygetm.surface_pressure_gradient(z, sp, self.dpdx, self.dpdy)
-
-    def check_finite(self, _3d: bool = True):
-        """Verify that all fields available for output contain finite values.
-        Fields with non-finite values are reported in the log as error messages.
-        Finally, if any non-finite values were found, an exception is raised.
-
-        Args:
-            _3d: also check fields updated on the 3d (macro) timestep, not just
-                depth-integrated fields
-        """
-        nbad = 0
-        for field in self.domain.fields.values():
-            if field.ndim == 0 or (field.z and not _3d):
-                continue
-            finite = np.isfinite(field.values)
-            unmasked = True
-            if not field.on_boundary:
-                unmasked = np.isin(field.grid.mask.values, (1, 2))
-            unmasked = np.broadcast_to(unmasked, field.shape)
-            if not finite.all(where=unmasked):
-                nbad += 1
-                unmasked_count = unmasked.sum()
-                bad_count = unmasked_count - finite.sum(where=unmasked)
-                self.logger.error(
-                    f"Field {field.name} has {bad_count} non-finite values"
-                    f" (out of {unmasked_count} unmasked values)."
-                )
-        if nbad:
-            raise Exception(f"Non-finite values found in {nbad} fields")
 
     @property
     def Ekin(self, rho0: float = RHO0):

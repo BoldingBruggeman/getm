@@ -77,7 +77,10 @@ class File(operators.FieldCollection):
         self._stop = stop
 
     def _next_time(
-        self, seconds_passed: float, itimestep: int, time: Optional[cftime.datetime],
+        self,
+        seconds_passed: float,
+        itimestep: int,
+        time: Optional[cftime.datetime],
     ) -> Union[float, int]:
         if self.interval_units == TimeUnit.SECONDS:
             return seconds_passed + self.interval
@@ -270,29 +273,16 @@ class OutputManager:
                 del self._stoppable_files[i]
                 file.close(seconds_passed, time)
 
-    def prepare_save(
-        self,
-        seconds_passed: float,
-        itimestep: int,
-        time: Optional[cftime.datetime] = None,
-        macro: bool = True,
-    ):
+    def prepare_save(self, *args, macro: bool = True):
         """Begin a new time step. For time-averaged outputs, the current variable
-        values will be added to the temporal mean. Arguments representing the time
-        (``seconds_passed``, ``itimestep``, ``time``) must match those in the
-        future, complimentary call to :meth:`save`.
+        values will be added to the temporal mean.
 
         Args:
-            seconds_passed: total number of seconds that will have passed at the
-                end of the newly starting time step
-            itimestep: index of the time step that is just starting
-            time: the time at the end of the newly starting time step
             macro: whether quantities defined at the macrotimestep are up to date.
                 This is the case if the `previous` time step had "macro" processes
                 active. It does `not` relate to the processes of the timestep
                 that is newly starting!
         """
-        self._start_files(seconds_passed, itimestep, time)
         for file in self._active_files:
             file.update(macro)
 
@@ -311,6 +301,7 @@ class OutputManager:
         """
         for file in self._active_files:
             file.save(seconds_passed, itimestep, time)
+        self._start_files(seconds_passed, itimestep, time)
         self._stop_files(seconds_passed, time)
 
     def close(self, seconds_passed: float, time: Optional[cftime.datetime] = None):
