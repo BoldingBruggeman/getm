@@ -283,6 +283,9 @@ class BaseSimulation:
     def _start(self):
         pass
 
+    def _update_forcing_and_diagnostics(self, macro_active: bool):
+        pass
+
     @log_exceptions
     def advance(self, check_finite: bool = False):
         """Advance the model state by one microtimestep.
@@ -317,6 +320,9 @@ class BaseSimulation:
 
         if check_finite:
             self.check_finite(macro_active)
+
+    def _advance_state(self, macro_active: bool):
+        pass
 
     @log_exceptions
     def finish(self):
@@ -897,13 +903,15 @@ class Simulation(BaseSimulation):
 
         Args:
             macro_active: update all quantities associated with the macrotimestep
-            skip_2d_coriolis: whether to skip the update of depth-integrated Coriolis
-                terms, typically because they have already been recalculated as part of
-                the transport update
-            update_z0b: update bottom roughness z0b as part of the depth-integrated
-                bottom friction calculation
         """
+        # Only do 2D Coriolis update at the start of the simulation
+        # At subsequent times, this term will already have been updated
+        # as part of the momentum update in _advance_state
         skip_2d_coriolis = self.istep != 0
+
+        # Hydrodynamic bottom roughness is updated iteratively in barotropic simulations
+        # Do this only at the end of a time step, that is, not at the very start of the
+        # simulation.
         update_z0b = self.istep != 0 and self.runtype == BAROTROPIC_2D
 
         baroclinic_active = self.runtype == BAROCLINIC and macro_active
