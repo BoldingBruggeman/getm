@@ -151,7 +151,7 @@ class Grid(_pygetm.Grid):
         "z0b": dict(units="m", long_name="hydrodynamic bottom roughness"),
         "z0b_min": dict(
             units="m",
-            long_name="physical bottom roughness",
+            long_name="minimum hydrodynamic bottom roughness",
             attrs=dict(_time_varying=False),
         ),
         "alpha": dict(units="1", long_name="dampening"),
