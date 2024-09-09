@@ -68,7 +68,8 @@ class NetCDFFile(File):
         default_time_reference: Optional[cftime.datetime],
     ):
         if self.is_root or self.sub:
-            # Create the NetCDF file
+            # Create the NetCDF file (note: some NetCDF engines such as h5netcdf
+            # do not support the format argument)
             self.nc = netCDF4.Dataset(self.path, "w", format=self.format)
             now = datetime.datetime.now()
             cmdline = " ".join(sys.argv)
@@ -83,7 +84,7 @@ class NetCDFFile(File):
                             f"Existing dimension {dim} has incompatible length"
                             f" {self.nc.dimensions[dim].size} (need {length})"
                         )
-            self.nc.createDimension("time")
+            self.nc.createDimension("time", None)
             self.nctime = self.nc.createVariable("time", float, ("time",))
             self.nctime.axis = "T"
             if time is not None:
@@ -105,7 +106,12 @@ class NetCDFFile(File):
                 ncvar = self.nc.createVariable(
                     output_name, field.dtype, dims, fill_value=field.fill_value
                 )
-                ncvar.set_auto_maskandscale(False)
+                # Use try-except for set_auto_maskandscale because only some NetCDF
+                # engines support it (netCDF4 does, h5netcdf.legacyapi does not)
+                try:
+                    ncvar.set_auto_maskandscale(False)
+                except AttributeError:
+                    pass
                 ncvar.expression = field.expression
                 for att, value in field.attrs.items():
                     setattr(ncvar, att, value)
