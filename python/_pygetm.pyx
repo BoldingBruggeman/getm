@@ -364,21 +364,21 @@ def exponential_profile_1band_interfaces(Array mask not None, Array h not None, 
     assert mask.grid is k.grid and k.z == CENTERS
     assert mask.grid is initial.grid and not initial.z
     assert mask.grid is out.grid and out.z == INTERFACES
-    c_exponential_profile_1band_interfaces(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, mask.grid.domain.halox, mask.grid.nx_ - mask.grid.domain.halox, mask.grid.domain.haloy, mask.grid.ny_ - mask.grid.domain.haloy, <int *>mask.p, <double *>h.p, <double *>k.p, <double *>initial.p, up, <double *>out.p)
+    c_exponential_profile_1band_interfaces(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, 1 + mask.grid.domain.halox, mask.grid.nx_ - mask.grid.domain.halox, 1 + mask.grid.domain.haloy, mask.grid.ny_ - mask.grid.domain.haloy, <int *>mask.p, <double *>h.p, <double *>k.p, <double *>initial.p, up, <double *>out.p)
 
 def exponential_profile_1band_centers(Array mask not None, Array h not None, Array k not None, Array top not None, Array out=None):
     assert mask.grid is h.grid and h.z == CENTERS
     assert mask.grid is k.grid and k.z == CENTERS
     assert mask.grid is top.grid and not top.z
     assert mask.grid is out.grid and out.z == CENTERS
-    c_exponential_profile_1band_centers(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, mask.grid.domain.halox, mask.grid.nx_ - mask.grid.domain.halox, mask.grid.domain.haloy, mask.grid.ny_ - mask.grid.domain.haloy, <int *>mask.p, <double *>h.p, <double *>k.p, <double *>top.p, <double *>out.p)
+    c_exponential_profile_1band_centers(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, 1 + mask.grid.domain.halox, mask.grid.nx_ - mask.grid.domain.halox, 1 + mask.grid.domain.haloy, mask.grid.ny_ - mask.grid.domain.haloy, <int *>mask.p, <double *>h.p, <double *>k.p, <double *>top.p, <double *>out.p)
 
 def thickness2center_depth(Array mask not None, Array h not None, Array out=None):
     assert mask.grid is h.grid and h.z == CENTERS
     if out is None:
         out = h.grid.array(z=CENTERS)
     assert mask.grid is out.grid and out.z == CENTERS
-    c_thickness2center_depth(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, mask.grid.domain.halox, mask.grid.nx_ - mask.grid.domain.halox, mask.grid.domain.haloy, mask.grid.ny_ - mask.grid.domain.haloy, <int *>mask.p, <double *>h.p, <double *>out.p)
+    c_thickness2center_depth(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, 1 + mask.grid.domain.halox, mask.grid.nx_ - mask.grid.domain.halox, 1 + mask.grid.domain.haloy, mask.grid.ny_ - mask.grid.domain.haloy, <int *>mask.p, <double *>h.p, <double *>out.p)
     return out
 
 def thickness2vertical_coordinates(Array mask not None, Array H not None, Array h not None, Array zc not None, Array zf not None):
