@@ -238,11 +238,23 @@ class TracerCollection(Sequence[Tracer]):
             Ah_v=self.Ah_v,
         )
 
-        # Vertical diffusion of passive tracers (including biogeochemical ones)
-        # This simultaneously time-integrates source terms and surface fluxes, if
-        # specified. However, sources of biogeochemical tracers (FABM) are typically
-        # dealt with elsewhere; these will not have their source attribute set for
-        # use here.
+        # Vertical diffusion and time-integration of optional source terms
+        # and surface fluxes
+        self._diffuse(timestep, diffusivity)
+
+    def _diffuse(self, timestep: float, diffusivity: core.Array):
+        """Advance tracers through vertical diffusion and time integration of
+        optional source terms and/or surface fluxes.
+
+        Args:
+            timestep: time step (s)
+            diffusivity: vertical turbulent diffusivity (m2 s-1)
+
+        This simultaneously time-integrates source terms and surface fluxes, if
+        specified. However, sources of biogeochemical tracers (FABM) are typically
+        dealt with elsewhere; these will not have their `source` or `surface_flux`
+        attributes set for use here.
+        """
         avmol = -1.0
         for tracer in self._tracers:
             source = None
