@@ -789,6 +789,9 @@ def create_cartesian(
         interfaces: coordinates are given at cell interfaces, rather than cell centers.
         **kwargs: additional arguments passed to :func:`create`
     """
+    x = np.asarray(x)
+    y = np.asarray(y)
+
     assert x.ndim == 1, "x coordinate must be one-dimensional"
     assert y.ndim == 1, "y coordinate must be one-dimensional"
 
@@ -815,6 +818,9 @@ def create_spherical(
         interfaces: coordinates are given at cell interfaces, rather than cell centers.
         **kwargs: additional arguments passed to :func:`create`
     """
+    lon = np.asarray(lon)
+    lat = np.asarray(lat)
+
     assert lon.ndim == 1, "longitude coordinate must be one-dimensional"
     assert lat.ndim == 1, "latitude coordinate must be one-dimensional"
 
@@ -1936,9 +1942,9 @@ class Domain(_pygetm.Domain):
         istop = max(istart, min(self.nx + 2 * self.halox, istop))
         jstart = max(0, jstart)
         jstop = max(jstart, min(self.ny + 2 * self.haloy, jstop))
-        self.mask_[
-            1 + 2 * jstart : 1 + 2 * jstop, 1 + 2 * istart : 1 + 2 * istop
-        ] = value
+        self.mask_[1 + 2 * jstart : 1 + 2 * jstop, 1 + 2 * istart : 1 + 2 * istop] = (
+            value
+        )
 
     def rotate(self) -> "Domain":
         def tp(array):
@@ -2425,9 +2431,9 @@ class Domain(_pygetm.Domain):
             )
             self.UU.hn.all_values[:, :, :-1] = self.h_T_half.all_values[:, :, 1:]
             self.VV.hn.all_values[:, :-1, :] = self.h_T_half.all_values[:, 1:, :]
-            self.UV.hn.all_values[:, :, :] = self.VU.hn.all_values[
-                :, :, :
-            ] = self.X.hn.all_values[:, 1:, 1:]
+            self.UV.hn.all_values[:, :, :] = self.VU.hn.all_values[:, :, :] = (
+                self.X.hn.all_values[:, 1:, 1:]
+            )
 
             if self.depth.saved:
                 # Update depth-below-surface at layer centers.
