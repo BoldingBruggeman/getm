@@ -22,6 +22,7 @@ class NetCDFFile(File):
         sync_interval: Optional[int] = 1,
         time_reference: Optional[cftime.datetime] = None,
         format: str = "NETCDF4",
+        compression: Optional[str] = None,
         **kwargs,
     ):
         """Create a NetCDF file for output
@@ -40,6 +41,8 @@ class NetCDFFile(File):
             time_reference: time reference (epoch) to use as offset for the time
                 coordinate.
             format: underlying file format (see :class:`netCDF4.Dataset` documentation)
+            compression: compression algorithm to apply to all variables
+                (see :method:`netCDF4.Dataset.createVariable` documentation)
             **kwargs: additional keyword arguments passed to :class:`pygetm.output.File`
         """
         super().__init__(available_fields, logger, path=path, **kwargs)
@@ -54,6 +57,7 @@ class NetCDFFile(File):
         self.time_reference = time_reference
         self.sync_interval = sync_interval
         self.format = format
+        self.compression = compression
         self._field2nc = {}
         self._varying_fields = []
         self.nctime_bnds = None
@@ -104,7 +108,11 @@ class NetCDFFile(File):
                 if field.time_varying:
                     dims = ("time",) + dims
                 ncvar = self.nc.createVariable(
-                    output_name, field.dtype, dims, fill_value=field.fill_value
+                    output_name,
+                    field.dtype,
+                    dims,
+                    fill_value=field.fill_value,
+                    compression=self.compression,
                 )
                 # Use try-except for set_auto_maskandscale because only some NetCDF
                 # engines support it (netCDF4 does, h5netcdf.legacyapi does not)
