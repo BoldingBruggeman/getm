@@ -12,9 +12,9 @@ conda:
   environment: environment-readthedocs.yml
 
 build:
-  os: "ubuntu-20.04"
+  os: ubuntu-lts-latest
   tools:
-    python: "miniconda3-4.7"
+    python: miniconda-latest
   jobs:
     post_install:
       - bash ./install
