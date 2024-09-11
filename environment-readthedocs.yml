@@ -19,3 +19,4 @@ dependencies:
   - awex
   - pygotm
   - sphinx_rtd_theme
+  - rioxarray
