@@ -1331,7 +1331,7 @@ class InputManager:
             periodic_lon: whether this input covers all longitudes (i.e., the entire
                 globe in the horizontal) and therefore has a periodic boundary. This
                 enables efficient spatial interpolation across longitude bounds of the
-                input, for instance, accessing read 10 degrees West to 5 degrees East
+                input, for instance, accessing 10 degrees West to 5 degrees East
                 for an input that spans 0 to 360 degrees East.
             on_grid: whether the input is defined on the same grid (horizontal-only,
                 or both horizontal and vertical) as the array that is being assigned to.
