@@ -18,6 +18,6 @@ dependencies:
   - pyfabm>=2.1
   - awex
   - pygotm
-  - sphinx_rtd_theme
+  - sphinx_rtd_theme>=2.0
   - rioxarray
-  - sphinx<8.0
+  #- sphinx<8.0
