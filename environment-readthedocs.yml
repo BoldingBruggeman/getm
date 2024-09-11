@@ -20,3 +20,4 @@ dependencies:
   - pygotm
   - sphinx_rtd_theme
   - rioxarray
+  - sphinx<8.0
