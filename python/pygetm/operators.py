@@ -1,5 +1,5 @@
 import enum
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Callable
 import functools
 
 from . import _pygetm
@@ -144,10 +144,13 @@ class Advection(_pygetm.Advection):
         Ah_v: Optional[core.Array] = None,
         new_h: bool = False,
         skip_initial_halo_exchange: bool = False,
-        w_vars: Optional[Iterable[core.Array]] = None,
+        get_w: Optional[Callable[[core.Array], core.Array]] = None,
     ):
-        if w_vars is None:
-            w_vars = [w] * len(vars)
+        def get_default_w(tracer: core.Array) -> core.Array:
+            return w
+
+        if get_w is None:
+            get_w = get_default_w
         assert u.grid is self.ugrid and u.z == CENTERS
         assert v.grid is self.vgrid and v.z == CENTERS
         assert w.grid is self.grid and w.z == INTERFACES
@@ -173,7 +176,7 @@ class Advection(_pygetm.Advection):
             adv2(var)
         current_h[...] = self.h
         for var in vars:
-            w_var = w_vars(var)
+            w_var = get_w(var)
             assert w_var.grid is self.grid and w_var.z == INTERFACES
             self.h[...] = current_h
             self.w_3d(w, w_var, timestep, var)

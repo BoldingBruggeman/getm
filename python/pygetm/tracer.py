@@ -217,7 +217,7 @@ class TracerCollection(Sequence[Tracer]):
 
         # Advection of passive tracers (including biogeochemical ones) from time=0 to
         # time=1 (macrotimestep), using velocities defined at time=1/2
-        def combined_w(tracer):
+        def combined_w(tracer: Tracer):
             if (
                 tracer.vertical_velocity is None
                 or not tracer.vertical_velocity.all_values.any()
@@ -233,7 +233,7 @@ class TracerCollection(Sequence[Tracer]):
             w,
             timestep,
             self._tracers,
-            w_vars=combined_w,
+            get_w=combined_w,
             Ah_u=self.Ah_u,
             Ah_v=self.Ah_v,
         )
