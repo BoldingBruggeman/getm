@@ -42,7 +42,7 @@ class NetCDFFile(File):
                 coordinate.
             format: underlying file format (see :class:`netCDF4.Dataset` documentation)
             compression: compression algorithm to apply to all variables
-                (see :method:`netCDF4.Dataset.createVariable` documentation)
+                (see :meth:`netCDF4.Dataset.createVariable` documentation)
             **kwargs: additional keyword arguments passed to :class:`pygetm.output.File`
         """
         super().__init__(available_fields, logger, path=path, **kwargs)
