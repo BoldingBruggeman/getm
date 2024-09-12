@@ -304,6 +304,31 @@ cdef class Advection:
     def w_3d(self, Array w not None, Array w_var not None, double timestep, Array var not None):
         advection_w_calculate(self.p, self.grid.p, <double *>w.p, <double *>w_var.p, timestep, self.ph, <double *>var.p)
 
+cdef class VerticalAdvection:
+    cdef void* p
+    cdef readonly Grid grid
+    cdef readonly numpy.ndarray h
+    cdef double* ph
+
+    def __init__(self, Grid grid, int scheme):
+        self.grid = grid
+        self.p = advection_create(scheme, self.grid.p)
+
+        # Work array for layer heights that change during 3d advection
+        # This is shared by the temporary column height that evolves similarly during 2d advection
+        self.h = numpy.empty((self.grid.nz_, self.grid.ny_, self.grid.nx_))
+
+        self.ph = <double*>self.h.data
+
+    def __dealloc__(self):
+        if self.p != NULL:
+            advection_finalize(self.p)
+
+    @cython.initializedcheck(False)
+    @cython.boundscheck(False) # turn off bounds-checking for entire function
+    def w_3d(self, Array w not None, Array w_var not None, double timestep, Array var not None):
+        advection_w_calculate(self.p, self.grid.p, <double *>w.p, <double *>w_var.p, timestep, self.ph, <double *>var.p)
+
 cdef class VerticalDiffusion:
     cdef void* p
     cdef double cnpar

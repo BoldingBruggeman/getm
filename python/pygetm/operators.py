@@ -194,6 +194,28 @@ class Advection(_pygetm.Advection):
             adv1(var)
 
 
+class VerticalAdvection(_pygetm.VerticalAdvection):
+    __slots__ = ()
+
+    def __init__(
+        self, grid: domain.Grid, scheme: AdvectionScheme = AdvectionScheme.DEFAULT
+    ):
+        super().__init__(grid, scheme)
+
+    def __call__(
+        self,
+        w: core.Array,
+        w_var: core.Array,
+        timestep: float,
+        var: core.Array,
+        new_h: bool = False,
+    ):
+        assert w.grid is self.grid and w.z == INTERFACES
+        assert w_var.grid is self.grid and w_var.z == INTERFACES
+        self.h[...] = (self.grid.hn if new_h else self.grid.ho).all_values
+        self.w_3d(w, w_var, timestep, var)
+
+
 class VerticalDiffusion(_pygetm.VerticalDiffusion):
     def __call__(
         self,
