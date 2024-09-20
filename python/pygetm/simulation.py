@@ -142,6 +142,7 @@ class BaseSimulation:
             The time from which the restart information was taken.
         """
         kwargs.setdefault("decode_times", True)
+        kwargs["decode_timedelta"] = False
         kwargs["use_cftime"] = True
         with xr.open_dataset(path, **kwargs) as ds:
             timevar = ds["time"]
