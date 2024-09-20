@@ -81,6 +81,7 @@ class Grid(_pygetm.Grid):
         "_land3d",
         "_water",
         "_water_nohalo",
+        "extra_output_coordinates",
     )
 
     _array_args = {
@@ -190,6 +191,7 @@ class Grid(_pygetm.Grid):
         self._sin_rot: Optional[np.ndarray] = None
         self._cos_rot: Optional[np.ndarray] = None
         self._interpolators = {}
+        self.extra_output_coordinates = []
 
         for name in self._readonly_arrays:
             self._setup_array(name)

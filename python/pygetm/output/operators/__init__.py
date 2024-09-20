@@ -107,8 +107,10 @@ class Base:
 class WrappedArray(Base):
     __slots__ = ("_name", "values")
 
-    def __init__(self, values: np.ndarray, name: str, dims: Tuple[str]):
-        super().__init__(name, values.shape, dims, values.dtype, time_varying=False)
+    def __init__(self, values: np.ndarray, name: str, dims: Tuple[str], **kwargs):
+        super().__init__(
+            name, values.shape, dims, values.dtype, time_varying=False, **kwargs
+        )
         self._name = name
         self.values = values
 
@@ -345,6 +347,7 @@ class Field(Base):
             yield Field(self.grid.y)
         if self.z:
             yield Field(self.grid.zf if self.z == INTERFACES else self.grid.zc)
+        yield from self.grid.extra_output_coordinates
 
     @property
     def z(self) -> bool:
