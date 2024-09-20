@@ -4,7 +4,6 @@ from typing import (
     Tuple,
     Union,
     Optional,
-    Sequence,
     Mapping,
     Literal,
     Callable,
@@ -65,7 +64,7 @@ class Base:
         raise NotImplementedError
 
     @property
-    def coords(self) -> Sequence["Base"]:
+    def coords(self) -> Iterable["Base"]:
         raise NotImplementedError
 
     @property
@@ -121,7 +120,7 @@ class WrappedArray(Base):
         return self._name
 
     @property
-    def coords(self) -> Sequence["Base"]:
+    def coords(self) -> Iterable[Base]:
         return ()
 
     def get(
@@ -337,7 +336,7 @@ class Field(Base):
             return out
 
     @property
-    def coords(self) -> Sequence["Base"]:
+    def coords(self) -> Iterable[Base]:
         if self.grid.domain.spherical:
             yield Field(self.grid.lon)
             yield Field(self.grid.lat)
@@ -397,7 +396,7 @@ class UnivariateTransform(Base):
         return self._source.grid
 
     @property
-    def coords(self) -> Sequence[Base]:
+    def coords(self) -> Iterable[Base]:
         yield from self._source.coords
 
     @property
@@ -458,7 +457,7 @@ class Gather(UnivariateTransform):
         return out
 
     @property
-    def coords(self) -> Sequence[Base]:
+    def coords(self) -> Iterable[Base]:
         for c in self._source.coords:
             yield c.gather(self.tiling)
 
@@ -490,7 +489,7 @@ class Slice(UnivariateTransform):
             return out
 
     @property
-    def coords(self) -> Sequence[Base]:
+    def coords(self) -> Iterable[Base]:
         for c in self._source.coords:
             if c.shape[-2:] == self._source.shape[-2:]:
                 c = Slice(c)
@@ -553,7 +552,7 @@ class TimeAverage(UnivariateTransformWithData):
         return super().get(out, slice_spec)
 
     @property
-    def coords(self):
+    def coords(self) -> Iterable[Base]:
         for c in super().coords:
             if c.time_varying:
                 c = TimeAverage(c)
@@ -612,7 +611,7 @@ class Regrid(UnivariateTransformWithData):
         return self._grid
 
     @property
-    def coords(self):
+    def coords(self) -> Iterable[Base]:
         if self._grid.domain.spherical:
             yield Field(self._grid.lon)
             yield Field(self._grid.lat)
@@ -647,7 +646,7 @@ class InterpZ(UnivariateTransformWithData):
         return super().get(out, slice_spec)
 
     @property
-    def coords(self):
+    def coords(self) -> Iterable[Base]:
         for c in super().coords:
             if c.attrs.get("axis") == "Z":
                 c = WrappedArray(self.z_tgt, self.z_dim, (self.z_dim,))
