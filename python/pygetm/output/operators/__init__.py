@@ -51,8 +51,9 @@ class Base:
         self.expression = expression
         self.dtype = dtype
         self.shape = shape
-        self.dims = dims
         self.ndim = len(shape)
+        assert self.ndim == len(dims)
+        self.dims = dims
         self.fill_value = fill_value
         self.attrs = attrs
         self.time_varying = time_varying
