@@ -50,9 +50,7 @@ class PerGrid(Base):
 
 
 def calculate_sigma(nz: int, ddl: float = 0.0, ddu: float = 0.0) -> np.ndarray:
-    """Return sigma thicknesses of of layers.
-    These start at -1.0 (bottom) and increase monotonically to 0.0 (surface)
-    """
+    """Return sigma thicknesses of of layers."""
     if ddl <= 0.0 and ddu <= 0.0:
         return np.broadcast_to(1.0 / nz, (nz,))
     ddl, ddu = max(ddl, 0.0), max(ddu, 0.0)
@@ -155,7 +153,7 @@ class GVC(PerGrid):
             np.minimum(self.Dgamma / D, 1.0) * self.dsigma_ref - self.dbeta_ref
         ) / (self.dsigma_ref - self.dbeta_ref)
 
-        # Blend equal thicknesses (sigma) with zoomed thicknesses (beta)
+        # Blend equal thicknesses (dsigma) with zoomed thicknesses (dbeta)
         dga = alpha * self.dsigma + (1.0 - alpha) * self.dbeta
         assert (dga > 0.0).all(where=grid._water)
 
