@@ -1,7 +1,10 @@
+from typing import TYPE_CHECKING
 import logging
+
 import numpy as np
 
-from . import domain
+if TYPE_CHECKING:
+    from . import domain
 from .constants import CENTERS
 
 
@@ -16,11 +19,11 @@ class Base:
             raise Exception("Number of layers nz must be a positive number")
         self.nz = nz
 
-    def initialize(self, ref_grid: domain.Grid, *other_grids: domain.Grid):
+    def initialize(self, ref_grid: "domain.Grid", *other_grids: "domain.Grid"):
         self.logger = ref_grid.domain.root_logger.getChild("vertical_coordinates")
 
-    def update(self):
-        """Update layer thicknesses hn all grids"""
+    def update(self, timestep: float):
+        """Update layer thicknesses hn for all grids"""
         raise NotImplementedError
 
 
@@ -28,24 +31,24 @@ class PerGrid(Base):
     """Base class for vertical coordinate types that apply the same operation
     to every grid."""
 
-    def initialize(self, *grids: domain.Grid):
+    def initialize(self, *grids: "domain.Grid"):
         super().initialize(*grids)
         self.grid_info = [self.prepare_update_args(grid) for grid in grids]
 
-    def prepare_update_args(self, grid: domain.Grid):
+    def prepare_update_args(self, grid: "domain.Grid"):
         """Prepare grid-specific information that will be passed as
-        arguments to update_grid"""
-        return (grid,)
+        arguments to __call__"""
+        return (grid.D.all_values, grid.hn.all_values, grid._water)
 
-    def update(self):
+    def update(self, timestep: float):
         """Update all grids"""
         for gi in self.grid_info:
             self.update_grid(*gi)
 
-    def update_grid(self, *args):
+    def __call__(self, D: np.ndarray, out: np.ndarray, where: np.ndarray = True):
         """Update a single grid"""
         raise NotImplementedError(
-            "Classes that inherit from PerGrid must implement update_grid"
+            "Classes that inherit from PerGrid must implement __call__"
         )
 
 
@@ -72,11 +75,9 @@ class Sigma(PerGrid):
         super().__init__(nz)
         self.dga = calculate_sigma(nz, ddl, ddu)[:, np.newaxis, np.newaxis]
 
-    def update_grid(self, grid: domain.Grid):
+    def __call__(self, D: np.ndarray, out: np.ndarray, where: np.ndarray = True):
         # From sigma thicknesses as fraction [dga] to layer thicknesses in m [hn]
-        np.multiply(
-            self.dga, grid.D.all_values, where=grid._water, out=grid.hn.all_values
-        )
+        return np.multiply(self.dga, D, out=out, where=where)
 
 
 class GVC(PerGrid):
@@ -107,7 +108,7 @@ class GVC(PerGrid):
         self.dsigma_ref = dsigma[k_ref]
         self.dbeta_ref = dbeta[k_ref]
 
-        if self.dbeta_ref > self.dsigma_ref:
+        if self.dbeta_ref >= self.dsigma_ref:
             raise Exception(
                 "This GVC parameterization would always result in equidistant layers."
                 " If this is desired, use Sigma instead."
@@ -125,19 +126,18 @@ class GVC(PerGrid):
         # (unless dbeta_ref > dsigma_ref, but that case was already eliminated above)
         alpha_lim = -dbeta / (dsigma - dbeta)
         alpha_min = alpha_lim[alpha_lim < 0.0].max()
-        self.D_max = (Dgamma * self.dsigma_ref) / (
-            (alpha_min * self.dsigma_ref + (1.0 - alpha_min) * self.dbeta_ref)
+        denom = alpha_min * self.dsigma_ref + (1.0 - alpha_min) * self.dbeta_ref
+        self.D_max = (
+            np.inf if abs(denom) < 1e-15 else (Dgamma * self.dsigma_ref) / denom
         )
 
-    def initialize(self, *grids: domain.Grid):
+    def initialize(self, *grids: "domain.Grid"):
         super().initialize(*grids)
         self.logger.info(
             f"This GVC parameterization supports water depths up to {self.D_max:.3f} m"
         )
 
-    def update_grid(self, grid: domain.Grid):
-        D = grid.D.all_values
-
+    def __call__(self, D: np.ndarray, out: np.ndarray, where: np.ndarray = True):
         # The aim is to give the reference layer (surface or bottom) a constant
         # thickness of Dgamma / nz = Dgamma * dsigma
         # The final calculation of the reference layer thickness blends
@@ -154,13 +154,12 @@ class GVC(PerGrid):
         ) / (self.dsigma_ref - self.dbeta_ref)
 
         # Blend equal thicknesses (dsigma) with zoomed thicknesses (dbeta)
-        dga = alpha * self.dsigma + (1.0 - alpha) * self.dbeta
-        assert (dga > 0.0).all(where=grid._water)
+        # alpha * self.dsigma + (1.0 - alpha) * self.dbeta
+        dga = self.dbeta + alpha * (self.dsigma - self.dbeta)
+        assert (dga > 0.0).all(where=where)
 
         # From sigma thicknesses as fraction [dga] to layer thicknesses in m [hn]
-        np.multiply(dga, D, where=grid._water, out=grid.hn.all_values)
-
-        # NB no relaxation here - that can be done at higher level by blending ho and hn
+        return np.multiply(dga, D, where=where, out=out)
 
 
 class Adaptive(Base):
@@ -170,7 +169,7 @@ class Adaptive(Base):
     def __init__(self, nz: int):
         super().__init__(nz)
 
-    def initialize(self, tgrid: domain.Grid, *other_grids: domain.Grid):
+    def initialize(self, tgrid: "domain.Grid", *other_grids: "domain.Grid"):
         super().initialize(tgrid, *other_grids)
 
         self.tgrid = tgrid
@@ -181,7 +180,7 @@ class Adaptive(Base):
         # Here you can obtain any other model field by name, as tgrid.domain.fields[NAME]
         # and store it as attribte of self for later use in update
 
-    def update(self):
+    def update(self, timestep: float):
         # update sigma thicknesses on tgrid (self.dga_t)
 
         # Interpolate sigma thicknesses from T grid to other grids
