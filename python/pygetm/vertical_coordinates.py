@@ -43,7 +43,7 @@ class PerGrid(Base):
     def update(self, timestep: float):
         """Update all grids"""
         for gi in self.grid_info:
-            self.update_grid(*gi)
+            self(*gi)
 
     def __call__(self, D: np.ndarray, out: np.ndarray, where: np.ndarray = True):
         """Update a single grid"""
