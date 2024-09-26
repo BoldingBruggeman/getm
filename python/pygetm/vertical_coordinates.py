@@ -78,7 +78,7 @@ class Sigma(PerGrid):
 
     def __call__(self, D: np.ndarray, out: np.ndarray = None, where: np.ndarray = True):
         # From sigma thicknesses as fraction [dga] to layer thicknesses in m [hn]
-        return np.multiply(self.dga, D, out=out, where=where)
+        return np.multiply(self.dga, D, out=out, where=np.asarray(where, dtype=bool))
 
 
 class GVC(PerGrid):
