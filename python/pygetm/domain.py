@@ -15,6 +15,7 @@ from . import core
 from . import parallel
 from . import input
 from . import open_boundaries
+import pygetm.vertical_coordinates
 from .constants import FILL_VALUE, CENTERS, GRAVITY
 
 
@@ -1380,6 +1381,7 @@ class Domain(_pygetm.Domain):
         ddu: float = 0.0,
         Dgamma: float = 0.0,
         gamma_surf: bool = True,
+        vertical_coordinates: Optional[pygetm.vertical_coordinates.Base] = None,
         halox: int = 2,
         haloy: int = 2,
         **kwargs,
@@ -1622,11 +1624,14 @@ class Domain(_pygetm.Domain):
 
         self.Dmin = Dmin
         self.Dcrit = Dcrit
-        self.ddl = ddl
-        self.ddu = ddu
-        self.Dgamma = Dgamma
-        self.gamma_surf = gamma_surf
-        self.vertical_coordinate_method = vertical_coordinate_method
+        if vertical_coordinates is None:
+            if vertical_coordinate_method == VerticalCoordinates.SIGMA:
+                vertical_coordinates = pygetm.vertical_coordinates.Sigma(nz, ddl, ddu)
+            else:
+                vertical_coordinates = pygetm.vertical_coordinates.GVC(
+                    nz, ddl, ddu, gamma_surf, Dgamma
+                )
+        self.vertical_coordinates = vertical_coordinates
 
         self._initialized = False
         self.open_boundaries = open_boundaries.OpenBoundaries(self)
@@ -1786,15 +1791,8 @@ class Domain(_pygetm.Domain):
         self.T.z.open_boundaries = open_boundaries.ArrayOpenBoundaries(self.T.z)
         self.open_boundaries.z = self.T.z.open_boundaries.values
 
-        super().initialize(
-            runtype,
-            Dmin=self.Dmin,
-            method_vertical_coordinates=self.vertical_coordinate_method,
-            ddl=self.ddl,
-            ddu=self.ddu,
-            Dgamma=self.Dgamma,
-            gamma_surf=self.gamma_surf,
-        )
+        super().initialize(runtype, Dmin=self.Dmin)
+        self.vertical_coordinates.initialize(self.T, self.U, self.V, self.X)
 
         self.rivers.initialize()
 
@@ -1966,11 +1964,7 @@ class Domain(_pygetm.Domain):
             tp(self.z0b_min),
             tp(self.cor),
             Dmin=self.Dmin,
-            vertical_coordinate_method=self.vertical_coordinate_method,
-            ddl=self.ddl,
-            ddu=self.ddu,
-            Dgamma=self.Dgamma,
-            gamma_surf=self.gamma_surf,
+            vertical_coordinates=self.vertical_coordinates,
             logger=self.logger,
         )
 
@@ -2413,7 +2407,7 @@ class Domain(_pygetm.Domain):
 
             # Update layer thicknesses (hn) on all grids, using bathymetry H and new
             # elevations zin (on the 3D timestep)
-            self.do_vertical(timestep)
+            self.vertical_coordinates.update(timestep)
 
             # Update vertical coordinates, used for e.g., output, internal pressure,
             # vertical interpolation of open boundary forcing of tracers

@@ -6,6 +6,7 @@ import numpy as np
 if TYPE_CHECKING:
     from . import domain
 from .constants import CENTERS
+from . import _pygetm
 
 
 class Base:
@@ -38,7 +39,7 @@ class PerGrid(Base):
     def prepare_update_args(self, grid: "domain.Grid"):
         """Prepare grid-specific information that will be passed as
         arguments to __call__"""
-        return (grid.D.all_values, grid.hn.all_values, grid._water)
+        return (grid.D.all_values, grid.hn.all_values, grid.mask.all_values)
 
     def update(self, timestep: float):
         """Update all grids"""
@@ -75,7 +76,7 @@ class Sigma(PerGrid):
         super().__init__(nz)
         self.dga = calculate_sigma(nz, ddl, ddu)[:, np.newaxis, np.newaxis]
 
-    def __call__(self, D: np.ndarray, out: np.ndarray, where: np.ndarray = True):
+    def __call__(self, D: np.ndarray, out: np.ndarray = None, where: np.ndarray = True):
         # From sigma thicknesses as fraction [dga] to layer thicknesses in m [hn]
         return np.multiply(self.dga, D, out=out, where=where)
 
@@ -102,34 +103,28 @@ class GVC(PerGrid):
 
         super().__init__(nz)
 
-        dsigma = calculate_sigma(nz)
-        dbeta = calculate_sigma(nz, ddl, ddu)
-        k_ref = -1 if gamma_surf else 0
-        self.dsigma_ref = dsigma[k_ref]
-        self.dbeta_ref = dbeta[k_ref]
+        self.dsigma = 1.0 / nz
+        self.dbeta = calculate_sigma(nz, ddl, ddu)
+        self.k_ref = -1 if gamma_surf else 0
 
-        if self.dbeta_ref >= self.dsigma_ref:
+        if self.dbeta[self.k_ref] >= self.dsigma:
             raise Exception(
                 "This GVC parameterization would always result in equidistant layers."
                 " If this is desired, use Sigma instead."
             )
 
         self.Dgamma = Dgamma
-        self.dsigma = dsigma[:, np.newaxis, np.newaxis]
-        self.dbeta = dbeta[:, np.newaxis, np.newaxis]
 
         # Calculate valid limit for alpha, and from that, the maximum water depth
         # NB the max alpha would be alpha_lim[alpha_lim > 0.0].min()
         # However, where alpha_lim > 0, we know dsigma - dbeta < 0.
         # Since dsigma - dbeta > -dbeta (while both are < 0), the limit must
         # then be >= 1. This limit is irrelevant as alpha <= 1
-        # (unless dbeta_ref > dsigma_ref, but that case was already eliminated above)
-        alpha_lim = -dbeta / (dsigma - dbeta)
+        # (unless dbeta[k_ref] > dsigma, but that case was already eliminated above)
+        alpha_lim = -self.dbeta / (self.dsigma - self.dbeta)
         alpha_min = alpha_lim[alpha_lim < 0.0].max()
-        denom = alpha_min * self.dsigma_ref + (1.0 - alpha_min) * self.dbeta_ref
-        self.D_max = (
-            np.inf if abs(denom) < 1e-15 else (Dgamma * self.dsigma_ref) / denom
-        )
+        denom = alpha_min * self.dsigma + (1.0 - alpha_min) * self.dbeta[self.k_ref]
+        self.D_max = np.inf if abs(denom) < 1e-15 else (Dgamma * self.dsigma) / denom
 
     def initialize(self, *grids: "domain.Grid"):
         super().initialize(*grids)
@@ -137,29 +132,15 @@ class GVC(PerGrid):
             f"This GVC parameterization supports water depths up to {self.D_max:.3f} m"
         )
 
-    def __call__(self, D: np.ndarray, out: np.ndarray, where: np.ndarray = True):
-        # The aim is to give the reference layer (surface or bottom) a constant
-        # thickness of Dgamma / nz = Dgamma * dsigma
-        # The final calculation of the reference layer thickness blends
-        # fractional thicknesses dsigma and dbeta, giving a thickness in m of
-        #   (alpha * dsigma + (1 - alpha) * dbeta) * D
-        # Setting this equal to Dgamma * dsigma and rearranging, we obtain
-        #   alpha = (Dgamma / D * dsigma - dbeta) / (dsigma - dbeta)
-        # If we additionally reduce the target thickness to D * dsigma when
-        # the column height drops below Dgamma, we effectively substitute
-        # min(Dgamma, D) for Dgamma. That leads to:
-        #   alpha = (min(Dgamma / D, 1.0) * dsigma - dbeta) / (dsigma - dbeta)
-        alpha = (
-            np.minimum(self.Dgamma / D, 1.0) * self.dsigma_ref - self.dbeta_ref
-        ) / (self.dsigma_ref - self.dbeta_ref)
-
-        # Blend equal thicknesses (dsigma) with zoomed thicknesses (dbeta)
-        # alpha * self.dsigma + (1.0 - alpha) * self.dbeta
-        dga = self.dbeta + alpha * (self.dsigma - self.dbeta)
-        assert (dga > 0.0).all(where=where)
-
-        # From sigma thicknesses as fraction [dga] to layer thicknesses in m [hn]
-        return np.multiply(dga, D, where=where, out=out)
+    def __call__(self, D: np.ndarray, out: np.ndarray = None, where: np.ndarray = None):
+        if out is None:
+            out = np.empty(self.dbeta.shape + D.shape)
+        if where is None:
+            where = np.full(D.shape, 1)
+        _pygetm.update_gvc(
+            self.dsigma, self.dbeta, self.Dgamma, self.k_ref, D, where, out
+        )
+        return out
 
 
 class Adaptive(Base):

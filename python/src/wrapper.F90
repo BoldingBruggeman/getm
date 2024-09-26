@@ -104,16 +104,6 @@ contains
       deallocate(grid)
    end subroutine
 
-   subroutine domain_do_vertical(pdomain, timestep) bind(c)
-      type(c_ptr),    intent(in), value :: pdomain
-      real(c_double), intent(in), value :: timestep
-
-      type (type_getm_domain), pointer :: domain
-
-      call c_f_pointer(pdomain, domain)
-      call domain%do_vertical(timestep)
-   end subroutine
-
    subroutine get_array(source_type, obj, name, grid_type, sub_type, data_type, p) bind(c)
       integer(c_int),  value,         intent(in)  :: source_type
       type(c_ptr), value,             intent(in)  :: obj
@@ -218,24 +208,16 @@ contains
       end select
    end subroutine
 
-   subroutine domain_initialize(pdomain, runtype, Dmin, method_vertical_coordinates, ddl, ddu, Dgamma, gamma_surf, maxdt) bind(c)
+   subroutine domain_initialize(pdomain, runtype, Dmin, maxdt) bind(c)
       type(c_ptr),    intent(in), value :: pdomain
       integer(c_int), intent(in), value :: runtype
       real(c_double), intent(in), value :: Dmin
-      integer(c_int), intent(in), value :: method_vertical_coordinates
-      real(c_double), intent(in), value :: ddl, ddu, Dgamma
-      integer(c_int), intent(in), value :: gamma_surf
       real(c_double), intent(out)       :: maxdt
 
       type (type_getm_domain), pointer :: domain
 
       call c_f_pointer(pdomain, domain)
       domain%Dmin = Dmin
-      domain%ddl = ddl
-      domain%ddu = ddu
-      domain%Dgamma = Dgamma
-      domain%gamma_surf = gamma_surf /= 0
-      domain%method_vertical_coordinates = method_vertical_coordinates
       call domain%initialize(runtype)
       maxdt = domain%maxdt
    end subroutine
@@ -609,5 +591,41 @@ contains
          end do
       end do
    END SUBROUTINE c_surface_pressure_gradient
+
+   subroutine c_update_gvc(nx, ny, nz, dsigma, dbeta, Dgamma, kk, D, mask, h) bind(c)
+      integer(c_int), value, intent(in) :: nx, ny, nz
+      real(c_double), value, intent(in) :: dsigma
+      real(c_double), intent(in) :: dbeta(nz)
+      real(c_double), value, intent(in) :: Dgamma
+      integer(c_int), value, intent(in) :: kk
+      real(c_double), intent(in) :: D(nx, ny)
+      integer(c_int), intent(in) :: mask(nx, ny)
+      real(c_double), intent(inout) :: h(nx, ny, nz)
+
+      real(c_double), allocatable :: alpha(:, :)
+      integer :: k
+
+      allocate(alpha(nx, ny))
+
+      ! The aim is to give the reference layer (surface or bottom) a constant
+      ! thickness of Dgamma / nz = Dgamma * dsigma
+      ! The final calculation of the reference layer thickness blends
+      ! fractional thicknesses dsigma and dbeta, giving a thickness in m of
+      !   (alpha * dsigma + (1 - alpha) * dbeta) * D
+      ! Setting this equal to Dgamma * dsigma and rearranging, we obtain
+      !   alpha = (Dgamma / D * dsigma - dbeta) / (dsigma - dbeta)
+      ! If we additionally reduce the target thickness to D * dsigma when
+      ! the column height drops below Dgamma, we effectively substitute
+      ! min(Dgamma, D) for Dgamma. That leads to:
+      !   alpha = (min(Dgamma / D, 1.0) * dsigma - dbeta) / (dsigma - dbeta)
+      alpha = (min(Dgamma / D, 1.0_c_double) * dsigma - dbeta(kk)) / (dsigma - dbeta(kk))
+
+      do k = 1, nz
+         ! Blend equal thicknesses (dsigma) with zoomed thicknesses (dbeta)
+         ! alpha * self.dsigma + (1.0 - alpha) * self.dbeta
+         ! Then multiply with water depth to obtain layer thicknesses in m
+         where (mask /= 0) h(:, :, k) = D * (dbeta(k) + alpha * (dsigma - dbeta(k)))
+      end do
+   end subroutine
 
 end module

@@ -25,10 +25,9 @@ cdef extern void c_allocate_array(int n, int dtype, void** ptype, void** pdata) 
 cdef extern void c_deallocate_array(void* ptype) nogil
 cdef extern void* domain_create(int imin, int imax, int jmin, int jmax, int kmin, int kmax, int halox, int haloy, int haloz) nogil
 cdef extern void* domain_get_grid(void* domain, int grid_type, int imin, int imax, int jmin, int jmax, int kmin, int kmax, int halox, int haloy, int haloz) nogil
-cdef extern void domain_initialize(void* domain, int runtype, double Dmin, int method_vertical_coordinates, double ddl, double ddu, double Dgamma, int gamma_surf, double* maxdt) nogil
+cdef extern void domain_initialize(void* domain, int runtype, double Dmin, double* maxdt) nogil
 cdef extern void grid_finalize(void* grid) nogil
 cdef extern void domain_finalize(void* domain) nogil
-cdef extern void domain_do_vertical(void* domain, double timestep) nogil
 cdef extern void grid_interp_x(int nx, int ny, int nz, const double* source, double* target, int ioffset) nogil
 cdef extern void grid_interp_y(int nx, int ny, int nz, const double* source, double* target, int joffset) nogil
 cdef extern void grid_interp_z(int nx, int ny, int nz1, int nz2, const double* source, double* target, int koffset) nogil
@@ -69,6 +68,7 @@ cdef extern void c_surface_pressure_gradient(int nx, int ny, int imin, int imax,
 cdef extern void c_blumberg_mellor(int nx, int ny, int nz, int imin, int imax, int jmin, int jmax, const int* umask, const int* vmask, const double* idxu, const double* idyv, const double* hu, const double* hv, const double* zf, const double* buoy, double* idpdx, double* idpdy) nogil
 cdef extern void c_shchepetkin_mcwilliams(int nx, int ny, int nz, int imin, int imax, int jmin, int jmax, const int* mask, const int* umask, const int* vmask, const double* idxu, const double* idyv, const double* h, const double* z, const double* zc, const double* buoy, double* idpdx, double* idpdy) nogil
 cdef extern void c_vertical_advection_to_sources(int nx, int ny, int nz, int halox, int haloy, const int* mask, const double* c, const double* w, const double* h, double* s)
+cdef extern void c_update_gvc(int nx, int ny, int nz, double dsigma, const double* dbeta, double Dgamma, int kk, const double* D, const int* mask, double* h)
 
 
 cpdef enum:
@@ -235,11 +235,8 @@ cdef class Domain:
         if self.p != NULL:
             domain_finalize(self.p)
 
-    def do_vertical(self, double timestep):
-        domain_do_vertical(self.p, timestep)
-
-    def initialize(self, int runtype, double Dmin, int method_vertical_coordinates, double ddl=0., double ddu=0., double Dgamma=0., gamma_surf=True):
-        domain_initialize(self.p, runtype, Dmin, method_vertical_coordinates, ddl, ddu, Dgamma, 1 if gamma_surf else 0, &self.maxdt)
+    def initialize(self, int runtype, double Dmin, gamma_surf=True):
+        domain_initialize(self.p, runtype, Dmin, &self.maxdt)
 
 cdef class Advection:
     cdef void* p
@@ -632,6 +629,16 @@ def multiply_add(double[::1] tgt, const double[::1] add, double scale_factor):
 
 def vertical_advection_to_sources(int halox, int haloy, int[:, :, ::1] mask, double[:, : , ::1] c, double[:, : , ::1] w, double[:, : , ::1] h, double[:, : , ::1] s):
     c_vertical_advection_to_sources(<int>c.shape[2], <int>c.shape[1], <int>c.shape[0], halox, haloy, &mask[0,0,0], &c[0,0,0], &w[0,0,0], &h[0,0,0], &s[0,0,0])
+
+def update_gvc(double dsigma, const double [::1] dbeta, double Dgamma, int kk, const double [:, ::1] D, int[:, ::1] mask, double [:, :, ::1] h):
+    cdef int nx = <int>D.shape[1]
+    cdef int ny = <int>D.shape[0]
+    cdef int nz = <int>dbeta.shape[0]
+    assert mask.shape[0] == ny and mask.shape[1] == nx
+    assert h.shape[0] == nz and h.shape[1] == ny and h.shape[2] == nx
+    if kk < 0:
+        kk = nz + kk
+    c_update_gvc(nx, ny, nz, dsigma, &dbeta[0], Dgamma, 1 + kk, &D[0, 0], &mask[0, 0], &h[0, 0, 0])
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
