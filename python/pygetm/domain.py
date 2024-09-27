@@ -160,6 +160,17 @@ class Grid(_pygetm.Grid):
     }
     domain: "Domain"
 
+    postfixes = {
+        _pygetm.TGRID: "t",
+        _pygetm.UGRID: "u",
+        _pygetm.VGRID: "v",
+        _pygetm.XGRID: "x",
+        _pygetm.UUGRID: "_uu_adv",
+        _pygetm.VVGRID: "_vv_adv",
+        _pygetm.UVGRID: "_uv_adv",
+        _pygetm.VUGRID: "_vu_adv",
+    }
+
     def __init__(
         self,
         domain: "Domain",
@@ -177,16 +188,7 @@ class Grid(_pygetm.Grid):
         self.ioffset = ioffset
         self.joffset = joffset
         self.overlap = overlap
-        self.postfix = {
-            _pygetm.TGRID: "t",
-            _pygetm.UGRID: "u",
-            _pygetm.VGRID: "v",
-            _pygetm.XGRID: "x",
-            _pygetm.UUGRID: "_uu_adv",
-            _pygetm.VVGRID: "_vv_adv",
-            _pygetm.UVGRID: "_uv_adv",
-            _pygetm.VUGRID: "_vu_adv",
-        }[grid_type]
+        self.postfix = self.postfixes[grid_type]
         self.ugrid: Optional[Grid] = ugrid
         self.vgrid: Optional[Grid] = vgrid
         self._sin_rot: Optional[np.ndarray] = None
