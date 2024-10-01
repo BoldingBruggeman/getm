@@ -15,6 +15,7 @@ Submodules
 .. toctree::
    :maxdepth: 4
 
+   pygetm.output.memory
    pygetm.output.netcdf
 
 Module contents
