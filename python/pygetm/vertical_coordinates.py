@@ -1,7 +1,8 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Union
 import logging
 
 import numpy as np
+import numpy.typing as npt
 
 if TYPE_CHECKING:
     from . import domain
@@ -10,8 +11,8 @@ from . import _pygetm
 
 
 class Base:
-    """Base class. It is responsible for updating all layer thicknesses
-    hn for all grids provided to initialize"""
+    """Base class. It is responsible for updating layer thicknesses
+    ``hn`` for all grids provided to initialize"""
 
     logger: logging.Logger
 
@@ -46,15 +47,34 @@ class PerGrid(Base):
         for gi in self.grid_info:
             self(*gi)
 
-    def __call__(self, D: np.ndarray, out: np.ndarray, where: np.ndarray = True):
-        """Update a single grid"""
+    def __call__(
+        self,
+        D: np.ndarray,
+        out: Optional[np.ndarray] = None,
+        where: Union[bool, npt.ArrayLike] = True,
+    ):
+        """Calculate layer thicknesses
+
+        Args:
+            D: water depths (m)
+            out: array to hold layer thicknesses. It must have shape ``(nz,) + D.shape``
+            where: locations where to compute thicknesses (typically: water points).
+                It must be broadcastable to the shape of ``D``
+        """
         raise NotImplementedError(
             "Classes that inherit from PerGrid must implement __call__"
         )
 
 
 def calculate_sigma(nz: int, ddl: float = 0.0, ddu: float = 0.0) -> np.ndarray:
-    """Return sigma thicknesses of of layers."""
+    """Return sigma thicknesses (fraction of column depth) of all layers,
+    using a formulation that allows zooming towards the surface and bottom.
+
+    Args:
+        nz: number of layers
+        ddl: zoom factor at bottom (0: no zooming, 2: strong zooming)
+        ddu: zoom factor at surface (0: no zooming, 2: strong zooming)
+    """
     if ddl <= 0.0 and ddu <= 0.0:
         return np.broadcast_to(1.0 / nz, (nz,))
     ddl, ddu = max(ddl, 0.0), max(ddu, 0.0)
@@ -82,7 +102,12 @@ class Sigma(PerGrid):
         super().__init__(nz)
         self.dga = calculate_sigma(nz, ddl, ddu)[:, np.newaxis, np.newaxis]
 
-    def __call__(self, D: np.ndarray, out: np.ndarray = None, where: np.ndarray = True):
+    def __call__(
+        self,
+        D: np.ndarray,
+        out: Optional[np.ndarray] = None,
+        where: Union[bool, npt.ArrayLike] = True,
+    ) -> np.ndarray:
         # From sigma thicknesses as fraction [dga] to layer thicknesses in m [hn]
         return np.multiply(self.dga, D, out=out, where=np.asarray(where, dtype=bool))
 
@@ -91,8 +116,8 @@ class GVC(PerGrid):
     """Generalized Vertical Coordinates
 
     This blends equidistant and surface/bottom-zoomed coordinates as described in
-    Burchard & Petersen (1997)
-    https://doi.org/10.1002/(SICI)1097-0363(19971115)25%3A9%3C1003%3A%3AAID-FLD600%3E3.0.CO%3B2-E
+    `Burchard & Petersen (1997)
+    <https://doi.org/10.1002/(SICI)1097-0363(19971115)25%3A9%3C1003%3A%3AAID-FLD600%3E3.0.CO%3B2-E>`_.
     It is designed to keep the thickness of either the surface or bottom layer at a constant
     value, except in shallow water where all layers are assigned equal thickness.
     """
@@ -110,7 +135,7 @@ class GVC(PerGrid):
             nz: number of layers
             ddl: zoom factor at bottom (0: no zooming, 2: strong zooming)
             ddu: zoom factor at surface (0: no zooming, 2: strong zooming)
-            gamma_surf: use layers of constant thickness `Dgamma/nz` at surface
+            gamma_surf: use layers of constant thickness ``Dgamma/nz`` at surface
                 (otherwise, at bottom)
             Dgamma: water depth below which to use equal layer thicknesses
         """
@@ -150,7 +175,12 @@ class GVC(PerGrid):
             f"This GVC parameterization supports water depths up to {self.D_max:.3f} m"
         )
 
-    def __call__(self, D: np.ndarray, out: np.ndarray = None, where: np.ndarray = None):
+    def __call__(
+        self,
+        D: np.ndarray,
+        out: Optional[np.ndarray] = None,
+        where: Optional[np.ndarray] = None,
+    ):
         if out is None:
             out = np.empty(self.dbeta.shape + D.shape)
         if where is None:
