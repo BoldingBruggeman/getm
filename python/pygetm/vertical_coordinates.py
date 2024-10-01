@@ -70,9 +70,15 @@ def calculate_sigma(nz: int, ddl: float = 0.0, ddu: float = 0.0) -> np.ndarray:
 
 
 class Sigma(PerGrid):
-    """Sigma coordinates with optional zooming towards bottom (ddl) and surface (ddu)"""
+    """Sigma coordinates with optional zooming towards bottom and surface"""
 
     def __init__(self, nz: int, ddl: float = 0.0, ddu: float = 0.0):
+        """
+        Args:
+            nz: number of layers
+            ddl: zoom factor at bottom (0: no zooming, 2: strong zooming)
+            ddu: zoom factor at surface (0: no zooming, 2: strong zooming)
+        """
         super().__init__(nz)
         self.dga = calculate_sigma(nz, ddl, ddu)[:, np.newaxis, np.newaxis]
 
@@ -84,8 +90,11 @@ class Sigma(PerGrid):
 class GVC(PerGrid):
     """Generalized Vertical Coordinates
 
+    This blends equidistant and surface/bottom-zoomed coordinates as described in
     Burchard & Petersen (1997)
-    https://doi.org/10.1002/(SICI)1097-0363(19971115)25:9%3C1003::AID-FLD600%3E3.0.CO;2-E
+    https://doi.org/10.1002/(SICI)1097-0363(19971115)25%3A9%3C1003%3A%3AAID-FLD600%3E3.0.CO%3B2-E
+    It is designed to keep the thickness of either the surface or bottom layer at a constant
+    value, except in shallow water where all layers are assigned equal thickness.
     """
 
     def __init__(
@@ -96,6 +105,15 @@ class GVC(PerGrid):
         gamma_surf: bool = True,
         Dgamma: float = 0.0,
     ):
+        """
+        Args:
+            nz: number of layers
+            ddl: zoom factor at bottom (0: no zooming, 2: strong zooming)
+            ddu: zoom factor at surface (0: no zooming, 2: strong zooming)
+            gamma_surf: use layers of constant thickness `Dgamma/nz` at surface
+                (otherwise, at bottom)
+            Dgamma: water depth below which to use equal layer thicknesses
+        """
         if ddl <= 0.0 and ddu <= 0.0:
             raise Exception("ddl and/or ddu must be a positive number")
         if Dgamma <= 0.0:
