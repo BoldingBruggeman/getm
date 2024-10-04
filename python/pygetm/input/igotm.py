@@ -36,7 +36,8 @@ ERA5_UNITS = dict(
 def download_era5(
     lng: npt.ArrayLike,
     lat: npt.ArrayLike,
-    year: int,
+    start_year: int,
+    stop_year: Optional[int] = None,
     dims: Optional[Tuple[str]] = None,
     logger: Optional[logging.Logger] = None,
 ) -> xr.Dataset:
@@ -49,6 +50,8 @@ def download_era5(
         f"Number of coordinate dimensions {lng.ndim}"
         f" does not match number of dimension names in {dims}"
     )
+    if stop_year is None:
+        stop_year = start_year
     logger = logger or logging.getLogger()
 
     data_vars = dict(
@@ -61,10 +64,10 @@ def download_era5(
     )
     it = np.nditer([lng, lat], flags=["multi_index"])
     conn = http.client.HTTPSConnection("igotm.bolding-bruggeman.com")
+    query = {"target": "era5", "minyear": start_year, "maxyear": stop_year}
     for lo, la in it:
         logger.info(f"Retrieving ERA5 for {lo:.6f} °East, {la:.6f} °North")
-        query = {"target": "era5", "lng": lo, "lat": la, "year": year}
-        url = urllib.parse.urlencode(query)
+        url = urllib.parse.urlencode(query | {"lng": lo, "lat": la})
         conn.request("GET", "/get?" + url)
         response = conn.getresponse()
         assert response.status == 200, f"Server returned error code {response.status}"
