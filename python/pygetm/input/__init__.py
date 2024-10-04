@@ -458,7 +458,9 @@ class Slice(UnaryOperator):
 
             # Forward passed-through slices provided as argument to source array
             for iout, iin in self.passthrough.items():
-                src_slice[iin] = slices[iout]
+                if slices[iout] != slice(None):
+                    assert src_slice[iin] == slice(None), "Merging slices not supported"
+                    src_slice[iin] = slices[iout]
 
             tgt_slice = tuple(itertools.compress(tgt_slice, keep))
             values = self._source[tuple(src_slice)]
@@ -796,7 +798,7 @@ def isel(source: xr.DataArray, **indices) -> xr.DataArray:
                 start, stop, stride = slc.indices(l)
                 dims.append(dim)
                 passthrough[len(shape)] = i
-                shape.append((stop - start + stride - 1) // stride)
+                shape.append(len(range(start, stop, stride)))
         elif not advanced_added:
             # First advanced slice. Add the shape produced by the broadcast combination
             # of advanced indices
@@ -1390,11 +1392,24 @@ class InputManager:
                     return mapped_value
             else:
                 # default grid mapping: from global domain to subdomain
-                assert value.shape[-2:] == global_shape, (
-                    f"{array.name}: shape of values {value.shape[-2:]}"
-                    f" should match that of global domain {global_shape}"
-                )
-                return value[global_slice]
+                if value.shape[-2:] == global_shape:
+                    slc = global_slice
+                elif value.shape[-2:] == local_shape:
+                    slc = local_slice
+                else:
+                    raise Exception(
+                        f"{array.name}: trailing shape of values {value.shape[-2:]}"
+                        f" should match that of global domain {global_shape}"
+                        f" or local subdomain {local_shape}"
+                    )
+                self._logger.info(f"_map_to_grid {slc}")
+                if isinstance(value, xr.DataArray):
+                    # lazy slice
+                    indices = {value.dims[-2]: slc[-2], value.dims[-1]: slc[-1]}
+                    return isel(value, **indices)
+                else:
+                    # immediate slice
+                    return value[slc]
 
         if isinstance(value, (numbers.Number, np.ndarray)):
             if array.on_boundary:
