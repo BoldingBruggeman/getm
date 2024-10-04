@@ -1402,7 +1402,6 @@ class InputManager:
                         f" should match that of global domain {global_shape}"
                         f" or local subdomain {local_shape}"
                     )
-                self._logger.info(f"_map_to_grid {slc}")
                 if isinstance(value, xr.DataArray):
                     # lazy slice
                     indices = {value.dims[-2]: slc[-2], value.dims[-1]: slc[-1]}
