@@ -8,7 +8,7 @@ import yaml
 try:
     import cdsapi
 except ImportError:
-    raise Exception("You need cdsapi. See https://cds.climate.copernicus.eu/api-how-to")
+    raise Exception("You need cdsapi. See https://cds.climate.copernicus.eu/how-to-api")
 
 VARIABLES = {
     "u10": "10m_u_component_of_wind",
