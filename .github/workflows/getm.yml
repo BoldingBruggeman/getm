@@ -40,6 +40,13 @@ jobs:
       - name: Verify source directory is clean
         run: |
           git status --porcelain
+      - name: Test utilities
+        run: |
+          python -m pygetm.input.glodap -h
+          python -m pygetm.input.woa -h
+          python -m pygetm.input.igotm -h
+          #python -m pygetm.input.era5 -h
+          #python -m pygetm.input.emodnet -h
       - name: Run test suite
         run: |
           cd python/tests
