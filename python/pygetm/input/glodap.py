@@ -17,25 +17,25 @@ from pygetm.util.fill import Filler
 URL = "https://www.nodc.noaa.gov/archive/arc0107/0162565/1.1/data/0-data/mapped/GLODAPv2.2016b_MappedClimatologies.tar.gz"
 
 
-def download(outfile: str, logger: logging.Logger, url: str = URL):
-    filename = os.path.basename(url)
+def download(outfile: str, logger: logging.Logger, source: str = URL):
+    filename = os.path.basename(source)
     with tempfile.TemporaryDirectory() as root:
         target = os.path.join(root, filename)
-        logger.info(f"Downloading {url}...")
-        with urllib.request.urlopen(url) as response, open(target, "wb") as fout:
-            shutil.copyfileobj(response, fout)
+
+        if source.startswith("http"):
+            logger.info(f"Downloading {source}...")
+            with urllib.request.urlopen(source) as response, open(target, "wb") as fout:
+                shutil.copyfileobj(response, fout)
+            source = target
 
         logger.info(f"Extracting {filename}...")
-        with tarfile.open(target) as tar:
+        with tarfile.open(source) as tar:
             tar.extractall(root)
-        os.remove(target)
 
         logger.info("Collecting variables...")
         with netCDF4.Dataset(outfile, "w", format="NETCDF4") as ncout:
             ncout.set_fill_off()
-            for path in glob.glob(
-                os.path.join(root, "GLODAPv2.2016b_MappedClimatologies/*.nc")
-            ):
+            for path in glob.glob(os.path.join(root, "**/*.nc"), recursive=True):
                 with netCDF4.Dataset(path) as nc:
                     nc.set_auto_maskandscale(False)
                     varname = os.path.basename(path).rsplit(".", 2)[-2]
@@ -110,12 +110,17 @@ def add_density(path: str, logger: logging.Logger):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("outfile", nargs="?", default="glodap.nc")
+    parser.add_argument(
+        "outfile", nargs="?", default="glodap.nc", help="NetCDF file to write output to"
+    )
+    parser.add_argument(
+        "--source", help="Source of the original GLODAP file (tar.gz).", default=URL
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger()
 
-    download(args.outfile, logger=logger)
+    download(args.outfile, logger=logger, source=args.source)
     add_density(args.outfile, logger=logger)
     fill(args.outfile, logger=logger)
