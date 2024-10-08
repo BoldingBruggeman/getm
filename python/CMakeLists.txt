@@ -50,6 +50,7 @@ add_library(cgetm
   src/radiation.F90
   src/interpolation.F90
   src/gradient.F90
+  src/filters.F90
   src/internal_pressure.F90
 )
 

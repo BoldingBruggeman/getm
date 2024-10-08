@@ -32,6 +32,8 @@ cdef extern void grid_interp_x(int nx, int ny, int nz, const double* source, dou
 cdef extern void grid_interp_y(int nx, int ny, int nz, const double* source, double* target, int joffset) nogil
 cdef extern void grid_interp_z(int nx, int ny, int nz1, int nz2, const double* source, double* target, int koffset) nogil
 cdef extern void grid_interp_xy(int nx1, int ny1, int nx2, int ny2, int nz, const double* source, double* target, int ioffset, int joffset) nogil
+cdef extern void c_horizontal_filter(int imin, int imax, int jmin, int jmax, int halox, int haloy, int kmax, int* mask, double w, const double* var) nogil
+cdef extern void c_vertical_filter(int n, int imin, int imax, int jmin, int jmax, int halox, int haloy, int kmax, int* mask, double w, const double* var) nogil
 cdef extern void c_gradient_x(int nx1, int ny1, int nx2, int ny2, int nz, const double* source, const double* idx, double* target, int ioffset, int joffset) nogil
 cdef extern void c_gradient_y(int nx1, int ny1, int nx2, int ny2, int nz, const double* source, const double* idy, double* target, int ioffset, int joffset) nogil
 cdef extern void get_array(int source_type, void* grid, const char* name, int* grid_type, int* sub_type, int* data_type, void** p) nogil
@@ -208,6 +210,26 @@ def interp_z(const double[:,:,::1] source not None, double[:,:,::1] target not N
 
 def interp_xy(const double[:,:,::1] source not None, double[:,:,::1] target not None, int ioffset, int joffset):
     grid_interp_xy(<int>source.shape[2], <int>source.shape[1], <int>target.shape[2], <int>target.shape[1], <int>source.shape[0], &source[0,0,0], &target[0,0,0], ioffset, joffset)
+
+def horizontal_filter(Array f not None, double w):
+    cdef int halox = f.grid.domain.halox
+    cdef int haloy = f.grid.domain.haloy
+    cdef int nx = f.grid.nx
+    cdef int ny = f.grid.ny
+    cdef int nz = f.grid.nz
+    cdef Array mask = f.grid.mask
+
+    c_horizontal_filter(1, nx, 1, ny, nz, halox, haloy, <int*>mask.p, w, <double*>f.p)
+
+def vertical_filter(int n, Array f not None, double w):
+    cdef int halox = f.grid.domain.halox
+    cdef int haloy = f.grid.domain.haloy
+    cdef int nx = f.grid.nx
+    cdef int ny = f.grid.ny
+    cdef int nz = f.grid.nz
+    cdef Array mask = f.grid.mask
+
+    c_vertical_filter(n, 1, nx, 1, ny, nz, halox, haloy, <int*>mask.p, w, <double*>f.p)
 
 def gradient_x(const double[:,::1] idx not None, const double[:,:,::1] source not None, double[:,:,::1] target not None, int ioffset=0, int joffset=0):
     c_gradient_x(<int>source.shape[2], <int>source.shape[1], <int>target.shape[2], <int>target.shape[1], <int>source.shape[0], &source[0,0,0], &idx[0,0], &target[0,0,0], ioffset, joffset)
