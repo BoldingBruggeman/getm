@@ -568,7 +568,7 @@ contains
 
       integer :: i, j
       real(real64) :: zp, zm
-   
+
       real(real64), parameter :: gammai = 1._real64/(g * rho0)
 
       do j = jmin, jmax

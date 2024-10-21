@@ -6,7 +6,7 @@ import numpy.typing as npt
 
 if TYPE_CHECKING:
     from . import domain
-from .constants import CENTERS
+from .constants import CENTERS, INTERFACES
 from . import _pygetm
 
 
@@ -195,22 +195,213 @@ class Adaptive(Base):
     """Adaptive coordinates - placeholder only for now"""
 
     # add parameters of adaptive coordinates here, after nz [but not model fields]
-    def __init__(self, nz: int):
+    def __init__(
+        self,
+        nz: int,
+        ddl: float = 0.0,
+        ddu: float = 0.0,
+        gamma_surf: bool = True,
+        Dgamma: float = 0.0,
+        hpow: int = 3,
+        csigma: float = -1.0,  # 0.01
+        cgvc: float = -1.0,  # 0.01
+        chsurf: float = 0.5,
+        hsurf: float = 0.5,
+        chmidd: float = 0.2,
+        hmidd: float = -4.0,
+        chbott: float = 0.3,
+        hbott: float = -0.25,
+        cneigh: float = 0.1,
+        rneigh: float = 0.25,
+        decay: float = 2.0 / 3.0,
+        cNN: float = -1.0,
+        drho: float = 0.3,
+        cSS: float = -1.0,
+        dvel: float = 0.1,
+        chmin: float = -0.1,
+        hmin: float = 0.3,
+        nvfilter: int = 1,
+        vfilter: float = 0.2,
+        nhfilter: int = 1,
+        hfilter: float = 0.1,
+        tgrid: float = 14400.0,
+        split: int = 1,
+    ):
+        """
+        Args:
+            nz: number of layers
+            ddl: zoom factor at bottom (0: no zooming, 2: strong zooming)
+            ddu: zoom factor at surface (0: no zooming, 2: strong zooming)
+            gamma_surf: use layers of constant thickness `Dgamma/nz` at surface (otherwise, at bottom)
+            Dgamma: water depth below which to use equal layer thicknesses
+            decay: surface/bottom effect - decay by layer
+            hpow: exponent for growth of Dgrid (ramp between 0 and c* tendencies)
+            csigma: tendency to uniform sigma
+            cgvc: tendency to "standard" gvc (w/ddu,ddl)
+            chsurf: tendency to keep surface layer bounded
+            hsurf: reference thickness, surface layer (relative to avg cell)
+            chmidd: tendency to keep all layers bounded
+            hmidd: reference thickness, other layers (relative to avg cell
+            chbott: tendency to keep bottom layer bounded
+            hbott: reference thickness, bottom layer (relative to avg cell)
+            cneigh: tendency to keep neighbors of similar size
+            rneigh: reference relative growth between neighbors
+            cNN: dependence on NN (density zooming)
+            drho: reference value for NN density between neighbor cells
+            cSS: dependence on SS (shear zooming)
+            dvel: reference value for SS absolute shear between neighbor cells
+            chmin: internal nug coeff for shallow-water regions
+            hmin: minimum depth
+            nvfilter: Number of vertical Dgrid filter iterations [0:]
+            vfilter: Strength of vertical filter-of-Dgrid [0:~0.5]
+            nhfilter: Number of horizontal Dgrid filter iterations [0:]
+            hfilter: Strength of horizontal filter-of-Dgrid [0:~0.5]
+            tgrid: Time scale of grid adaptation
+            split: Take this many partial-steps for diffusion eq.
+        """
+
+        if ddl <= 0.0 and ddu <= 0.0:
+            raise Exception("ddl and/or ddu must be a positive number")
+        if Dgamma <= 0.0:
+            raise Exception("Dgamma must be a positive number")
+
         super().__init__(nz)
+        self.cnp = 1.0
+        self.ddl = ddl
+        self.ddu = ddu
+        self.Dgamma = Dgamma
+        self.decay = decay
+        self.hpow = hpow
+        self.csigma = csigma
+        self.cgvc = cgvc
+        self.chsurf = chsurf
+        self.chbott = chbott
+        self.chmidd = chmidd
+        self.hsurf = hsurf
+        self.hbott = hbott
+        self.hmidd = hmidd
+        self.cneigh = cneigh
+        self.rneigh = rneigh
+        self.cNN = cNN
+        self.drho = drho
+        self.cSS = cSS
+        self.dvel = dvel
+        self.chmin = chmin
+        self.hmin = hmin
+        self.nvfilter = nvfilter
+        self.vfilter = vfilter
+        self.nhfilter = nhfilter
+        self.hfilter = hfilter
+        self.tgrid = tgrid
+        self.split = split
+
+        # sigma = Sigma(nz, ddl, ddu)
+        if self.csigma > 0.0:
+            self._sigma_dga = Sigma(nz).dga
+        if self.cgvc > 0.0:
+            self._gvc_dga = GVC(nz).dga
 
     def initialize(self, tgrid: "domain.Grid", *other_grids: "domain.Grid"):
         super().initialize(tgrid, *other_grids)
 
         self.tgrid = tgrid
+        self.nug = tgrid.array(
+            name="nug",
+            units="m2 s-1",
+            long_name="vertical grid diffusivity",
+            z=INTERFACES,
+            attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
+        )
         self.other_grids = other_grids
         self.dga_t = tgrid.array(z=CENTERS)
         self.dga_other = tuple(grid.array(z=CENTERS) for grid in other_grids)
 
-        # Here you can obtain any other model field by name, as tgrid.domain.fields[NAME]
-        # and store it as attribte of self for later use in update
+    #        self._vertical_diffusion = operators.VerticalDiffusion(
+    #                domain.T, cnpar=self.cnpar
+    #                )
+    # Are they necessary
+    # self.ea2 = domain.T.array(fill=0.0, z=CENTERS)
+    # self.ea4 = domain.T.array(fill=0.0, z=CENTERS)
+
+    # Here you can obtain any other model field by name, as tgrid.domain.fields[NAME]
+    # and store it as attribte of self for later use in update
+        #print(self.tgrid.domain.fields)
+
+    def __call__(self, D: np.ndarray, out: np.ndarray = None, where: np.ndarray = None):
+        if out is None:
+            # out = np.empty(self.dbeta.shape + D.shape)
+            out = np.empty(self.nug.shape)
+        if where is None:
+            where = np.full(D.shape, 1)
+
+        # first add contributions to the grid diffusion field that are
+        # handled by python
+
+        if self.csigma > 0:
+            self.nug[...] = self.csigma
+        else:
+            self.nug = 0.0
+
+        # if self.cgvc > 0:
+        #     self.nug(k)=self.nug(k) + cgvc*(hn_gvc(kmax)/hn_gvc(k)) !*Hm1
+
+        # Still have to decide which contributions go to Fortran and which stay here
+        # Order of the contributions matter - according to Bjarnes notes
+
+        # then add contributions handled by Fortran
+        _pygetm.update_adaptive(
+            self.nug,
+            self.decay,
+            self.hpow,
+            self.chsurf,
+            self.hsurf,
+            self.chmidd,
+            self.hmidd,
+            self.chbott,
+            self.hbott,
+            self.cneigh,
+            self.rneigh,
+            self.cNN,
+            self.drho,
+            self.cSS,
+            self.dvel,
+            self.chmin,
+            self.hmin,
+            0.7,
+        )
+        # all contributions to nug are now added
+
+        # apply vertical filtering from ~/python/src/filters.F90
+        if self.nvfilter > 0 and self.vfilter > 0:
+            print("_pygetm.vertical_filter")
+            _pygetm.vertical_filter(self.nvfilter, self.nug, self.vfilter)
+
+        # self.nug = self.nug/(2.*self.tgrid)
+
+        # apply horizontal filtering from ~/python/src/filters.F90
+        # requires halo updates
+        if self.hfilter > 0:
+            for _ in range(self.nhfilter):
+                print("_pygetm.horizontal_filter")
+                self.nug.update_halos()
+                _pygetm.horizontal_filter(self.nug, self.hfilter)
+
+        # now the grid diffusion field is ready to be applied
+        # self._vertical_diffusion(
+        #            self.nug,
+        #            timestep,
+        #            ho,
+        #            molecular=0.0,
+        #            #ea2=self.ea2,
+        #            #ea4=self.ea4,
+        #            use_ho=True,
+        # )
+        # self.dga_t = ho/D
+        return out
 
     def update(self, timestep: float):
         # update sigma thicknesses on tgrid (self.dga_t)
+        # self.dga_t = hn/D
 
         # Interpolate sigma thicknesses from T grid to other grids
         for dga in self.dga_other:
