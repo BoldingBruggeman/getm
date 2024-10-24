@@ -399,7 +399,7 @@ class Adaptive(Base):
         # )
 
         # To get a pseudo dga - that can be used to interpolate to
-        # other grids
+        # other grids for the calculation of layer heights
         # self.dga_t = ho/D
         return out
 

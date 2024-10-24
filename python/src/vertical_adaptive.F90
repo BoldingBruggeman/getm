@@ -7,20 +7,23 @@ module c_adaptive
    implicit none
 
 !! @note
-!! The adaptive coordinates implementation is heavily influenced by the work of Bjarne
-!! Büchmann implementation - which in turn was based on the work by Richard Hoffmeister.
+!! The adaptive coordinates implementation is heavily influenced by the
+!! work of Bjarne Büchmann implementation - which in turn was based on
+!! the work by Richard Hoffmeister.
 !! https://sourceforge.net/p/getm/code/ci/iow/tree/src/3d/adaptive_coordinates_6.F90
 !! and
 !! https://sourceforge.net/p/getm/code/ci/iow/tree/src/3d/adaptive_coordinates.F90
-!! Thes basic concept is to create a diffusion equation for the layer heights where the
-!! diffusivity is build up as a sum of different contributions attibuted to different constrains/
-!! flow features.
+!! Thes basic concept is to create a diffusion equation for the layer
+!! heights where the diffusivity is build up as a sum of different
+!! contributions attibuted to different constrains/flow features.
 !!
-!! The code by Bjarne Büchmann is well documented - this implementation will not repeat all the
-!! comments but follow the structure of the original implementation.
+!! The code by Bjarne Büchmann is well documented - this implementation
+!!  will not repeat all the comments but follow the structure of the
+!! original implementation.
 !!
-!! The vertical diffusion operator in pygetm works on a full 3D field opposed to legacy GETM - and
-!! - hence the column oriented layout is replaced by a field oriented approach.
+!! The vertical diffusion operator in pygetm works on a full 3D field
+!! opposed to legacy GETM - and - hence the column oriented layout
+!! is replaced by a field oriented approach.
 !!
 !! There are 3 main steps involved:
 !!    1. Construct the grid diffusivity - nu (renamed from Dgrid). This will be a sequence of
@@ -54,16 +57,18 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
 !  Subroutine arguments
    integer(c_int), intent(in), value :: nx, ny, nz
    integer(c_int), intent(in), value :: halox, haloy
-#define _A_  -halox+1:nx+halox,-haloy+1:ny+haloy
-   integer(c_int), intent(in) :: mask(_A_)
-   real(c_double), intent(in) :: H(_A_)
-   real(c_double), intent(in) :: D(_A_)
-   real(c_double), intent(in) :: zo(_A_)
-   real(c_double), intent(inout) :: ho(_A_,nz)
-   real(c_double), intent(in) :: NN(_A_,nz)
-   real(c_double), intent(in) :: SS(_A_,nz)
-   real(c_double), intent(inout) :: nu(_A_,nz)
-#undef _A_
+#define _D2_  -halox+1:nx+halox,-haloy+1:ny+haloy
+#define _D3_  -halox+1:nx+halox,-haloy+1:ny+haloy,nz
+   integer(c_int), intent(in) :: mask(_D2_)
+   real(c_double), intent(in) :: H(_D2_)
+   real(c_double), intent(in) :: D(_D2_)
+   real(c_double), intent(in) :: zo(_D2_)
+   real(c_double), intent(in) :: ho(_D3_)
+   real(c_double), intent(in) :: NN(_D3_)
+   real(c_double), intent(in) :: SS(_D3_)
+   real(c_double), intent(inout) :: nu(_D3_)
+#undef _D3_
+#undef _D2_
    real(c_double), intent(in), value :: decay
    integer(c_int), intent(in), value :: hpow
    real(c_double), intent(in), value :: chsurf, hsurf
@@ -198,6 +203,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    write(100,*) 'haux ',haux(50,1,:)
 #endif
 
+   ! Construct the grid diffusivity
+
    ! 1.1 - sigma as background - done in Python
 
    ! 1.2 - GVC - done in Python
@@ -226,7 +233,7 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end if
    end block large_cell_limitation
 
-   ! 1.4 chsurf
+   ! 1.4.1 chsurf
    surface_cell_limitation: block
    real(c_double) :: relh
    real(c_double) :: wwh
@@ -249,7 +256,7 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end if
    end block surface_cell_limitation
 
-   ! 1.5 chbott
+   ! 1.4.2 chbott
    bottom_cell_limitation: block
    real(c_double) :: relh
    real(c_double) :: wwh
@@ -272,7 +279,7 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end if
    end block bottom_cell_limitation
 
-   ! 1.6 Neighbor-cell size-ratio limiter.
+   ! 1.? Neighbor-cell size-ratio limiter.
    neighbor_cell_limitation: block
    real(c_double) :: irneigh
    real(c_double) :: relh(kmax)
@@ -305,7 +312,7 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end if
    end block neighbor_cell_limitation
 
-   ! 1.7- bouyancy and shear
+   ! 1.5.1 bouyancy
    bouyancy: block
    real(c_double) :: idNN
    real(c_double) :: x,y
@@ -326,6 +333,7 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end if
    end block bouyancy
 
+   ! 1.5.2 shear
    shear: block
    real(c_double) :: idvel
    real(c_double) :: x,y
@@ -346,7 +354,7 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end if
    end block shear
 
-   ! 1.8 - small-cell limiter
+   ! 1.6.1 - small-cell limiter
    small_cell_limiter: block
    real(c_double) :: f, ihmin
 
@@ -364,7 +372,7 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end do
    end block small_cell_limiter
 
-   ! 1.9 - shallow-water effect
+   ! 1.6.2 - shallow-water effect
    shallow_water_limiter: block
    real(c_double) :: relh
 
@@ -388,8 +396,9 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    write(100,*) 'nu ',nu(50,1,:)
 #endif
 
-! 1.10 - apply vertical filter aka grid diffusivity
-! done from the Python side
+   ! 2. Vertical filtering - done in Python
+
+   ! 3. Lateral filtering - done in Python
 
 end subroutine c_update_adaptive
 
