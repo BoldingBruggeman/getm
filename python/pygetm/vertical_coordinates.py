@@ -266,7 +266,7 @@ class Adaptive(Base):
             raise Exception("Dgamma must be a positive number")
 
         super().__init__(nz)
-        self.cnp = 1.0
+        self.cnp = 1.0 # needed from outside
         self.ddl = ddl
         self.ddu = ddu
         self.Dgamma = Dgamma
@@ -342,14 +342,15 @@ class Adaptive(Base):
         else:
             self.nug = 0.0
 
+        # Here we need to have h_gvc - and the scaling has to depend
+        # on the value of gamma_surf
         # if self.cgvc > 0:
-        #     self.nug(k)=self.nug(k) + cgvc*(hn_gvc(kmax)/hn_gvc(k)) !*Hm1
+        #     self.nug(k)=self.nug(k) + cgvc*(hn_gvc(kmax)/h_gvc(k)) !*Hm1
 
-        # Still have to decide which contributions go to Fortran and which stay here
-        # Order of the contributions matter - according to Bjarnes notes
-
-        # then add contributions handled by Fortran
+        dt = 3600. # must come from somewhere
         _pygetm.update_adaptive(
+            self.NN,
+            self.SS,
             self.nug,
             self.decay,
             self.hpow,
@@ -367,7 +368,7 @@ class Adaptive(Base):
             self.dvel,
             self.chmin,
             self.hmin,
-            0.7,
+            dt,
         )
         # all contributions to nug are now added
 
@@ -376,8 +377,6 @@ class Adaptive(Base):
             print("_pygetm.vertical_filter")
             _pygetm.vertical_filter(self.nvfilter, self.nug, self.vfilter)
 
-        # self.nug = self.nug/(2.*self.tgrid)
-
         # apply horizontal filtering from ~/python/src/filters.F90
         # requires halo updates
         if self.hfilter > 0:
@@ -385,6 +384,8 @@ class Adaptive(Base):
                 print("_pygetm.horizontal_filter")
                 self.nug.update_halos()
                 _pygetm.horizontal_filter(self.nug, self.hfilter)
+
+        # self.nug = self.nug/(2.*self.tgrid)
 
         # now the grid diffusion field is ready to be applied
         # self._vertical_diffusion(
@@ -396,6 +397,9 @@ class Adaptive(Base):
         #            #ea4=self.ea4,
         #            use_ho=True,
         # )
+
+        # To get a pseudo dga - that can be used to interpolate to
+        # other grids
         # self.dga_t = ho/D
         return out
 
