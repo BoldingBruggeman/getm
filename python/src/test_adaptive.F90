@@ -76,7 +76,7 @@ program test_adaptive
    end do
 
    do n=1, nmax
-      write(*,*) n
+      write(*,*) n, ' of ', nmax
       do k=1,nz
          where (mask > 0) nu(:,:,k)=csigma
       end do

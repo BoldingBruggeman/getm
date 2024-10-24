@@ -242,9 +242,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
             else
                wwh=0.5_rk+sign(0.5_rk,relh)
             end if
-            do k=1,kmax
-               nu(i,j,k)=nu(i,j,k)+chsurf*wwh*sdecay(k)
-            end do
+
+            nu(i,j,:)=nu(i,j,:)+chsurf*wwh*sdecay(:)
          end do
       end do
    end if
@@ -266,9 +265,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
             else
                wwh=0.5_rk+sign(0.5_rk,relh)
             end if
-            do k=1,kmax
-               nu(i,j,k)=nu(i,j,k)+chbott*wwh*bdecay(k)
-            end do
+
+            nu(i,j,:)=nu(i,j,:)+chbott*wwh*bdecay(:)
          end do
       end do
    end if
@@ -300,9 +298,7 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
                nu(i,j,k)=nu(i,j,k)+cneigh*wwh(k)
             end do
 #else
-            do k=1,kmax
-               nu(i,j,k)=nu(i,j,k)+cneigh*min(1._rk,irneigh*relh(k))**hpow
-            end do
+            nu(i,j,:)=nu(i,j,:)+cneigh*min(1._rk,irneigh*relh(:))**hpow
 #endif
          end do
       end do
@@ -382,6 +378,7 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
             if (relh < 0._rk .or. relh > 1._rk) then
                relh=(0.5_rk+sign(0.5_rk,relh))
             end if
+
             nu(i,j,:)=nu(i,j,:)+chmin*relh
          end do
       end do
