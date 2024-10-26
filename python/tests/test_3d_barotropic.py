@@ -7,6 +7,7 @@ import numpy as np
 import pygetm
 import pygetm.domain
 import pygetm.debug
+import pygetm.vertical_coordinates
 
 
 class Test3DBarotropic(unittest.TestCase):
@@ -34,45 +35,48 @@ class Test3DBarotropic(unittest.TestCase):
         domain = pygetm.domain.create_cartesian(
             500.0 * np.arange(100),
             500.0 * np.arange(30),
-            50,
             f=0,
             H=50,
             z0=0.01 if apply_bottom_friction else 0.0,
             logger=pygetm.parallel.get_logger(level="ERROR"),
         )
-        sim = pygetm.Simulation(domain, runtype=pygetm.BAROTROPIC_3D)
+        sim = pygetm.Simulation(
+            domain,
+            runtype=pygetm.BAROTROPIC_3D,
+            vertical_coordinates=pygetm.vertical_coordinates.Sigma(50),
+        )
 
         # Idealized surface forcing
-        tausx = domain.U.array(fill=tau_x)
-        tausy = domain.V.array(fill=tau_y)
-        sp = domain.T.array(fill=0.0)
+        tausx = sim.U.array(fill=tau_x)
+        tausy = sim.V.array(fill=tau_y)
+        sp = sim.T.array(fill=0.0)
 
-        idpdx = domain.U.array(fill=0.0, z=pygetm.CENTERS)
-        idpdy = domain.V.array(fill=0.0, z=pygetm.CENTERS)
-        viscosity = domain.T.array(fill=0.0, z=pygetm.INTERFACES)
+        idpdx = sim.U.array(fill=0.0, z=pygetm.CENTERS)
+        idpdy = sim.V.array(fill=0.0, z=pygetm.CENTERS)
+        viscosity = sim.T.array(fill=0.0, z=pygetm.INTERFACES)
 
-        t = domain.T.array(name="tracer", z=pygetm.CENTERS)
+        t = sim.T.array(name="tracer", z=pygetm.CENTERS)
         rng = np.random.default_rng()
         rng.random(t.all_values.shape, out=t.all_values)
         adv = pygetm.operators.Advection(t.grid, scheme=1)
 
         times = timestep * np.arange(ntime)
         mode_split = 10
-        z_sum_ini = domain.T.z.ma.sum()
-        pre_tot = (t * domain.T.hn).values.sum()
+        z_sum_ini = sim.T.z.ma.sum()
+        pre_tot = (t * sim.T.hn).values.sum()
         for istep, time in enumerate(times):
-            sim.update_surface_pressure_gradient(domain.T.z, sp)
+            sim.update_surface_pressure_gradient(sim.T.z, sp)
             sim.momentum.advance_depth_integrated(
                 timestep, tausx, tausy, sim.dpdx, sim.dpdy
             )
             sim.advance_surface_elevation(
                 timestep, sim.momentum.U, sim.momentum.V, sim.fwf
             )
-            sim.domain.update_depth()
+            sim.update_depth()
 
             if istep % mode_split == 0:
-                sim.domain.update_depth(True)
-                sim.update_surface_pressure_gradient(domain.T.zio, sp)
+                sim.update_depth(True)
+                sim.update_surface_pressure_gradient(sim.T.zio, sp)
 
                 sim.momentum.advance(
                     timestep * mode_split,
@@ -86,16 +90,16 @@ class Test3DBarotropic(unittest.TestCase):
                     viscosity,
                 )
 
-                div = np.zeros(domain.T.hn.shape)
-                U1 = (sim.momentum.pk * domain.U.dy).all_values[:, 2:-2, 1:-3]
-                U2 = (sim.momentum.pk * domain.U.dy).all_values[:, 2:-2, 2:-2]
-                V1 = (sim.momentum.qk * domain.V.dx).all_values[:, 1:-3, 2:-2]
-                V2 = (sim.momentum.qk * domain.V.dx).all_values[:, 2:-2, 2:-2]
-                W1 = (sim.momentum.ww * domain.T.area).all_values[:-1, 2:-2, 2:-2]
-                W2 = (sim.momentum.ww * domain.T.area).all_values[1:, 2:-2, 2:-2]
-                dH = ((domain.T.hn - domain.T.ho) * domain.T.area).all_values[
-                    :, 2:-2, 2:-2
-                ] / (timestep * mode_split)
+                div = np.zeros(sim.T.hn.shape)
+                U1 = (sim.momentum.pk * sim.U.dy).all_values[:, 2:-2, 1:-3]
+                U2 = (sim.momentum.pk * sim.U.dy).all_values[:, 2:-2, 2:-2]
+                V1 = (sim.momentum.qk * sim.V.dx).all_values[:, 1:-3, 2:-2]
+                V2 = (sim.momentum.qk * sim.V.dx).all_values[:, 2:-2, 2:-2]
+                W1 = (sim.momentum.ww * sim.T.area).all_values[:-1, 2:-2, 2:-2]
+                W2 = (sim.momentum.ww * sim.T.area).all_values[1:, 2:-2, 2:-2]
+                dH = ((sim.T.hn - sim.T.ho) * sim.T.area).all_values[:, 2:-2, 2:-2] / (
+                    timestep * mode_split
+                )
                 div = U1 - U2 + V1 - V2 + W1 - W2 - dH
                 maxtp = np.zeros_like(div)
                 for ar in [U1, U2, V1, V2, W1, W2, dH]:
@@ -104,7 +108,7 @@ class Test3DBarotropic(unittest.TestCase):
                 self.assertTrue(
                     pygetm.debug.check_zero(
                         "maximum divergence (as missing vertical velocity in m s-1)",
-                        div / domain.T.area.values,
+                        div / sim.T.area.values,
                     )
                 )
                 adv.apply_3d(
@@ -114,12 +118,12 @@ class Test3DBarotropic(unittest.TestCase):
                     timestep * mode_split,
                     t,
                 )
-                new_tot = (t * domain.T.hn).values.sum()
+                new_tot = (t * sim.T.hn).values.sum()
                 self.assertTrue(
                     pygetm.debug.check_equal(
                         "layer thicknesses",
                         adv.h[:, 2:-2, 2:-2],
-                        domain.T.hn.values,
+                        sim.T.hn.values,
                         rtol=1e-14,
                         atol=1e-14,
                     )
@@ -133,7 +137,7 @@ class Test3DBarotropic(unittest.TestCase):
             pygetm.debug.check_equal(
                 "total volume before and after simulation",
                 z_sum_ini,
-                domain.T.z.ma.sum(),
+                sim.T.z.ma.sum(),
                 atol=1e-14,
                 rtol=1e-14,
             )

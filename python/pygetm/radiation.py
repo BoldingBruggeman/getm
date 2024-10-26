@@ -1,8 +1,8 @@
 from typing import Optional
 import enum
+import logging
 
 from . import core
-from . import domain
 from . import _pygetm
 from .constants import FILL_VALUE, INTERFACES, CENTERS
 
@@ -33,9 +33,9 @@ class Radiation:
     not calculated. In this case, the heating per layer defaults to zero; assign to
     :attr:`swr_abs` or call ``swr_abs.set`` to change this."""
 
-    def initialize(self, grid: domain.Grid):
+    def initialize(self, grid: core.Grid, logger: logging.Logger):
         self.grid = grid
-        self.logger = grid.domain.root_logger.getChild("radiation")
+        self.logger = logger
         self.swr_abs = grid.array(
             name="swr_abs",
             units="W m-2",
@@ -80,8 +80,8 @@ class TwoBand(Radiation):
         self.initial_jerlov_type = jerlov_type
         self._first = True
 
-    def initialize(self, grid: domain.Grid):
-        super().initialize(grid)
+    def initialize(self, grid: core.Grid, logger: logging.Logger):
+        super().initialize(grid, logger)
         self.swr_abs.attrs["_mask_output"] = True
 
         # Inputs
@@ -157,7 +157,7 @@ class TwoBand(Radiation):
             self._swr_up = grid.array()
 
     def set_jerlov_type(self, jerlov_type: Jerlov):
-        """Derive the non-visible fraction of shortwave radiation (:attr:`A`), the 
+        """Derive the non-visible fraction of shortwave radiation (:attr:`A`), the
         attenuation coefficient of non-visible shortwave radiation (:attr:`kc1`),
         and the attenuation coefficient of visible shortwave radiation (:attr:`kc2`)
         from the Jerlov water type. These three coefficients will be constant in
@@ -267,4 +267,3 @@ class TwoBand(Radiation):
             _pygetm.exponential_profile_1band_centers(
                 self.grid.mask, self.grid.hn, self._kc, top=self._swr, out=self.par
             )
-

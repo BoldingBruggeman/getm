@@ -87,7 +87,7 @@ class Base:
         raise NotImplementedError
 
     @property
-    def grid(self) -> Optional[pygetm.domain.Grid]:
+    def grid(self) -> Optional[pygetm.core.Grid]:
         return None
 
     @property
@@ -162,7 +162,7 @@ class FieldCollection:
         dtype: Optional[DTypeLike] = None,
         mask: Optional[bool] = None,
         time_average: bool = False,
-        grid: Optional[pygetm.domain.Grid] = None,
+        grid: Optional[pygetm.core.Grid] = None,
         z: Optional[Literal[None, CENTERS, INTERFACES]] = None,
         generate_unique_name: bool = False,
     ) -> Tuple[str, ...]:
@@ -252,8 +252,8 @@ class FieldCollection:
             if time_average or mask_current or grid:
                 field = Mask(field)
             if not self.sub:
-                field = field.gather(source_grid.domain.tiling)
-            for tf in source_grid.domain.default_output_transforms:
+                field = field.gather(source_grid.tiling)
+            for tf in source_grid.default_output_transforms:
                 field = tf(field)
             names.append(self._add_field(field, name, generate_unique_name))
 
@@ -297,7 +297,7 @@ class FieldCollection:
             updater()
 
 
-def grid2dims(grid: pygetm.domain.Grid, z) -> Tuple[str, ...]:
+def grid2dims(grid: pygetm.core.Grid, z) -> Tuple[str, ...]:
     dims = (f"y{grid.postfix}", f"x{grid.postfix}")
     if z:
         dims = ("zi" if z == INTERFACES else "z",) + dims
@@ -317,8 +317,8 @@ class Field(Base):
         default_time_varying = TimeVarying.MACRO if array.z else TimeVarying.MICRO
         time_varying = array.attrs.get("_time_varying", default_time_varying)
         shape = list(self.array.shape)
-        shape[-1] += 2 * array.grid.domain.halox
-        shape[-2] += 2 * array.grid.domain.haloy
+        shape[-1] += 2 * array.grid.halox
+        shape[-2] += 2 * array.grid.haloy
         super().__init__(
             array.name,
             tuple(shape),
@@ -340,12 +340,8 @@ class Field(Base):
 
     @property
     def coords(self) -> Iterable[Base]:
-        if self.grid.domain.spherical:
-            yield Field(self.grid.lon)
-            yield Field(self.grid.lat)
-        else:
-            yield Field(self.grid.x)
-            yield Field(self.grid.y)
+        for array in self.grid.horizontal_coordinates:
+            yield Field(array)
         if self.z:
             yield Field(self.grid.zf if self.z == INTERFACES else self.grid.zc)
         yield from self.grid.extra_output_coordinates
@@ -359,7 +355,7 @@ class Field(Base):
         return self.array.name
 
     @property
-    def grid(self) -> pygetm.domain.Grid:
+    def grid(self) -> pygetm.core.Grid:
         return self.array.grid
 
 
@@ -396,7 +392,7 @@ class UnivariateTransform(Base):
         return self._source.updater
 
     @property
-    def grid(self) -> pygetm.domain.Grid:
+    def grid(self) -> pygetm.core.Grid:
         return self._source.grid
 
     @property
@@ -426,7 +422,7 @@ class UnivariateTransformWithData(UnivariateTransform):
 
 
 class Gather(UnivariateTransform):
-    __slots__ = "global_array", "tiling", "_slice", "_gather"
+    __slots__ = "global_values", "tiling", "_slice", "_gather"
 
     def __init__(self, source: Base, tiling: pygetm.parallel.Tiling):
         self.tiling = tiling
@@ -434,11 +430,10 @@ class Gather(UnivariateTransform):
         ny = tiling.ny_glob + source.shape[-2] - 2 * source.haloy - tiling.ny_sub
         shape = source.shape[:-2] + (ny, nx)
         super().__init__(source, shape=shape, expression=source.expression)
-        self.global_array = None
+        self.global_values = None
         if isinstance(source, Field):
-            global_domain = source.grid.domain.glob
-            if global_domain and not source.time_varying:
-                self.global_array = global_domain.fields.get(source.array.name)
+            if "_global_values" in source.array.attrs and not source.time_varying:
+                self.global_values = source.array.attrs["_global_values"]
         xstart = source.halox
         ystart = source.haloy
         xstop = source.shape[-1] - source.halox
@@ -456,8 +451,8 @@ class Gather(UnivariateTransform):
         # Nevertheless we cannot skip the gather in that case,
         # because all non-root ranks will call gather anyway.
         out = self._gather(self._source.get()[self._slice], out, slice_spec)
-        if self.global_array:
-            out[slice_spec] = self.global_array.values
+        if self.global_values is not None:
+            out[slice_spec] = self.global_values
         return out
 
     @property
@@ -573,7 +568,7 @@ class Regrid(UnivariateTransformWithData):
     def __init__(
         self,
         source: Base,
-        grid: Optional[pygetm.domain.Grid] = None,
+        grid: Optional[pygetm.core.Grid] = None,
         z: Optional[Literal[None, CENTERS, INTERFACES]] = None,
     ):
         assert source.grid is not None
@@ -611,7 +606,7 @@ class Regrid(UnivariateTransformWithData):
         return super().get(out, slice_spec)
 
     @property
-    def grid(self) -> pygetm.domain.Grid:
+    def grid(self) -> pygetm.core.Grid:
         return self._grid
 
     @property

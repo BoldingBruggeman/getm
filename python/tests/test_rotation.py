@@ -43,6 +43,7 @@ class TestRotation(unittest.TestCase):
         domain = self.domain
         domain_rot = domain.rotate()
         sim = north_sea.create_simulation(domain, pygetm.BAROTROPIC_2D, self.setup_dir)
+
         output = sim.output_manager.add_netcdf_file("result_ref.nc", interval=-1)
         output.request(*outputs)
         north_sea.run(sim, stop=stop)
@@ -114,4 +115,3 @@ class TestRotation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

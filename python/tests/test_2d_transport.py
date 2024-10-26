@@ -3,6 +3,7 @@ import unittest
 import numpy as np
 
 import pygetm
+import pygetm.vertical_coordinates
 
 
 class Test2DTransport(unittest.TestCase):
@@ -47,7 +48,6 @@ class Test2DTransport(unittest.TestCase):
         domain = pygetm.domain.create_cartesian(
             500.0 * np.arange(100),
             500.0 * np.arange(30),
-            1,
             f=0,
             H=50,
             periodic_x=periodic_x,
@@ -55,23 +55,24 @@ class Test2DTransport(unittest.TestCase):
             logger=pygetm.parallel.get_logger(level="ERROR"),
         )
         if not apply_bottom_friction:
-            domain.z0b_min[...] = 0
+            domain._z0 = domain._z0.copy()
+            domain.z0[...] = 0
         sim = pygetm.Simulation(domain, runtype=pygetm.BAROTROPIC_2D)
 
         # Idealized surface forcing
-        tausx = domain.U.array(fill=tau_x)
-        tausy = domain.V.array(fill=tau_y)
-        sp = domain.T.array(fill=0.0)
+        tausx = sim.U.array(fill=tau_x)
+        tausy = sim.V.array(fill=tau_y)
+        sp = sim.T.array(fill=0.0)
 
         for _ in range(ntime):
-            sim.update_surface_pressure_gradient(domain.T.z, sp)
+            sim.update_surface_pressure_gradient(sim.T.z, sp)
             sim.momentum.advance_depth_integrated(
                 timestep, tausx, tausy, sim.dpdx, sim.dpdy
             )
             sim.advance_surface_elevation(
                 timestep, sim.momentum.U, sim.momentum.V, sim.fwf
             )
-            sim.domain.update_depth()
+            sim.update_depth()
 
         # Expected transport at time t: t * acceleration * water depth D
         # = t * (force/area = tau) / (mass/area = rho*D) * D = t * tau / rho
@@ -80,12 +81,16 @@ class Test2DTransport(unittest.TestCase):
         U_tgt = None if apply_bottom_friction else U_ref
         V_tgt = None if apply_bottom_friction else V_ref
         self.check_range(
-            "U", sim.momentum.U, target_value=U_tgt,
+            "U",
+            sim.momentum.U,
+            target_value=U_tgt,
         )
         self.check_range(
-            "V", sim.momentum.V, target_value=V_tgt,
+            "V",
+            sim.momentum.V,
+            target_value=V_tgt,
         )
-        self.check_range("z", domain.T.z, target_value=0.0)
+        self.check_range("z", sim.T.z, target_value=0.0)
 
 
 if __name__ == "__main__":

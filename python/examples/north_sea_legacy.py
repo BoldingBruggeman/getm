@@ -8,19 +8,15 @@ import pygetm
 import pygetm.legacy
 
 parser = argparse.ArgumentParser()
-parser.add_argument("setup_dir", help="Path to configuration files (NorthSea directory from https://sourceforge.net/p/getm/getm-setups)", default=".")
+parser.add_argument(
+    "setup_dir",
+    help="Path to configuration files (NorthSea directory from https://sourceforge.net/p/getm/getm-setups)",
+    default=".",
+)
 args = parser.parse_args()
 
 domain = pygetm.legacy.domain_from_topo(
-    os.path.join(args.setup_dir, "Topo/NS6nm.v01.nc"),
-    nlev=30,
-    vertical_coordinate_method=pygetm.VerticalCoordinates.GVC,
-    Dgamma=40.0,
-    ddu=0.75,
-    ddl=0.5,
-    Dcrit=0.2,
-    Dmin=0.05,
-    z0=0.001,
+    os.path.join(args.setup_dir, "Topo/NS6nm.v01.nc"), z0=0.001
 )
 pygetm.legacy.load_bdyinfo(domain, os.path.join(args.setup_dir, "bdyinfo.dat"))
 pygetm.legacy.load_riverinfo(domain, os.path.join(args.setup_dir, "riverinfo.dat"))
@@ -34,6 +30,11 @@ sim = pygetm.Simulation(
         calculate_evaporation=True,
     ),
     internal_pressure_method=pygetm.InternalPressure.SHCHEPETKIN_MCWILLIAMS,
+    vertical_coordinates=pygetm.vertical_coordinates.GVC(
+        30, Dgamma=40.0, ddu=0.75, ddl=0.5
+    ),
+    Dcrit=0.2,
+    Dmin=0.05,
 )
 
 sim.logger.info("Reading 2D boundary data from file")

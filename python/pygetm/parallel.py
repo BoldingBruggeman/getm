@@ -25,12 +25,16 @@ def _iterate_rankmap(rankmap):
             yield irow, icol, rankmap[irow, icol]
 
 
+LOGFILE_PREFIX = "getm-"
+
+
 def get_logger(level=logging.INFO, comm=MPI.COMM_WORLD) -> logging.Logger:
     handlers: List[logging.Handler] = []
     if comm.rank == 0:
         handlers.append(logging.StreamHandler())
     if comm.size > 1:
-        file_handler = logging.FileHandler(f"getm-{comm.rank:04}.log", mode="w")
+        logfile = f"{LOGFILE_PREFIX}{comm.rank:04}.log"
+        file_handler = logging.FileHandler(logfile, mode="w")
         file_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
         handlers.append(file_handler)
     logging.basicConfig(level=level, handlers=handlers, force=True)
@@ -791,8 +795,8 @@ class Scatter:
                         icol,
                         halox_sub=halox,
                         haloy_sub=haloy,
-                        halox_glob=halox,
-                        haloy_glob=haloy,
+                        halox_glob=0,
+                        haloy_glob=0,
                         share=share,
                         scale=scale,
                         exclude_halos=exclude_halos,

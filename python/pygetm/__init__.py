@@ -1,4 +1,5 @@
 from . import _pygetm
+from . import parallel
 from . import core
 from . import domain
 from . import input
@@ -15,7 +16,6 @@ from . import ice
 from .simulation import *
 from .constants import *
 from .operators import AdvectionScheme
-from .domain import VerticalCoordinates
 from .open_boundaries import Side
 from .airsea import HumidityMeasure, LongwaveMethod, AlbedoMethod
 from .output import TimeUnit

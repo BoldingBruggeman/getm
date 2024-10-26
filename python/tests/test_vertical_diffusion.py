@@ -6,6 +6,7 @@ from typing import Optional
 import numpy as np
 
 import pygetm
+import pygetm.vertical_coordinates
 
 
 handler = logging.StreamHandler()
@@ -24,17 +25,22 @@ def for_each_grid(test_func):
                 domain = pygetm.domain.create_cartesian(
                     np.linspace(0, EXTENT, 50),
                     np.linspace(0, EXTENT, 52),
-                    25,
                     f=0,
                     H=50.0,
                     logger=pygetm.parallel.get_logger(level="ERROR"),
-                    **grid_args
                 )
                 # randomly mask half of the domain
+                domain._mask = domain.mask.copy()
                 domain.mask[...] = rng.random(domain.mask.shape) > 0.5
-                self.sim = pygetm.Simulation(domain, runtype=pygetm.BAROTROPIC_3D)
-                assert (domain.T.ho.all_values == domain.T.hn.all_values).all()
-                test_func(self, domain.T, *args, **kwargs)
+                self.sim = pygetm.Simulation(
+                    domain,
+                    runtype=pygetm.BAROTROPIC_3D,
+                    vertical_coordinates=pygetm.vertical_coordinates.Sigma(
+                        25, **grid_args
+                    ),
+                )
+                assert (self.sim.T.ho.all_values == self.sim.T.hn.all_values).all()
+                test_func(self, self.sim.T, *args, **kwargs)
 
     return wrapper
 
@@ -137,7 +143,7 @@ class TestVerticalDiffusion(unittest.TestCase):
 
     @for_each_grid
     @for_each_cnpar
-    def test_mixing_from_bottom(self, cnpar: float, grid: pygetm.domain.Grid):
+    def test_mixing_from_bottom(self, cnpar: float, grid: pygetm.core.Grid):
         nuh = grid.array(z=pygetm.INTERFACES, fill_value=0.01)
         tracer = grid.array(z=pygetm.CENTERS, fill=0.0)
         tracer.values[0, ...] = 1.0
@@ -145,7 +151,7 @@ class TestVerticalDiffusion(unittest.TestCase):
 
     @for_each_grid
     @for_each_cnpar
-    def test_mixing_from_surface(self, cnpar: float, grid: pygetm.domain.Grid):
+    def test_mixing_from_surface(self, cnpar: float, grid: pygetm.core.Grid):
         nuh = grid.array(z=pygetm.INTERFACES, fill_value=0.01)
         tracer = grid.array(z=pygetm.CENTERS, fill=0.0)
         tracer.values[-1, ...] = 1.0
@@ -154,7 +160,7 @@ class TestVerticalDiffusion(unittest.TestCase):
     @repeat
     @for_each_grid
     @for_each_cnpar
-    def test_mixing_of_random_state(self, cnpar: float, grid: pygetm.domain.Grid):
+    def test_mixing_of_random_state(self, cnpar: float, grid: pygetm.core.Grid):
         nuh = grid.array(z=pygetm.INTERFACES, fill_value=0.01)
         tracer = grid.array(z=pygetm.CENTERS)
         tracer[...] = rng.uniform(0.0, 1.0, (tracer.shape[0], 1, 1))
@@ -162,7 +168,7 @@ class TestVerticalDiffusion(unittest.TestCase):
 
     @for_each_grid
     @for_each_cnpar
-    def test_source(self, cnpar: float, grid: pygetm.domain.Grid):
+    def test_source(self, cnpar: float, grid: pygetm.core.Grid):
         nuh = grid.array(z=pygetm.INTERFACES, fill_value=0.01)
         tracer = grid.array(z=pygetm.CENTERS, fill=0.0)
         # note that sources should be time- and layer-integrated!
@@ -204,7 +210,7 @@ class TestVerticalDiffusion(unittest.TestCase):
     @repeat
     @for_each_grid
     @for_each_cnpar
-    def test_random_layer_height_change(self, cnpar: float, grid: pygetm.domain.Grid):
+    def test_random_layer_height_change(self, cnpar: float, grid: pygetm.core.Grid):
         tracer = grid.array(z=pygetm.CENTERS, fill_value=1.0)
         nuh = grid.array(z=pygetm.INTERFACES, fill_value=0.01)
         self.diffuse(tracer, nuh, cnpar, change_ho=True)
@@ -212,7 +218,7 @@ class TestVerticalDiffusion(unittest.TestCase):
     @repeat
     @for_each_grid
     @for_each_cnpar
-    def test_random_diffusivity(self, cnpar: float, grid: pygetm.domain.Grid):
+    def test_random_diffusivity(self, cnpar: float, grid: pygetm.core.Grid):
         tracer = grid.array(z=pygetm.CENTERS, fill_value=np.nan)
         nuh = grid.array(z=pygetm.INTERFACES, fill_value=np.nan)
         nuh.fill(10.0 ** rng.uniform(-6.0, 0.0, (nuh.shape[0], 1, 1)))
@@ -223,7 +229,7 @@ class TestVerticalDiffusion(unittest.TestCase):
     @for_each_grid
     @for_each_cnpar
     def test_random_diffusivity_random_tracer(
-        self, cnpar: float, grid: pygetm.domain.Grid
+        self, cnpar: float, grid: pygetm.core.Grid
     ):
         tracer = grid.array(z=pygetm.CENTERS, fill_value=np.nan)
         nuh = grid.array(z=pygetm.INTERFACES, fill_value=np.nan)
@@ -235,7 +241,7 @@ class TestVerticalDiffusion(unittest.TestCase):
     @for_each_grid
     @for_each_cnpar
     def test_random_diffusivity_random_tracer_with_sources(
-        self, cnpar: float, grid: pygetm.domain.Grid
+        self, cnpar: float, grid: pygetm.core.Grid
     ):
         tracer = grid.array(z=pygetm.CENTERS, fill_value=np.nan)
         nuh = grid.array(z=pygetm.INTERFACES, fill_value=np.nan)
@@ -251,7 +257,7 @@ class TestVerticalDiffusion(unittest.TestCase):
     @for_each_grid
     @for_each_cnpar
     def test_random_diffusivity_random_tracer_with_sources_changing_h(
-        self, cnpar: float, grid: pygetm.domain.Grid
+        self, cnpar: float, grid: pygetm.core.Grid
     ):
         tracer = grid.array(z=pygetm.CENTERS, fill_value=np.nan)
         nuh = grid.array(z=pygetm.INTERFACES, fill_value=np.nan)
@@ -271,4 +277,3 @@ class TestVerticalDiffusion(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

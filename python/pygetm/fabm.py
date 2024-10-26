@@ -34,7 +34,7 @@ class FABM:
 
     def initialize(
         self,
-        grid: domain.Grid,
+        grid: core.Grid,
         tracer_collection: tracer.TracerCollection,
         tracer_totals: List[tracer.TracerTotal],
         logger: logging.Logger,
@@ -71,8 +71,8 @@ class FABM:
 
         shape = grid.hn.all_values.shape  # shape including halos
         fabm_shape = shape
-        halox = grid.domain.halox
-        haloy = grid.domain.haloy
+        halox = grid.halox
+        haloy = grid.haloy
         domain_start = (0, haloy, halox)
         domain_stop = (shape[0], shape[1] - haloy, shape[2] - halox)
         if self.squeeze:
@@ -100,7 +100,7 @@ class FABM:
             ar_w = core.Array(grid=grid)
             ar_w.wrap_ndarray(self.vertical_velocity[i, ...].reshape(shape))
             ar = tracer_collection.add(
-                data=variable.data.reshape(shape),
+                data=variable.value.reshape(shape),
                 vertical_velocity=ar_w,
                 name=variable.output_name,
                 units=variable.units,
@@ -111,29 +111,30 @@ class FABM:
             )
             self._variable2array[variable] = ar
         for variable in model.surface_state_variables + model.bottom_state_variables:
-            data = variable.data.reshape(shape[1:])
+            data = variable.value.reshape(shape[1:])
             variable_to_array(variable, data=data, attrs=dict(_part_of_state=True))
 
         # Add diagnostics, initially without associated data
         # Data will be sent later, only if the variable is selected for output,
         # and thus, activated in FABM
-        for variable in model.diagnostic_variables:
-            current_shape = grid.H.shape if variable.horizontal else grid.hn.shape
-            variable_to_array(variable, shape=current_shape)
+        for variable in model.interior_diagnostic_variables:
+            variable_to_array(variable, shape=grid.hn.shape)
+        for variable in model.horizontal_diagnostic_variables:
+            variable_to_array(variable, shape=grid.H.shape)
 
         # Required inputs: mask and cell thickness
         if model.fabm.mask_type != 0:
-            if hasattr(grid.domain, "mask3d"):
+            if hasattr(grid, "mask3d"):
                 model.link_mask(
-                    grid.domain.mask3d.all_values.reshape(model.interior_domain_shape),
+                    grid.mask3d.all_values.reshape(model.interior_domain_shape),
                     grid.mask.all_values.reshape(model.horizontal_domain_shape),
                 )
             else:
                 model.link_mask(
                     grid.mask.all_values.reshape(model.horizontal_domain_shape)
                 )
-        if hasattr(grid.domain, "bottom_indices"):
-            bottom_indices = grid.domain.bottom_indices.all_values
+        if hasattr(grid, "bottom_indices"):
+            bottom_indices = grid.bottom_indices.all_values
             model.link_bottom_index(
                 bottom_indices.reshape(model.horizontal_domain_shape)
             )
@@ -201,13 +202,13 @@ class FABM:
             variable.save = self._variable2array[variable].saved
 
         # Transfer GETM fields with a standard name to FABM
-        for field in self.grid.domain.fields.values():
+        for field in self.grid.fields.values():
             for standard_name in field.attrs.get("_fabm_standard_names", []):
                 try:
                     variable = self.model.dependencies.find(standard_name)
                 except KeyError:
                     continue
-                if not variable.is_set:
+                if variable.value is None:
                     field.saved = True
                     if field.z:
                         shape = self.model.interior_domain_shape
@@ -233,17 +234,22 @@ class FABM:
 
         # Fill GETM placeholder arrays for all FABM diagnostics that will be
         # computed/saved.
-        for variable in self.model.diagnostic_variables:
-            array = self._variable2array[variable]
-            if array.saved:
-                # Provide the array with data (NB it has been registered before)
-                current_shape = (
-                    self.grid.H if variable.horizontal else self.grid.hn
-                ).all_values.shape
-                array.wrap_ndarray(variable.data.reshape(current_shape), register=False)
-            else:
-                # Remove the array from the list of available fields
-                del self.grid.domain.fields[array.name]
+        def get_diagnostic_values(diagnostic_variables, shape):
+            for variable in diagnostic_variables:
+                array = self._variable2array[variable]
+                if array.saved:
+                    # Provide the array with data (NB it has been registered before)
+                    array.wrap_ndarray(variable.value.reshape(shape), register=False)
+                else:
+                    # Remove the array from the list of available fields
+                    del self.grid.fields[array.name]
+
+        get_diagnostic_values(
+            self.model.interior_diagnostic_variables, self.grid.hn.all_values.shape
+        )
+        get_diagnostic_values(
+            self.model.horizontal_diagnostic_variables, self.grid.H.all_values.shape
+        )
 
         # Apply mask to all state variables (interior, bottom, surface)
         for variable in self.model.interior_state_variables:
@@ -328,8 +334,8 @@ class FABM:
         if self.grid.nz == 1:
             return
         h = self.grid.hn.all_values
-        halox = self.grid.domain.halox
-        haloy = self.grid.domain.haloy
+        halox = self.grid.halox
+        haloy = self.grid.haloy
         mask = self.grid.domain.mask3d.all_values
         for itracer in range(self.model.interior_state.shape[0]):
             w = self.vertical_velocity[itracer, ...].reshape(mask.shape)

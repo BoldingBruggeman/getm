@@ -1,5 +1,4 @@
 from . import core
-from . import domain
 from . import _pygetm
 from .constants import FILL_VALUE, CENTERS
 
@@ -12,15 +11,15 @@ class Base:
         self.idpdx_fill = idpdx_fill
         self.idpdy_fill = idpdy_fill
 
-    def initialize(self, domain: domain.Domain):
-        self.idpdx = domain.U.array(
+    def initialize(self, ugrid: core.Grid, vgrid: core.Grid):
+        self.idpdx = ugrid.array(
             name="idpdx",
             units="m2 s-2",
             long_name="internal pressure gradient in x-direction",
             z=CENTERS,
             fill_value=FILL_VALUE,
         )
-        self.idpdy = domain.V.array(
+        self.idpdy = vgrid.array(
             name="idpdy",
             units="m2 s-2",
             long_name="internal pressure gradient in y-direction",

@@ -7,28 +7,11 @@ import pygetm.domain
 import pygetm.open_boundaries
 
 
-def domain_from_topo(
-    path: str,
-    nlev: Optional[int] = None,
-    ioffset: int = 0,
-    joffset: int = 0,
-    nx: Optional[int] = None,
-    ny: Optional[int] = None,
-    **kwargs,
-) -> pygetm.domain.Domain:
+def domain_from_topo(path: str, **kwargs) -> pygetm.domain.Domain:
     """Create a domain object from a topo.nc file used by legacy GETM.
 
     Args:
         path: NetCDF file with legacy domain topography
-        nlev: number of vertical layers
-        ioffset: starting point in x-direction
-            (default: 0 = start of the domain in the topo file)
-        joffset: starting point in y-direction
-            (default: 0 = start of the domain in the topo file)
-        nx: number of points to read in x-direction
-            (default: read till end of the domain in the topo file)
-        ny: number of points to read in y-direction
-            (default: read till end of the domain in the topo file)
         **kwargs: keyword arguments that are ultimately passed to
             :class:`pygetm.domain.Domain`
 
@@ -45,57 +28,27 @@ def domain_from_topo(
             raise NotImplementedError("No support yet for Cartesian coordinates")
         elif grid_type == 2:
             # spherical
-            assert nlev is not None
-            latname, lonname = nc["bathymetry"].dimensions
-            nclon = nc[lonname]
-            nclat = nc[latname]
-            if nx is None:
-                nx = nclon.size - ioffset
-            if ny is None:
-                ny = nclat.size - joffset
-            dlon = (nclon[-1] - nclon[0]) / (nclon.size - 1)
-            dlat = (nclat[-1] - nclat[0]) / (nclat.size - 1)
+            H = nc["bathymetry"]
+            latname, lonname = H.dimensions
+            if hasattr(H, "missing_value"):
+                H = np.ma.masked_equal(H, H.missing_value)
+            mask = np.where(np.ma.getmaskarray(H), 0, 1)
 
-            # Define lon, lat on supergrid
-            lon = (
-                nclon[0] + (ioffset - 0.5) * dlon + np.arange(2 * nx + 1) * (0.5 * dlon)
-            )
-            lat = (
-                nclat[0] + (joffset - 0.5) * dlat + np.arange(2 * ny + 1) * (0.5 * dlat)
-            )
-            lat = lat[:, np.newaxis]
+            # Follow legacy GETM in inferring regularly spaced lon/lat grids from
+            # first and last value. This could improve accuacy if values in the topo
+            # file are not stored in double precision.
+            nclon, nclat = nc[lonname], nc[latname]
+            lon = np.linspace(nclon[0], nclon[-1], nclon.size, dtype=float)
+            lat = np.linspace(nclat[0], nclat[-1], nclat.size, dtype=float)
 
-            # Bathymetry (missing values/fill values will be masked)
-            missing = []
-            ncbath = nc["bathymetry"]
-            if hasattr(ncbath, "missing_value"):
-                missing.append(np.array(ncbath.missing_value, ncbath.dtype))
-            H = pygetm.domain.centers_to_supergrid_2d(
-                ncbath, ioffset, joffset, nx, ny, missing_values=missing
-            )
-
+            if "z0" in nc.variables:
+                kwargs.setdefault("z0", nc["z0"])
             if "z0" not in kwargs:
-                if "z0" not in nc.variables:
-                    raise Exception(
-                        "Bottom roughness z0 is not present in %s; you need to provide"
-                        " it as keyword argument to domain_from_topo instead."
-                    )
-                kwargs["z0"] = np.ma.filled(
-                    pygetm.domain.centers_to_supergrid_2d(
-                        nc["z0"], ioffset, joffset, nx, ny
-                    )
+                raise Exception(
+                    f"Bottom roughness z0 is not present in {path}; you need to provide"
+                    " it as keyword argument to domain_from_topo instead."
                 )
-            domain = pygetm.domain.create(
-                nx,
-                ny,
-                nlev,
-                lon=lon,
-                lat=lat,
-                H=np.ma.filled(H),
-                spherical=True,
-                mask=np.where(np.ma.getmaskarray(H), 0, 1),
-                **kwargs,
-            )
+            domain = pygetm.domain.create_spherical(lon, lat, H=H, mask=mask, **kwargs)
         elif grid_type == 3:
             # planar curvilinear
             raise NotImplementedError(

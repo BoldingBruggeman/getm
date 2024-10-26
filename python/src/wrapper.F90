@@ -45,53 +45,16 @@ contains
       deallocate(p)
    end subroutine
 
-   function domain_create(imin, imax, jmin, jmax, kmin, kmax, halox, haloy, haloz) result(pdomain) bind(c)
-      integer(c_int), intent(in), value :: imin, imax, jmin, jmax, kmin, kmax, halox, haloy, haloz
-      type(c_ptr)                       :: pdomain
-
-      type (type_getm_domain), pointer :: domain
-      integer                          :: stat
-
-      allocate(domain)
-      domain%have_metrics = .true.
-      call domain%configure(imin=imin,imax=imax,jmin=jmin,jmax=jmax,kmin=kmin,kmax=kmax,halo=(/halox, haloy, haloz/))
-      pdomain = c_loc(domain)
-      domain%domain_type = 1
-   end function
-
-   subroutine domain_finalize(pdomain) bind(c)
-      type(c_ptr), intent(in), value :: pdomain
-
-      type (type_getm_domain), pointer :: domain
-
-      call c_f_pointer(pdomain, domain)
-      call domain%cleanup()
-      deallocate(domain)
-   end subroutine
-
-   function domain_get_grid(pdomain, grid_type, imin, imax, jmin, jmax, kmin, kmax, halox, haloy, haloz) result(pgrid) bind(c)
-      type(c_ptr),         intent(in), value :: pdomain
-      integer(kind=c_int), intent(in), value :: grid_type
-      integer(kind=c_int), intent(in), value :: imin, imax, jmin, jmax, kmin, kmax, halox, haloy, haloz
+   function create_grid(imin, imax, jmin, jmax, kmin, kmax, halox, haloy) result(pgrid) bind(c)
+      integer(kind=c_int), intent(in), value :: imin, imax, jmin, jmax, kmin, kmax, halox, haloy
       type(c_ptr)                            :: pgrid
 
-      type (type_getm_domain),   pointer :: domain
-      type (type_getm_grid),     pointer :: grid
-      type (type_getm_pressure), pointer :: pressure
-      integer                            :: halo(3)
+      type (type_getm_grid), pointer :: grid
+      integer                        :: halo(3)
 
-      call c_f_pointer(pdomain, domain)
-      select case (grid_type)
-      case (1); grid => domain%T
-      case (2); grid => domain%U
-      case (3); grid => domain%V
-      case (4); grid => domain%X
-      case default
-         allocate(grid)
-         halo = (/halox, haloy, haloz/)
-         call grid%configure(grid_type=grid_type, imin=imin, imax=imax, &
-            jmin=jmin, jmax=jmax, kmin=kmin, kmax=kmax, halo=halo)
-      end select
+      allocate(grid)
+      halo = (/halox, haloy, 0/)
+      call grid%configure(imin=imin, imax=imax, jmin=jmin, jmax=jmax, kmin=kmin, kmax=kmax, halo=halo)
       pgrid = c_loc(grid)
    end function
 
@@ -158,52 +121,6 @@ contains
          case ('zc'); p = c_loc(grid%zc); sub_type = subtype_depth_explicit
          case ('zf'); p = c_loc(grid%zf); sub_type = subtype_depth_explicit_interfaces
          case ('alpha'); p = c_loc(grid%alpha)
-         end select
-      case (1)
-         call c_f_pointer(obj, momentum)
-         select case (pname(:index(pname, C_NULL_CHAR) - 1))
-         case ('U');   p = c_loc(momentum%U); grid_type = 2
-         case ('V');   p = c_loc(momentum%V); grid_type = 3
-         case ('fU');  p = c_loc(momentum%fU); grid_type = 3
-         case ('fV');  p = c_loc(momentum%fV); grid_type = 2
-         case ('fpk');  if (allocated(momentum%fpk)) p = c_loc(momentum%fpk); grid_type = 3; sub_type = subtype_depth_explicit
-         case ('fqk');  if (allocated(momentum%fqk)) p = c_loc(momentum%fqk); grid_type = 2; sub_type = subtype_depth_explicit
-         case ('advU');  p = c_loc(momentum%advU); grid_type = 2
-         case ('advV');  p = c_loc(momentum%advV); grid_type = 3
-         case ('diffU');  p = c_loc(momentum%diffU); grid_type = 2
-         case ('diffV');  p = c_loc(momentum%diffV); grid_type = 3
-         case ('dampU');  p = c_loc(momentum%dampU); grid_type = 2
-         case ('dampV');  p = c_loc(momentum%dampV); grid_type = 3
-         case ('u1');   p = c_loc(momentum%u1); grid_type = 2
-         case ('v1');   p = c_loc(momentum%v1); grid_type = 3
-         case ('uk');   if (allocated(momentum%uk)) p = c_loc(momentum%uk); grid_type = 2; sub_type = subtype_depth_explicit
-         case ('vk');   if (allocated(momentum%vk)) p = c_loc(momentum%vk); grid_type = 3; sub_type = subtype_depth_explicit
-         case ('ru');   p = c_loc(momentum%ru); grid_type = 2
-         case ('rv');   p = c_loc(momentum%rv); grid_type = 3
-         case ('rru');   p = c_loc(momentum%rru); grid_type = 2
-         case ('rrv');   p = c_loc(momentum%rrv); grid_type = 3
-         case ('ustar2_s');   if (allocated(momentum%ustar2_s)) p = c_loc(momentum%ustar2_s)
-         case ('ustar2_b');   if (allocated(momentum%ustar2_b))  p = c_loc(momentum%ustar2_b)
-         case ('pk');   if (allocated(momentum%pk)) p = c_loc(momentum%pk); grid_type = 2; sub_type = subtype_depth_explicit
-         case ('qk');   if (allocated(momentum%qk)) p = c_loc(momentum%qk); grid_type = 3; sub_type = subtype_depth_explicit
-         case ('ww');   if (allocated(momentum%ww)) p = c_loc(momentum%ww); sub_type = subtype_depth_explicit_interfaces
-         case ('advpk'); if (allocated(momentum%advpk)) p = c_loc(momentum%advpk); grid_type = 2; sub_type = subtype_depth_explicit
-         case ('advqk'); if (allocated(momentum%advqk)) p = c_loc(momentum%advqk); grid_type = 3; sub_type = subtype_depth_explicit
-         case ('diffpk'); if (allocated(momentum%diffpk)) p = c_loc(momentum%diffpk); grid_type = 2 &
-            ;sub_type = subtype_depth_explicit
-         case ('diffqk'); if (allocated(momentum%diffqk)) p = c_loc(momentum%diffqk); grid_type = 3 &
-            ;sub_type = subtype_depth_explicit
-         case ('Ui');   p = c_loc(momentum%Ui); grid_type = 2
-         case ('Vi');   p = c_loc(momentum%Vi); grid_type = 3
-         case ('SS');   if (allocated(momentum%SS)) p = c_loc(momentum%SS); sub_type = subtype_depth_explicit_interfaces
-         case ('SxB');   p = c_loc(momentum%SxB); grid_type = 2
-         case ('SyB');   p = c_loc(momentum%SyB); grid_type = 3
-         case ('SxA');   p = c_loc(momentum%SxA); grid_type = 2
-         case ('SyA');   p = c_loc(momentum%SyA); grid_type = 3
-         case ('SxD');   p = c_loc(momentum%SxD); grid_type = 2
-         case ('SyD');   p = c_loc(momentum%SyD); grid_type = 3
-         case ('SxF');   p = c_loc(momentum%SxF); grid_type = 2
-         case ('SyF');   p = c_loc(momentum%SyF); grid_type = 3
          end select
       end select
    end subroutine
@@ -370,56 +287,117 @@ contains
                     w, w_var, tgrid%mask, timestep, h, var)
    end subroutine
 
-   function momentum_create(runtype, pdomain, Am0, cnpar, coriolis_scheme) result(pmomentum) bind(c)
-      integer(c_int), intent(in), value :: runtype, coriolis_scheme
-      type(c_ptr),    intent(in), value :: pdomain
-      real(c_double), intent(in), value :: Am0, cnpar
-      type(c_ptr) :: pmomentum
-
-      type (type_getm_domain),   pointer :: domain
-      type (type_getm_momentum), pointer :: momentum
-
-      call c_f_pointer(pdomain, domain)
-      allocate(momentum)
-      call momentum%configure()
-      momentum%advection_scheme = 0
-      momentum%Am0 = Am0
-      momentum%cnpar = cnpar
-      momentum%coriolis_scheme = coriolis_scheme
-      call momentum%initialize(runtype, domain)
-      pmomentum = c_loc(momentum)
-   end function
-
-   subroutine momentum_finalize(pmomentum) bind(c)
-      type(c_ptr), intent(in), value :: pmomentum
-
-      type (type_getm_momentum), pointer :: momentum
-
-      call c_f_pointer(pmomentum, momentum)
-      deallocate(momentum)
-   end subroutine
-
-   subroutine momentum_diffusion_driver(pmomentum, nk, ph, phx, pu, pv, pdiffu, pdiffv) bind(c)
+   subroutine c_momentum_diffusion(ptgrid, pugrid, pvgrid, pxgrid, nk, ph, phx, pu, pv, Am0, pdiffu, pdiffv) bind(c)
       integer(c_int), intent(in), value :: nk
-      type(c_ptr),    intent(in), value :: pmomentum, ph, phx, pu, pv, pdiffu, pdiffv
+      type(c_ptr),    intent(in), value :: ptgrid, pugrid, pvgrid, pxgrid, ph, phx, pu, pv
+      real(c_double), intent(in), value :: Am0
+      type(c_ptr),    intent(in), value :: pdiffu, pdiffv
 
-      type (type_getm_momentum), pointer :: momentum
-      real(real64), contiguous, pointer, dimension(:,:,:) :: h, hx, u, v, diffu, diffv
+      type (type_getm_grid),      pointer                   :: TG, UG, VG, XG
+      real(c_double), contiguous, pointer, dimension(:,:,:) :: h, hx, u, v, diffu, diffv
       integer :: k
 
-      call c_f_pointer(pmomentum, momentum)
-      associate(TG => momentum%domain%T, UG => momentum%domain%U, VG => momentum%domain%V, XG => momentum%domain%X)
+      call c_f_pointer(ptgrid, TG)
+      call c_f_pointer(pugrid, UG)
+      call c_f_pointer(pvgrid, VG)
+      call c_f_pointer(pxgrid, XG)
       call c_f_pointer(ph, h,   (/TG%u(1) - TG%l(1) + 1, TG%u(2) - TG%l(2) + 1, nk/))
       call c_f_pointer(phx, hx, (/XG%u(1) - XG%l(1) + 1, XG%u(2) - XG%l(2) + 1, nk/))
       call c_f_pointer(pu, u,   (/UG%u(1) - UG%l(1) + 1, UG%u(2) - UG%l(2) + 1, nk/))
       call c_f_pointer(pv, v,   (/VG%u(1) - VG%l(1) + 1, VG%u(2) - VG%l(2) + 1, nk/))
       call c_f_pointer(pdiffu, diffu, (/UG%u(1) - UG%l(1) + 1, UG%u(2) - UG%l(2) + 1, nk/))
       call c_f_pointer(pdiffv, diffv, (/VG%u(1) - VG%l(1) + 1, VG%u(2) - VG%l(2) + 1, nk/))
-      end associate
       do k = 1, nk
-         call momentum%diffusion_driver(h(:,:,k), hx(:,:,k), u(:,:,k), v(:,:,k), diffu(:,:,k), diffv(:,:,k))
+         call diffusion_driver(TG, UG, VG, XG, h(:,:,k), hx(:,:,k), u(:,:,k), v(:,:,k), Am0, diffu(:,:,k), diffv(:,:,k))
       end do
    end subroutine
+
+   subroutine diffusion_driver(TG, UG, VG, XG, h, hx, u, v, Am0, diffu, diffv)
+      type (type_getm_grid), intent(in) :: TG,  UG, VG, XG
+      real(c_double), dimension(:,:), intent(in) :: h(TG%l(1):,TG%l(2):)
+      real(c_double), dimension(:,:), intent(in) :: hx(XG%l(1):,XG%l(2):)
+      real(c_double), dimension(:,:), intent(in) :: u(UG%l(1):,UG%l(2):)
+      real(c_double), dimension(:,:), intent(in) :: v(VG%l(1):,VG%l(2):)
+      real(c_double),                 intent(in) :: Am0
+      real(c_double), dimension(:,:), intent(inout) :: diffu(UG%l(1):,UG%l(2):)
+      real(c_double), dimension(:,:), intent(inout) :: diffv(VG%l(1):,VG%l(2):)
+
+      integer :: i,j
+      real(c_double), allocatable :: flux(:,:)
+
+      allocate(flux(TG%l(1):TG%u(1), TG%l(2):TG%u(2)))
+   
+      ! Central for dx(2*Am*dx(U/DU))
+      do j=TG%jmin,TG%jmax
+         do i=TG%imin,TG%imax+1 ! shear defined on T-points
+            flux(i,j)=0._real64
+            if (TG%mask(i,j) == 1) then
+               flux(i,j) = 2._real64 * Am0 * TG%dy(i,j) * h(i,j) * (u(i,j) - u(i-1,j)) * TG%idx(i,j)
+            end if
+         end do
+      end do
+      do j=UG%jmin,UG%jmax
+         do i=UG%imin,UG%imax ! diffu defined on U-points
+            diffu(i,j)=0._real64
+            if (UG%mask(i,j) == 1 .or. UG%mask(i,j) == 2) then
+               diffu(i,j) = (flux(i+1,j) - flux(i,j)) * UG%iarea(i,j)
+            end if
+         end do
+      end do
+   
+      ! Central for dy(Am*(dy(U/DU)+dx(V/DV)))
+      do j=XG%jmin,XG%jmax ! work2d defined on X-points
+         do i=XG%imin,XG%imax
+            flux(i,j)=0._real64
+            if (XG%mask(i,j) > 0) then
+               flux(i,j) = Am0 * XG%dx(i,j) * hx(i,j) * ((u(i,j+1) - u(i,j)) * XG%idy(i,j) + (v(i+1,j) - v(i,j)) * XG%idx(i,j))
+            end if
+         end do
+      end do
+      do j=UG%jmin,UG%jmax ! diffu defined on U-points
+         do i=UG%imin,UG%imax
+            if (UG%mask(i,j) == 1 .or. UG%mask(i,j) == 2) then
+               diffu(i,j) = diffu(i,j) + (flux(i,j) - flux(i,j-1)) * UG%iarea(i,j)
+            end if
+         end do
+      end do
+   
+      ! Central for dx(Am*(dy(U/DU)+dx(V/DV)))
+      do j=XG%jmin,XG%jmax
+         do i=XG%imin,XG%imax ! work2d defined on X-points
+            flux(i,j)=0._real64
+            if (XG%mask(i,j) > 0) then
+               flux(i,j) = Am0 * XG%dy(i,j) * hx(i,j) * ((u(i,j+1) - u(i,j)) * XG%idy(i,j) + (v(i+1,j) - v(i,j)) * XG%idx(i,j))
+            end if
+         end do
+      end do
+      do j=VG%jmin,VG%jmax ! diffv defined on V-points
+         do i=VG%imin,VG%imax ! diffv defined on V-points
+            diffv(i,j)=0._real64
+            if (VG%mask(i,j) == 1 .or. VG%mask(i,j) == 2) then
+               diffv(i,j) = (flux(i,j) - flux(i-1,j)) * VG%iarea(i,j)
+            end if
+         end do
+      end do
+   
+      ! Central for dy(2*Am*dy(V/DV))
+      do j=TG%jmin,TG%jmax+1 ! work2d defined on T-points
+         do i=TG%imin,TG%imax
+            flux(i,j)=0._real64
+            if (TG%mask(i,j) == 1) then
+               flux(i,j) = 2._real64 * Am0 * TG%dx(i,j) * h(i,j) * (v(i,j) - v(i,j-1)) * TG%idy(i,j)
+            end if
+         end do
+      end do
+      do j=VG%jmin,VG%jmax ! diffv defined on V-points
+         do i=VG%imin,VG%imax
+            if (VG%mask(i,j) == 1 .or. VG%mask(i,j) == 2) then
+               diffv(i,j) = diffv(i,j) + (flux(i,j+1) - flux(i,j)) * VG%iarea(i,j)
+            end if
+         end do
+      end do
+   
+   end subroutine diffusion_driver
 
    subroutine c_thickness2center_depth(nx, ny, nz, istart, istop, jstart, jstop, mask, h, out) bind(c)
       integer(c_int), intent(in), value :: nx, ny, nz, istart, istop, jstart, jstop

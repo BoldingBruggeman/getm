@@ -1299,18 +1299,18 @@ class OnGrid(enum.Enum):
 
 
 class InputManager:
-    def __init__(self):
+    def __init__(self, logger: logging.Logger):
         self._all_fields: List[Tuple[str, LazyArray, np.ndarray]] = []
         self._micro_fields: List[Tuple[str, LazyArray, np.ndarray]] = []
-        self._logger = logging.getLogger()
+        self.logger = logger
 
     def debug_nc_reads(self):
         """Hook into :mod:`xarray` so that every read from a NetCDF file is written
         to the log.
         """
-        _logger = self._logger.getChild("nc")
-        _logger.setLevel(logging.DEBUG)
-        debug_nc_reads(_logger)
+        nc_logger = self.logger.getChild("nc")
+        nc_logger.setLevel(logging.DEBUG)
+        debug_nc_reads(nc_logger)
 
     def add(
         self,
@@ -1357,7 +1357,7 @@ class InputManager:
             # The target variable does not contain data. Typically this is because
             # it specifies information on the open boundaries,
             # of which the current (sub)domain does not have any.
-            self._logger.warning(
+            self.logger.warning(
                 f"Ignoring asssignment to array {array.name}"
                 " because it has no associated data."
             )
@@ -1380,7 +1380,7 @@ class InputManager:
             global_slice,
             local_shape,
             global_shape,
-        ) = grid.domain.tiling.subdomain2slices(
+        ) = grid.tiling.subdomain2slices(
             exclude_halos=not include_halos, halox_sub=grid.halox, haloy_sub=grid.haloy
         )
 
@@ -1435,8 +1435,8 @@ class InputManager:
             if value.ndim >= 2 and value.shape[-2:] == global_shape:
                 # on-grid data for the global domain:
                 # extract data at open boundary points
-                i_bnd = grid.domain.open_boundaries.i_glob
-                j_bnd = grid.domain.open_boundaries.j_glob
+                i_bnd = grid.open_boundaries.i_glob
+                j_bnd = grid.open_boundaries.j_glob
                 value = isel(value, **{value.dims[-1]: i_bnd, value.dims[-2]: j_bnd})
             elif (
                 source_lon is not None
@@ -1461,8 +1461,8 @@ class InputManager:
                 ilondim = value.dims.index(source_lon.dims[0])
                 ilatdim = value.dims.index(source_lat.dims[0])
                 if ilondim != ilatdim:
-                    lon_bnd = grid.domain.open_boundaries.lon.all_values
-                    lat_bnd = grid.domain.open_boundaries.lat.all_values
+                    lon_bnd = grid.open_boundaries.lon.all_values
+                    lat_bnd = grid.open_boundaries.lat.all_values
                     value = limit_region(
                         value,
                         lon_bnd.min(),
@@ -1485,23 +1485,23 @@ class InputManager:
                     value = transpose(value, axes)
 
             idim = value.ndim - (2 if array.z else 1)
-            if value.shape[idim] == grid.domain.open_boundaries.np_glob:
+            if value.shape[idim] == grid.open_boundaries.np_glob:
                 # The source array covers all open boundaries (global domain).
                 # If the subdomain only has a subset of those, slice out only the points
                 # that fall within the current subdomain
-                local_to_global = grid.domain.open_boundaries.local_to_global
+                local_to_global = grid.open_boundaries.local_to_global
                 if local_to_global:
                     value = concatenate_slices(
                         value,
                         idim,
                         [slice(start, stop) for (start, stop) in local_to_global],
                     )
-            elif value.shape[idim] != grid.domain.open_boundaries.np:
+            elif value.shape[idim] != grid.open_boundaries.np:
                 raise Exception(
                     f"Extent of dimension {idim} of {value.name} is not compatible with"
                     f" open boundaries. It should have length"
-                    f" {grid.domain.open_boundaries.np_glob} (number of open boundary"
-                    f" points in the global domain) or {grid.domain.open_boundaries.np}"
+                    f" {grid.open_boundaries.np_glob} (number of open boundary"
+                    f" points in the global domain) or {grid.open_boundaries.np}"
                     f" (number of open boundary points in the current subdomain)."
                     f" Its actual extent is {value.shape[idim]}."
                 )
@@ -1540,12 +1540,12 @@ class InputManager:
                 value = temporal_interpolation(
                     value,
                     climatology=climatology,
-                    comm=grid.domain.tiling.comm,
-                    logger=self._logger,
+                    comm=grid.tiling.comm,
+                    logger=self.logger,
                 )
             elif value.getm.time.dims:
                 time = value.getm.time.values.flat[0]
-                self._logger.warning(
+                self.logger.warning(
                     f"{array.name} is set to {value.name}, which has only one time"
                     f" point {time}. The value from this time will be used now."
                     f" {array.name} will not be further updated by the input manager"
@@ -1560,7 +1560,7 @@ class InputManager:
             # The target is a depth-explicit array.
             # The source must be defined on z coordinates
             # and interpolated to our [time-varying] depths
-            coord_source = grid.domain.open_boundaries if array.on_boundary else grid
+            coord_source = grid.open_boundaries if array.on_boundary else grid
             z_coordinate = coord_source.zc if array.z == CENTERS else coord_source.zf
             z_coordinate.saved = True
             value = vertical_interpolation(
@@ -1580,7 +1580,7 @@ class InputManager:
         if isinstance(data, LazyArray) and data.is_time_varying():
             time_varying = array.attrs.get("_time_varying", TimeVarying.MICRO)
             suffix = " on macrotimestep" if time_varying == TimeVarying.MACRO else ""
-            self._logger.info(
+            self.logger.info(
                 f"{array.name} will be updated dynamically from {data.name}{suffix}"
             )
             info = (array.name, data, target)
@@ -1600,13 +1600,13 @@ class InputManager:
             if not finite.all(where=unmasked):
                 n_unmasked = unmasked.sum()
                 n_bad = n_unmasked - finite.sum(where=unmasked)
-                self._logger.warning(
+                self.logger.warning(
                     f"{array.name} is set to {value.name}, which is not finite"
                     f" (e.g., NaN) in {n_bad} of {n_unmasked} unmasked points."
                 )
             minval = target.min(where=unmasked, initial=np.inf)
             maxval = target.max(where=unmasked, initial=-np.inf)
-            self._logger.info(
+            self.logger.info(
                 f"{array.name} is set to time-invariant {value.name}"
                 f" (minimum: {minval}, maximum: {maxval})"
             )
@@ -1622,13 +1622,6 @@ class InputManager:
         numtime = time.toordinal(fractional=True)
         fields = self._all_fields if macro else self._micro_fields
         for name, source, target in fields:
-            self._logger.debug(f"updating {name}")
+            self.logger.debug(f"updating {name}")
             source.update(time, numtime)
             target[...] = source
-
-    @property
-    def logger(self) -> logging.Logger:
-        return self._logger
-
-    def set_logger(self, logger: logging.Logger):
-        self._logger = logger

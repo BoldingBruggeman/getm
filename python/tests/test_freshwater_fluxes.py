@@ -5,6 +5,7 @@ import numpy as np
 import cftime
 
 import pygetm
+import pygetm.vertical_coordinates
 
 
 TOLERANCE = 1e-14
@@ -20,7 +21,6 @@ class TestFreshwaterFluxes(unittest.TestCase):
         domain = pygetm.domain.create_cartesian(
             np.linspace(0, 100e3, 50),
             np.linspace(0, 100e3, 51),
-            30,
             H=50.0,
             interfaces=True,
             f=0.0,
@@ -35,6 +35,7 @@ class TestFreshwaterFluxes(unittest.TestCase):
             pygetm.BAROCLINIC,
             airsea=pygetm.airsea.Fluxes(),
             radiation=pygetm.radiation.Radiation(),
+            vertical_coordinates=pygetm.vertical_coordinates.Sigma(30),
         )
         tracer = sim.tracers.add("dum")
         sim.tracer_totals.append(pygetm.tracer.TracerTotal(tracer))
@@ -291,7 +292,7 @@ class TestFreshwaterFluxes(unittest.TestCase):
         sim.finish()
         total_volume2, total_tracers2 = sim.totals
 
-        target = total_volume + DT * (sim.airsea.pe.values * domain.T.area.values).sum()
+        target = total_volume + DT * (sim.airsea.pe.values * sim.T.area.values).sum()
         self.assertLess(np.abs(total_volume2 / target - 1.0), TOLERANCE)
         tt1, tot1, mean1 = total_tracers[-1]
         tt2, tot2, mean2 = total_tracers2[-1]
@@ -309,7 +310,7 @@ class TestFreshwaterFluxes(unittest.TestCase):
         sim.finish()
         total_volume2, total_tracers2 = sim.totals
 
-        flow = (sim.airsea.pe.values * domain.T.area.values).sum()
+        flow = (sim.airsea.pe.values * sim.T.area.values).sum()
         target = total_volume + DT * flow
         self.assertLess(np.abs(total_volume2 / target - 1.0), TOLERANCE)
         tt1, tot1, mean1 = total_tracers[-1]
@@ -351,7 +352,7 @@ class TestFreshwaterFluxes(unittest.TestCase):
         sim.finish()
         total_volume2, total_tracers2 = sim.totals
 
-        pe_flow = (sim.airsea.pe.values * domain.T.area.values).sum()
+        pe_flow = (sim.airsea.pe.values * sim.T.area.values).sum()
         target = total_volume + DT * (flow.sum() + pe_flow)
         self.assertLess(np.abs(total_volume2 / target - 1.0), TOLERANCE)
         tt1, tot1, mean1 = total_tracers[-1]

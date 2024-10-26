@@ -16,16 +16,7 @@ from pygetm.input import tpxo
 def create_domain(
     setup_dir: str, use_boundaries: bool = True, use_rivers: bool = True, **kwargs
 ) -> pygetm.domain.Domain:
-    final_kwargs = dict(
-        nlev=30,
-        vertical_coordinate_method=pygetm.VerticalCoordinates.GVC,
-        Dgamma=40.0,
-        ddu=0.75,
-        ddl=0.5,
-        Dcrit=0.2,
-        Dmin=0.05,
-        z0=0.001,
-    )
+    final_kwargs = dict(z0=0.001)
     final_kwargs.update(kwargs)
     domain = pygetm.legacy.domain_from_topo(
         os.path.join(setup_dir, "Topo/NS6nm.v01.nc"), **final_kwargs
@@ -57,7 +48,7 @@ def create_simulation(
 
     if domain.open_boundaries and tpxo9_dir:
         for boundary in domain.open_boundaries:
-            boundary.type_2d = -4  # flather based on transport instead of velocity
+            boundary.type_2d = pygetm.FLATHER_TRANSPORT
 
     final_kwargs = dict(
         advection_scheme=pygetm.AdvectionScheme.SUPERBEE,
@@ -65,6 +56,11 @@ def create_simulation(
         airsea=airsea,
         internal_pressure_method=pygetm.InternalPressure.SHCHEPETKIN_MCWILLIAMS,
         delay_slow_ip=True,
+        Dcrit=0.2,
+        Dmin=0.05,
+        vertical_coordinates=pygetm.vertical_coordinates.GVC(
+            30, Dgamma=40.0, ddu=0.75, ddl=0.5
+        ),
     )
     final_kwargs.update(kwargs)
     sim = pygetm.Simulation(domain, runtype=runtype, **final_kwargs)

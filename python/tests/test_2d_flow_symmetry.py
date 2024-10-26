@@ -4,6 +4,7 @@ import unittest
 import numpy as np
 
 import pygetm
+import pygetm.vertical_coordinates
 
 
 class TestFlowSymmetry(unittest.TestCase):
@@ -22,9 +23,9 @@ class TestFlowSymmetry(unittest.TestCase):
             return True
 
         slicespec = [slice(None)] * field.ndim
-        if field.grid.type == pygetm._pygetm.UGRID:
+        if field.grid.ioffset == 2:
             slicespec[-1] = slice(None, -1)
-        elif field.grid.type == pygetm._pygetm.VGRID:
+        elif field.grid.joffset == 2:
             slicespec[-2] = slice(None, -1)
         field = field.ma[tuple(slicespec)]
         flipspec = [slice(None)] * field.ndim
@@ -68,7 +69,6 @@ class TestFlowSymmetry(unittest.TestCase):
         domain = pygetm.domain.create_cartesian(
             np.linspace(0, extent, 50),
             np.linspace(0, extent, 52),
-            1,
             f=0,
             H=50,
             periodic_x=periodic_x,
@@ -81,9 +81,14 @@ class TestFlowSymmetry(unittest.TestCase):
         distance_from_center = np.hypot(
             domain.x - 0.5 * extent, domain.y - 0.5 * extent
         )
+        domain._mask = domain._mask.copy()
         domain.mask[distance_from_center < extent * (1.0 / 6.0 + 1e-12)] = 0
 
-        sim = pygetm.Simulation(domain, runtype=pygetm.BAROTROPIC)
+        sim = pygetm.Simulation(
+            domain,
+            runtype=pygetm.BAROTROPIC,
+            vertical_coordinates=pygetm.vertical_coordinates.Sigma(1),
+        )
         assert timestep < domain.maxdt, "Request time step %s exceeds maxdt=%.5f s" % (
             timestep,
             domain.maxdt,
@@ -94,9 +99,9 @@ class TestFlowSymmetry(unittest.TestCase):
             f.request("zt")
 
         # Idealized surface forcing
-        tausx = domain.U.array(fill=tau_x)
-        tausy = domain.V.array(fill=tau_y)
-        sp = domain.T.array(fill=0.0)
+        tausx = sim.U.array(fill=tau_x)
+        tausy = sim.V.array(fill=tau_y)
+        sp = sim.T.array(fill=0.0)
 
         symmetry_axis = -2 if tau_x != 0.0 else -1
         V = sim.momentum.V if symmetry_axis == -2 else sim.momentum.U
@@ -105,19 +110,19 @@ class TestFlowSymmetry(unittest.TestCase):
         E_input, ke = 0.0, 0.0
 
         # Compute initial velocities on tracer grid
-        u_T = sim.momentum.U.interp(domain.T) / domain.T.D
-        v_T = sim.momentum.V.interp(domain.T) / domain.T.D
+        u_T = sim.momentum.U.interp(sim.T) / sim.T.D
+        v_T = sim.momentum.V.interp(sim.T) / sim.T.D
 
         for istep in range(ntime):
-            sim.update_surface_pressure_gradient(domain.T.z, sp)
+            sim.update_surface_pressure_gradient(sim.T.z, sp)
             sim.momentum.advance_depth_integrated(
                 timestep, tausx, tausy, sim.dpdx, sim.dpdy
             )
 
             # Compute updated velocities on tracer grid
             u_T_old, v_T_old = u_T, v_T
-            u_T = sim.momentum.U.interp(domain.T) / domain.T.D
-            v_T = sim.momentum.V.interp(domain.T) / domain.T.D
+            u_T = sim.momentum.U.interp(sim.T) / sim.T.D
+            v_T = sim.momentum.V.interp(sim.T) / sim.T.D
 
             # Energy input due to wind stress (per unit area!)
             E_input += (
@@ -127,15 +132,15 @@ class TestFlowSymmetry(unittest.TestCase):
             sim.advance_surface_elevation(
                 timestep, sim.momentum.U, sim.momentum.V, sim.fwf
             )
-            sim.domain.update_depth()
+            sim.update_depth()
             sim.output_manager.save(istep * timestep, istep)
 
         sim.output_manager.close(istep * timestep)
 
-        E_input = (E_input * domain.T.area).global_sum(where=domain.T.mask != 0)
+        E_input = (E_input * sim.T.area).global_sum(where=sim.T.mask != 0)
 
         # Compute total kinetic energy
-        ke = sim.Ekin.global_sum(where=domain.T.mask != 0)
+        ke = sim.Ekin.global_sum(where=sim.T.mask != 0)
 
         self.check_symmetry(dp, name="surface pressure gradient", axis=symmetry_axis)
         self.check_symmetry(V, name="transport", axis=symmetry_axis)
@@ -147,7 +152,7 @@ class TestFlowSymmetry(unittest.TestCase):
                 E_input,
                 rtol=0.01,
             )
-        meanz = domain.T.z.global_mean(reproducible=True, where=domain.T.mask == 1)
+        meanz = sim.T.z.global_mean(reproducible=True, where=sim.T.mask == 1)
         if meanz is not None:
             self.compare("Mean sea level: %s m" % (meanz,), meanz, 0.0)
 
