@@ -162,7 +162,7 @@ class TestFreshwaterFluxes(unittest.TestCase):
         self.assertLess(np.abs(tot2 / target - 1.0), TOLERANCE)
         self.assertLess(np.abs(mean2 / mean1 - 1.0), TOLERANCE)
 
-    def test_collocated_river_and_withdrawal(self):
+    def test_colocated_river_and_withdrawal(self):
         flow1 = -100.0
         flow2 = 200.0
 
