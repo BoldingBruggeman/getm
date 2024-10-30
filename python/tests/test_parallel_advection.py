@@ -133,12 +133,12 @@ class TestParallelAdvection(unittest.TestCase):
         if plot:
             u_glob = u.interp(T).gather()
             v_glob = v.interp(T).gather()
-        if u_glob is not None and plot:
-            import matplotlib.pyplot
+            if u_glob is not None:
+                import matplotlib.pyplot
 
-            fig, ax = matplotlib.pyplot.subplots()
-            ax.quiver(u_glob[::10, ::10], v_glob[::10, ::10], angles="xy")
-            fig.savefig("vel.png")
+                fig, ax = matplotlib.pyplot.subplots()
+                ax.quiver(u_glob[::10, ::10], v_glob[::10, ::10], angles="xy")
+                fig.savefig("vel.png")
 
         if debug:
             # Plot local velocities
@@ -214,9 +214,9 @@ class TestParallelAdvection(unittest.TestCase):
 
                 # Gather and plot global tracer field
                 if plot:
-                    f.gather(out=f_glob)
-                    if f_glob is not None:
-                        pc.set_array(f_glob[...].ravel())
+                    f.gather(out=values_glob)
+                    if values_glob is not None:
+                        pc.set_array(values_glob[...].ravel())
                         fig.savefig("adv_%04i.png" % ifig)
 
                 ifig += 1
