@@ -381,7 +381,7 @@ class Domain:
         lat: Optional[np.ndarray] = None,
         x: Optional[np.ndarray] = None,
         y: Optional[np.ndarray] = None,
-        coordinate_type: Optional[CoordinateType] = False,
+        coordinate_type: Optional[CoordinateType] = None,
         mask: Optional[np.ndarray] = 1,
         H: Optional[np.ndarray] = None,
         z0: Optional[np.ndarray] = 0.0,
