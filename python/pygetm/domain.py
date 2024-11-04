@@ -310,9 +310,13 @@ class DomainArray:
 
     def __get__(self, domain: "Domain", objtype=None) -> Optional[np.ndarray]:
         values = getattr(domain, self.private_name, None)
-        if values is not None and not self.writable:
-            values = values.view()
-            values.flags.writeable = False
+        if values is not None:
+            if values.flags.writeable and not self.writable:
+                values = values.view()
+                values.flags.writeable = False
+            elif not values.flags.writeable and self.writable:
+                values = values.copy()
+                setattr(domain, self.private_name, values)
         return values
 
     def __set__(self, domain: "Domain", values):
