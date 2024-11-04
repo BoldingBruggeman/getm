@@ -323,10 +323,14 @@ class Momentum:
         )
         self.diffpk = ugrid.array(z=CENTERS, fill_value=FILL_VALUE)
         self.diffqk = vgrid.array(z=CENTERS, fill_value=FILL_VALUE)
-        self.ru = ugrid.array(fill_value=FILL_VALUE)
-        self.rv = vgrid.array(fill_value=FILL_VALUE)
-        self.rru = ugrid.array(fill_value=FILL_VALUE, attrs=dict(_mask_output=True))
-        self.rrv = vgrid.array(fill_value=FILL_VALUE, attrs=dict(_mask_output=True))
+        self.ru = ugrid.array(name="ru", fill_value=FILL_VALUE)
+        self.rv = vgrid.array(name="rv", fill_value=FILL_VALUE)
+        self.rru = ugrid.array(
+            name="rru", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+        )
+        self.rrv = vgrid.array(
+            name="rrv", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+        )
 
         # for name in self._arrays:
         #     kwargs = dict(fill_value=FILL_VALUE)
