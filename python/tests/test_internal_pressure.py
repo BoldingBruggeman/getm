@@ -2,7 +2,6 @@ import unittest
 
 import numpy as np
 import pygetm
-import pygetm.vertical_coordinates
 
 GRAVITY = 9.81
 RHO0 = 1025.0

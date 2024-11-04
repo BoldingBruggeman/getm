@@ -5,7 +5,6 @@ import logging
 import numpy as np
 
 import pygetm
-import pygetm.vertical_coordinates
 
 TOLERANCE = 1e-14
 

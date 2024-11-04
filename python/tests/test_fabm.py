@@ -6,7 +6,6 @@ import cftime
 
 import pygetm
 import pygetm.fabm
-import pygetm.vertical_coordinates
 
 TOLERANCE = 1e-13
 START, STOP = cftime.datetime(2000, 1, 1), cftime.datetime(2000, 1, 3)

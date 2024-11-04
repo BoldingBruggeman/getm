@@ -3,7 +3,6 @@ import unittest
 import numpy as np
 
 import pygetm
-import pygetm.vertical_coordinates
 
 
 class Test2DTransport(unittest.TestCase):

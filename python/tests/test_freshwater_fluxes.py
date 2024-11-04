@@ -5,7 +5,6 @@ import numpy as np
 import cftime
 
 import pygetm
-import pygetm.vertical_coordinates
 
 
 TOLERANCE = 1e-14

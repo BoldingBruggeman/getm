@@ -6,7 +6,6 @@ from typing import Optional
 import numpy as np
 
 import pygetm
-import pygetm.vertical_coordinates
 
 
 handler = logging.StreamHandler()

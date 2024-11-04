@@ -13,6 +13,7 @@ from . import fabm
 from . import open_boundaries
 from . import internal_pressure
 from . import ice
+from . import vertical_coordinates
 from .simulation import *
 from .constants import *
 from .operators import AdvectionScheme

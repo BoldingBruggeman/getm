@@ -2,7 +2,6 @@ import unittest
 
 import numpy as np
 import pygetm
-import pygetm.vertical_coordinates
 
 
 class TestCoriolis(unittest.TestCase):

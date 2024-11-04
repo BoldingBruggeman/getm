@@ -7,7 +7,6 @@ import numpy as np
 import pygetm
 import pygetm.domain
 import pygetm.debug
-import pygetm.vertical_coordinates
 
 
 class Test3DBarotropic(unittest.TestCase):
