@@ -6,6 +6,7 @@ import numpy as np
 
 from . import core
 from . import parallel
+from .constants import CoordinateType
 
 
 class RiverTracer(core.Array):
@@ -50,7 +51,7 @@ class River:
         zu: Optional[float] = 0.0,
         x: Optional[float] = None,
         y: Optional[float] = None,
-        spherical: Optional[bool] = None,
+        coordinate_type: CoordinateType = CoordinateType.IJ,
     ):
         """
         Args:
@@ -61,17 +62,15 @@ class River:
             zu: minimum depth from which the river penetrates (non-negative)
             x: x coordinate of river
             y: y coordinate of river
-            spherical: interpret x and y as longitude and latitude.
-                Otherwise they are interpreted as Cartesian coordinates.
-                If this argument not provided (or None), it is inferred from
-                :attr:`Domain.spherical`
+            coordinate_type: coordinate type of x and y
+                (LONLAT spherical, XY for Cartesian coordinates)
         """
         self.name = name
         self.i_glob = i
         self.j_glob = j
         self.x = x
         self.y = y
-        self.spherical = spherical
+        self.coordinate_type = coordinate_type
         self.zl = zl
         self.zu = zu
         self.i_loc = None
@@ -88,13 +87,15 @@ class River:
     ):
         """If this river position is specified by (lon, lat) or (x, y), map it
         to the nearest non-masked grid cell."""
-        if self.x is None:
+        if self.coordinate_type == CoordinateType.LONLAT:
+            allx, ally = lon, lat
+        elif self.coordinate_type == CoordinateType.XY:
+            allx, ally = x, y
+        else:
             return
 
         # Location is specified by x, y coordinate.
         # Look up nearest unmasked grid cell.
-        allx = lon if self.spherical else x
-        ally = lat if self.spherical else y
         dist = (allx - self.x) ** 2 + (ally - y) ** 2
         dist[mask != 1] = np.inf
         idx = np.nanargmin(dist)
@@ -144,9 +145,16 @@ class River:
 
 
 class Rivers(Mapping[str, River]):
-    def __init__(self, nx: int, ny: int, logger: logging.Logger):
+    def __init__(
+        self,
+        nx: int,
+        ny: int,
+        default_coordinate_type: CoordinateType,
+        logger: logging.Logger,
+    ):
         self.nx = nx
         self.ny = ny
+        self.default_coordinate_type = default_coordinate_type
         self.logger = logger
         self._rivers: List[River] = []
         self._frozen = False
@@ -174,16 +182,27 @@ class Rivers(Mapping[str, River]):
         self._rivers.append(river)
         return river
 
-    def add_by_location(self, name: str, x: float, y: float, **kwargs):
+    def add_by_location(
+        self,
+        name: str,
+        x: float,
+        y: float,
+        coordinate_type: Optional[CoordinateType] = None,
+        **kwargs,
+    ):
         """Add a river at a location specified by the nearest coordinates
 
         Args:
             name: river name
-            x: x coordinate of river (longitude if spherical)
-            y: y coordinate of river (latitude if spherical)
+            x: x coordinate of river
+            y: y coordinate of river
             **kwargs: additional keyword arguments passed to :class:`River`
         """
-        river = River(name, None, None, x=x, y=y, **kwargs)
+        if coordinate_type is None:
+            coordinate_type = self.default_coordinate_type
+        river = River(
+            name, None, None, x=x, y=y, coordinate_type=coordinate_type, **kwargs
+        )
         self._rivers.append(river)
         return river
 

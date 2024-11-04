@@ -21,7 +21,7 @@ import xarray as xr
 
 from . import _pygetm
 from . import parallel
-from .constants import CENTERS, INTERFACES, FILL_VALUE
+from .constants import CENTERS, INTERFACES, FILL_VALUE, CoordinateType
 
 if TYPE_CHECKING:
     import netCDF4
@@ -79,6 +79,7 @@ class Grid(_pygetm.Grid):
         "open_boundaries",
         "input_manager",
         "default_output_transforms",
+        "input_grid_mappers",
         "rivers",
         "overlap",
         "_interpolators",
@@ -453,13 +454,13 @@ class Grid(_pygetm.Grid):
         y: float,
         mask: Optional[Tuple[int]] = None,
         include_halos: bool = False,
-        spherical: Optional[bool] = None,
+        coordinate_type: Optional[CoordinateType] = None,
     ) -> Optional[Tuple[int, int]]:
         """Return index (i,j) of point nearest to specified coordinate."""
-        if spherical is None:
-            spherical = self.domain.spherical
+        if coordinate_type is None:
+            coordinate_type = self.domain.coordinate_type
         if not self.domain.contains(
-            x, y, include_halos=include_halos, spherical=spherical
+            x, y, include_halos=include_halos, coordinate_type=coordinate_type
         ):
             return None
         local_slice, _, _, _ = self.tiling.subdomain2slices(
@@ -471,6 +472,7 @@ class Grid(_pygetm.Grid):
             exclude_halos=not include_halos,
             exclude_global_halos=True,
         )
+        spherical = coordinate_type == CoordinateType.LONLAT
         allx, ally = (self.lon, self.lat) if spherical else (self.x, self.y)
         actx, acty = allx.all_values[local_slice], ally.all_values[local_slice]
         dist = (actx - x) ** 2 + (acty - y) ** 2

@@ -336,7 +336,7 @@ class FABM:
         h = self.grid.hn.all_values
         halox = self.grid.halox
         haloy = self.grid.haloy
-        mask = self.grid.domain.mask3d.all_values
+        mask = self.grid.mask3d.all_values
         for itracer in range(self.model.interior_state.shape[0]):
             w = self.vertical_velocity[itracer, ...].reshape(mask.shape)
             c = self.model.interior_state[itracer, ...].reshape(mask.shape)

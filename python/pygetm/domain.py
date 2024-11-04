@@ -11,9 +11,8 @@ import netCDF4
 from . import core
 from . import parallel
 from . import rivers
-from . import input
 from . import open_boundaries
-from .constants import FILL_VALUE, CENTERS, GRAVITY
+from .constants import CoordinateType, GRAVITY
 
 
 # class VerticalCoordinates(enum.IntEnum):
@@ -29,12 +28,6 @@ class EdgeTreatment(enum.Enum):
     PERIODIC = enum.auto()
     MISSING = enum.auto()
     CLAMP = enum.auto()
-
-
-class CoordinateType(enum.Enum):
-    XY = enum.auto()
-    LONLAT = enum.auto()
-    IJ = enum.auto()
 
 
 def find_interfaces(c: npt.ArrayLike) -> np.ndarray:
@@ -63,7 +56,7 @@ def coriolis(lat: npt.ArrayLike) -> np.ndarray:
     Returns:
         Coriolis parameter f
     """
-    return (2.0 * OMEGA) * np.sin(DEG2RAD * np.asarray(lat))
+    return (2.0 * OMEGA) * np.sin(DEG2RAD * np.asarray(lat, dtype=float))
 
 
 def centers_to_supergrid_1d(
@@ -262,7 +255,7 @@ def create_spherical(
         nx, ny = lon.shape[-1] - 1, lat.shape[0].size - 1
     else:
         nx, ny = lon.shape[-1], lat.shape[0]
-    return Domain(nx, ny, lon=lon, lat=lat, spherical=True, **kwargs)
+    return Domain(nx, ny, lon=lon, lat=lat, **kwargs)
 
 
 def create_spherical_at_resolution(
@@ -388,7 +381,7 @@ class Domain:
         lat: Optional[np.ndarray] = None,
         x: Optional[np.ndarray] = None,
         y: Optional[np.ndarray] = None,
-        spherical: bool = False,
+        coordinate_type: Optional[CoordinateType] = False,
         mask: Optional[np.ndarray] = 1,
         H: Optional[np.ndarray] = None,
         z0: Optional[np.ndarray] = 0.0,
@@ -407,9 +400,7 @@ class Domain:
             lat: latitude (degrees North)
             x: x coordinate (m)
             y: y coordinate (m)
-            spherical: grid is spherical (as opposed to Cartesian). If True, at least
-                ``lon`` and ``lat`` must be provided. Otherwise at least ``x`` and ``y``
-                must be provided.
+            coordinate_type: preferred coordinate type for plots and output
             mask: initial mask (0: land, 1: water)
             H: initial bathymetric depth. This is the distance between the bottom and
                 some arbitrary depth reference (m, positive if bottom lies below the
@@ -424,6 +415,10 @@ class Domain:
             raise Exception(f"Number of x points is {nx} but must be > 0")
         if ny <= 0:
             raise Exception(f"Number of y points is {ny} but must be > 0")
+        has_xy = x is not None and y is not None
+        has_lonlat = lon is not None and lat is not None
+        if not (has_xy or has_lonlat):
+            raise Exception(f"Either x and y, or lon and lat, must be provided")
         if lat is None and f is None:
             raise Exception(
                 "Either lat of f must be provided to determine the Coriolis parameter."
@@ -433,17 +428,19 @@ class Domain:
         self.ny = ny
         self.periodic_x = periodic_x
         self.periodic_y = periodic_y
-        self.spherical = spherical
         self.comm = comm
-        self.coordinate_type = CoordinateType.LONLAT if spherical else CoordinateType.XY
-
+        if coordinate_type is None:
+            coordinate_type = CoordinateType.XY if has_xy else CoordinateType.LONLAT
+        self.coordinate_type = coordinate_type
         self.root_logger = logger or parallel.get_logger()
         self.logger = self.root_logger.getChild("domain")
 
         self.open_boundaries = open_boundaries.OpenBoundaries(
             nx, ny, self.logger.getChild("open_boundaries")
         )
-        self.rivers = rivers.Rivers(nx, ny, self.logger.getChild("rivers"))
+        self.rivers = rivers.Rivers(
+            nx, ny, coordinate_type, self.logger.getChild("rivers")
+        )
         self.default_output_transforms = []
         self.input_grid_mappers = []
 
@@ -452,7 +449,10 @@ class Domain:
 
         self._x = self._map_array(x, edges=EdgeTreatment.EXTRAPOLATE)
         self._y = self._map_array(y, edges=EdgeTreatment.EXTRAPOLATE)
-        if lon is not None:
+        if lon is not None and np.shape(lon) != (1 + ny * 2, 1 + nx * 2):
+            # Interpolate longitude in cos-sin space to handle periodic boundary
+            # condition, but skip this if longitude is already provided on supergrid
+            # (no interpolation needed) to improve accuracy of rotation tests.
             lon_rad = DEG2RAD * np.asarray(lon, dtype=float)
             coslon = np.cos(lon_rad)
             sinlon = np.sin(lon_rad)
@@ -460,16 +460,14 @@ class Domain:
             sinlon = self._map_array(sinlon, edges=EdgeTreatment.EXTRAPOLATE)
             self._lon = np.arctan2(sinlon, coslon) * RAD2DEG
         else:
-            self._lon = None
+            self._lon = self._map_array(lon)
         self._lat = self._map_array(lat, edges=EdgeTreatment.EXTRAPOLATE)
         self._mask = self._map_array(mask, missing_value=0, dtype=int)
         self._H = self._map_array(H)
         self._z0 = self._map_array(z0)
         if f is None:
             # Calculate Coriolis parameter from latitude
-            f = coriolis(self._lat.base if self._lat.base is not None else self._lat)
-            if f.ndim == 1:
-                f = f[:, np.newaxis]
+            f = coriolis(lat)
         self._f = self._map_array(f)
 
         def mirror_x(values: np.ndarray) -> np.ndarray:
@@ -492,36 +490,39 @@ class Domain:
                 values_ex[:, -1] = values_ex[:, 1]
             return values_ex
 
-        if self._lon is not None:
-            lon_ex = mirror_x(self._lon)
-        if self._lat is not None:
-            lat_ex = mirror_y(self._lat)
-        if self._x is not None:
+        if has_xy:
+            # Expand x, y by 1 in each direction to calculate dx, dy, rotation
             x_ex = mirror_x(self._x)
-        if self._y is not None:
             y_ex = mirror_y(self._y)
+        if has_lonlat:
+            # Expand lon, lat by 1 in each direction to calculate dx, dy, rotation
+            lon_rad_ex = DEG2RAD * mirror_x(self._lon)
+            lat_rad_ex = DEG2RAD * mirror_y(self._lat)
 
-        if spherical:
-            dlon_x = lon_ex[1:-1, 2:] - lon_ex[1:-1, :-2]
-            dlat_x = lat_ex[1:-1, 2:] - lat_ex[1:-1, :-2]
-            coslat_ex = np.cos(DEG2RAD * lat_ex[1:-1, 1:-1])
-            dx_x = R_EARTH * 2 * coslat_ex * np.sin(0.5 * DEG2RAD * dlon_x)
-            dy_x = R_EARTH * DEG2RAD * dlat_x * np.cos(0.5 * DEG2RAD * dlon_x)
-            dlon_y = lon_ex[2:, 1:-1] - lon_ex[:-2, 1:-1]
-            dlat_y = lat_ex[2:, 1:-1] - lat_ex[:-2, 1:-1]
-            dx_y = R_EARTH * 2 * coslat_ex * np.sin(0.5 * DEG2RAD * dlon_y)
-            dy_y = R_EARTH * DEG2RAD * dlat_y * np.cos(0.5 * DEG2RAD * dlon_y)
-        else:
+        if has_xy:
             dx_x = x_ex[1:-1, 2:] - x_ex[1:-1, :-2]
             dy_x = y_ex[1:-1, 2:] - y_ex[1:-1, :-2]
             dx_y = x_ex[2:, 1:-1] - x_ex[:-2, 1:-1]
             dy_y = y_ex[2:, 1:-1] - y_ex[:-2, 1:-1]
-        self._dx = np.hypot(dx_x, dy_x)
-        self._dy = np.hypot(dx_y, dy_y)
+            scale = 1.0
+        else:
+            dlon_rad_x = lon_rad_ex[1:-1, 2:] - lon_rad_ex[1:-1, :-2]
+            dlat_rad_x = lat_rad_ex[1:-1, 2:] - lat_rad_ex[1:-1, :-2]
+            coslat_x = np.cos(0.5 * (lat_rad_ex[1:-1, 2:] + lat_rad_ex[1:-1, :-2]))
+            dx_x = coslat_x * np.sin(0.5 * dlon_rad_x)
+            dy_x = np.sin(0.5 * dlat_rad_x) * np.cos(0.5 * dlon_rad_x)
+            dlon_rad_y = lon_rad_ex[2:, 1:-1] - lon_rad_ex[:-2, 1:-1]
+            dlat_rad_y = lat_rad_ex[2:, 1:-1] - lat_rad_ex[:-2, 1:-1]
+            coslat_y = np.cos(0.5 * (lat_rad_ex[2:, 1:-1] + lat_rad_ex[:-2, 1:-1]))
+            dx_y = coslat_y * np.sin(0.5 * dlon_rad_y)
+            dy_y = np.sin(0.5 * dlat_rad_y) * np.cos(0.5 * dlon_rad_y)
+            scale = R_EARTH * 2.0
+        self._dx = scale * np.hypot(dx_x, dy_x)
+        self._dy = scale * np.hypot(dx_y, dy_y)
 
-        if self._lon is not None and self._lat is not None:
+        if has_lonlat:
             # Proper rotation with respect to true North
-            self._rotation = _rotation(lon_ex, lat_ex)
+            self._rotation = _rotation(lon_rad_ex, lat_rad_ex)
         else:
             # Rotation with respect to y axis - assumes y axis always points to
             # true North (can be valid only for infinitesimally small domain)
@@ -660,6 +661,7 @@ class Domain:
             self.populate_grid(grid)
             grid.input_manager = input_manager
             grid.default_output_transforms = self.default_output_transforms
+            grid.input_grid_mappers = self.input_grid_mappers
             return grid
 
         U = V = X = UU = UV = VU = VV = None
@@ -743,13 +745,13 @@ class Domain:
             "z0",
         ):
             source = getattr(self, f"_{name}", None)
-            available = self.comm.bcast(source is not None)
+            available = grid.tiling.comm.bcast(source is not None)
             target = getattr(grid, NAMEMAP.get(name, f"_{name}"), None)
             if available and target is not None:
                 source = scatter(source, target.all_values, target.fill_value)
                 if is_root:
                     # On the root node, keep a pointer to the full global field
-                    # This will be used preferentially for fiuull-domain output
+                    # This will be used preferentially for full-domain output
                     target.attrs["_global_values"] = source
                 if self.periodic_x or self.periodic_y:
                     target.update_halos()
@@ -854,6 +856,7 @@ class Domain:
         ymin: Optional[float] = None,
         ymax: Optional[float] = None,
         mask_value: int = 0,
+        coordinate_type: Optional[CoordinateType] = None,
     ):
         """Mask all points that fall within the specified rectangle.
 
@@ -872,7 +875,15 @@ class Domain:
         x and y (m).
         """
         selected = np.ones(self.mask.shape, dtype=bool)
-        x, y = (self.lon, self.lat) if self.spherical else (self.x, self.y)
+        coordinate_type = coordinate_type or self.coordinate_type
+        if coordinate_type == CoordinateType.LONLAT:
+            x, y = (self.lon, self.lat)
+        elif coordinate_type == CoordinateType.XY:
+            x, y = (self.x, self.y)
+        else:
+            x = np.linspace(-0.5, self.nx + 0.5, 1 + 2 * self.nx)
+            y = np.linspace(-0.5, self.ny + 0.5, 1 + 2 * self.ny)
+            x, y = np.broadcast_arrays(x[np.newaxis, :], y[:, np.newaxis])
         if xmin is not None:
             selected &= x >= xmin
         if xmax is not None:
@@ -903,7 +914,11 @@ class Domain:
         def tp(array):
             return None if array is None else np.transpose(array)[::-1, :]
 
-        kwargs = dict(spherical=self.spherical, comm=self.comm, logger=self.root_logger)
+        kwargs = dict(
+            coordinate_type=self.coordinate_type,
+            comm=self.comm,
+            logger=self.root_logger,
+        )
         if self.comm.rank == 0:
             kwargs.update(
                 lon=tp(self.lon),

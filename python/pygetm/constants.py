@@ -24,3 +24,9 @@ BAROCLINIC = 4
 class TimeVarying(enum.Enum):
     MACRO = enum.auto()
     MICRO = enum.auto()
+
+
+class CoordinateType(enum.Enum):
+    XY = enum.auto()
+    LONLAT = enum.auto()
+    IJ = enum.auto()

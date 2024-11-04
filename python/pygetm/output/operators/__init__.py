@@ -611,12 +611,8 @@ class Regrid(UnivariateTransformWithData):
 
     @property
     def coords(self) -> Iterable[Base]:
-        if self._grid.domain.spherical:
-            yield Field(self._grid.lon)
-            yield Field(self._grid.lat)
-        else:
-            yield Field(self._grid.x)
-            yield Field(self._grid.y)
+        for array in self._grid.horizontal_coordinates:
+            yield Field(array)
         if self._z:
             yield Field(self._grid.zf if self._z == INTERFACES else self._grid.zc)
 

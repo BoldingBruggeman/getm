@@ -1386,7 +1386,7 @@ class InputManager:
 
         def _map_to_grid():
             # the input is already on-grid
-            for grid_mapper in grid.domain.input_grid_mappers:
+            for grid_mapper in grid.input_grid_mappers:
                 mapped_value = grid_mapper(value)
                 if mapped_value is not None:
                     return mapped_value

@@ -42,6 +42,11 @@ class TestRotation(unittest.TestCase):
 
         domain = self.domain
         domain_rot = domain.rotate()
+        self.assertTrue((domain._lon.T[::-1, :] == domain_rot._lon)[1:-1, 1:-1].all())
+        self.assertTrue((domain._lat.T[::-1, :] == domain_rot._lat)[1:-1, 1:-1].all())
+        self.assertTrue((domain.dx.T[::-1, :] == domain_rot.dy)[1:-1, 1:-1].all())
+        self.assertTrue((domain.dy.T[::-1, :] == domain_rot.dx)[1:-1, 1:-1].all())
+        self.assertTrue((domain.area.T[::-1, :] == domain_rot.area)[1:-1, 1:-1].all())
         sim = north_sea.create_simulation(domain, pygetm.BAROTROPIC_2D, self.setup_dir)
 
         output = sim.output_manager.add_netcdf_file("result_ref.nc", interval=-1)
