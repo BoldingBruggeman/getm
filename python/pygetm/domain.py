@@ -252,7 +252,7 @@ def create_spherical(
         lat = lat[:, np.newaxis]
 
     if interfaces:
-        nx, ny = lon.shape[-1] - 1, lat.shape[0].size - 1
+        nx, ny = lon.shape[-1] - 1, lat.shape[0] - 1
     else:
         nx, ny = lon.shape[-1], lat.shape[0]
     return Domain(nx, ny, lon=lon, lat=lat, **kwargs)
