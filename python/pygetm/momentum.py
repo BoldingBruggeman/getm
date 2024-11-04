@@ -304,10 +304,10 @@ class Momentum:
         self.fU = vgrid.array(fill_value=FILL_VALUE, attrs=dict(_mask_output=True))
         self.fV = ugrid.array(fill_value=FILL_VALUE, attrs=dict(_mask_output=True))
         self.fpk = vgrid.array(
-            z=CENTERS, fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+            name="fpk", z=CENTERS, fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
         )
         self.fqk = ugrid.array(
-            z=CENTERS, fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+            name="fqk", z=CENTERS, fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
         )
         self.advU = ugrid.array(fill_value=FILL_VALUE, attrs=dict(_mask_output=True))
         self.advV = vgrid.array(fill_value=FILL_VALUE, attrs=dict(_mask_output=True))
@@ -316,10 +316,16 @@ class Momentum:
         self.dampU = ugrid.array(fill_value=FILL_VALUE)
         self.dampV = vgrid.array(fill_value=FILL_VALUE)
         self.advpk = ugrid.array(
-            z=CENTERS, fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+            name="advpk",
+            z=CENTERS,
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True),
         )
         self.advqk = vgrid.array(
-            z=CENTERS, fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+            name="advqk",
+            z=CENTERS,
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True),
         )
         self.diffpk = ugrid.array(z=CENTERS, fill_value=FILL_VALUE)
         self.diffqk = vgrid.array(z=CENTERS, fill_value=FILL_VALUE)
