@@ -130,7 +130,7 @@ def expand_2d(
     if edges_y == EdgeTreatment.EXTRAPOLATE:
         out[..., 0, :] = 2 * out[..., 1, :] - out[..., 2, :]
         out[..., -1, :] = 2 * out[..., -2, :] - out[..., -3, :]
-    elif edges_x == EdgeTreatment.EXTRAPOLATE_PERIODIC:
+    elif edges_y == EdgeTreatment.EXTRAPOLATE_PERIODIC:
         out[..., 0, :] = out[..., 1, :] + (out[..., -3, :] - out[..., -2, :])
         out[..., -1, :] = out[..., -2, :] + (out[..., 2, :] - out[..., 1, :])
     elif edges_y == EdgeTreatment.CLAMP:
