@@ -11,8 +11,6 @@ import cftime
 
 import xarray as xr
 
-import pygetm.vertical_coordinates
-
 from .constants import (
     BAROTROPIC_2D,
     BAROCLINIC,
@@ -39,6 +37,7 @@ import pygetm.momentum
 import pygetm.radiation
 import pygetm.tracer
 import pygetm.internal_pressure
+import pygetm.vertical_coordinates
 
 
 class InternalPressure(enum.IntEnum):

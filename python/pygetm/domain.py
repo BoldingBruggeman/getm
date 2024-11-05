@@ -24,10 +24,11 @@ from .constants import CoordinateType, GRAVITY
 
 
 class EdgeTreatment(enum.Enum):
-    EXTRAPOLATE = enum.auto()
-    PERIODIC = enum.auto()
     MISSING = enum.auto()
     CLAMP = enum.auto()
+    PERIODIC = enum.auto()
+    EXTRAPOLATE = enum.auto()
+    EXTRAPOLATE_PERIODIC = enum.auto()
 
 
 def find_interfaces(c: npt.ArrayLike) -> np.ndarray:
@@ -76,9 +77,15 @@ def centers_to_supergrid_1d(
         # Reconstruct first and last interface by averaging very first and last values
         data_sup[0] = data_sup[-1] = 0.5 * (data[0] + data[-1])
     elif edges == EdgeTreatment.EXTRAPOLATE:
-        # Reconstruct first and last interface through linear extrapolation
+        # Reconstruct first and last interface through linear extrapolation,
+        # using nearest interior difference
         data_sup[0] = 2 * data_sup[1] - data_sup[2]
         data_sup[-1] = 2 * data_sup[-2] - data_sup[-3]
+    elif edges == EdgeTreatment.EXTRAPOLATE_PERIODIC:
+        # Reconstruct first and last interface through linear extrapolation,
+        # using oppposite interior difference
+        data_sup[0] = data_sup[1] + (data_sup[-3] - data_sup[-2])
+        data_sup[-1] = data_sup[-2] + (data_sup[2] - data_sup[1])
     elif edges == EdgeTreatment.CLAMP:
         data_sup[0] = data_sup[1]
         data_sup[-1] = data_sup[-2]
@@ -107,6 +114,9 @@ def expand_2d(
     if edges_x == EdgeTreatment.EXTRAPOLATE:
         out[..., 0] = 2 * out[..., 1] - out[..., 2]
         out[..., -1] = 2 * out[..., -2] - out[..., -3]
+    elif edges_x == EdgeTreatment.EXTRAPOLATE_PERIODIC:
+        out[..., 0] = out[..., 1] + (out[..., -3] - out[..., -2])
+        out[..., -1] = out[..., -2] + (out[..., 2] - out[..., 1])
     elif edges_x == EdgeTreatment.CLAMP:
         out[..., 0] = out[..., 1]
         out[..., -1] = out[..., -2]
@@ -120,6 +130,9 @@ def expand_2d(
     if edges_y == EdgeTreatment.EXTRAPOLATE:
         out[..., 0, :] = 2 * out[..., 1, :] - out[..., 2, :]
         out[..., -1, :] = 2 * out[..., -2, :] - out[..., -3, :]
+    elif edges_x == EdgeTreatment.EXTRAPOLATE_PERIODIC:
+        out[..., 0, :] = out[..., 1, :] + (out[..., -3, :] - out[..., -2, :])
+        out[..., -1, :] = out[..., -2, :] + (out[..., 2, :] - out[..., 1, :])
     elif edges_y == EdgeTreatment.CLAMP:
         out[..., 0, :] = out[..., 1, :]
         out[..., -1, :] = out[..., -2, :]
@@ -230,7 +243,7 @@ def create_cartesian(
         nx, ny = x.shape[-1] - 1, y.shape[0] - 1
     else:
         nx, ny = x.shape[-1], y.shape[0]
-    return Domain(nx, ny, x=x, y=y, **kwargs)
+    return Domain(nx, ny, x=x, y=y, coordinate_type=CoordinateType.XY, **kwargs)
 
 
 def create_spherical(
@@ -427,14 +440,17 @@ class Domain:
             raise Exception(
                 "Either lat of f must be provided to determine the Coriolis parameter."
             )
+        if coordinate_type is None:
+            coordinate_type = CoordinateType.XY if has_xy else CoordinateType.LONLAT
+        assert (coordinate_type == CoordinateType.XY and has_xy) or (
+            coordinate_type == CoordinateType.LONLAT and has_lonlat
+        )
 
         self.nx = nx
         self.ny = ny
         self.periodic_x = periodic_x
         self.periodic_y = periodic_y
         self.comm = comm
-        if coordinate_type is None:
-            coordinate_type = CoordinateType.XY if has_xy else CoordinateType.LONLAT
         self.coordinate_type = coordinate_type
         self.root_logger = logger or parallel.get_logger()
         self.logger = self.root_logger.getChild("domain")
@@ -474,34 +490,19 @@ class Domain:
             f = coriolis(lat)
         self._f = self._map_array(f)
 
-        def mirror_x(values: np.ndarray) -> np.ndarray:
-            values_ex = expand_2d(values)
-            if self.periodic_x:
-                values_ex[1:-1, 0] = values[:, 0] + (values[:, -2] - values[:, -1])
-                values_ex[1:-1, -1] = values[:, -1] + (values[:, 2] - values[:, 1])
-            if self.periodic_y:
-                values_ex[0, :] = values_ex[-2, :]
-                values_ex[-1, :] = values_ex[1, :]
-            return values_ex
-
-        def mirror_y(values: np.ndarray) -> np.ndarray:
-            values_ex = expand_2d(values)
-            if self.periodic_y:
-                values_ex[0, 1:-1] = values[0, :] + (values[-2, :] - values[-1, :])
-                values_ex[-1, 1:-1] = values[-1, :] + (values[2, :] - values[1, :])
-            if self.periodic_x:
-                values_ex[:, 0] = values_ex[:, -2]
-                values_ex[:, -1] = values_ex[:, 1]
-            return values_ex
-
+        kwargs_expand = {}
+        if self.periodic_x:
+            kwargs_expand["edges_x"] = EdgeTreatment.EXTRAPOLATE_PERIODIC
+        if self.periodic_y:
+            kwargs_expand["edges_y"] = EdgeTreatment.EXTRAPOLATE_PERIODIC
         if has_xy:
             # Expand x, y by 1 in each direction to calculate dx, dy, rotation
-            x_ex = mirror_x(self._x)
-            y_ex = mirror_y(self._y)
+            x_ex = expand_2d(self._x, **kwargs_expand)
+            y_ex = expand_2d(self._y, **kwargs_expand)
         if has_lonlat:
             # Expand lon, lat by 1 in each direction to calculate dx, dy, rotation
-            lon_rad_ex = DEG2RAD * mirror_x(self._lon)
-            lat_rad_ex = DEG2RAD * mirror_y(self._lat)
+            lon_rad_ex = DEG2RAD * expand_2d(self._lon, **kwargs_expand)
+            lat_rad_ex = DEG2RAD * expand_2d(self._lat, **kwargs_expand)
 
         if has_xy:
             dx_x = x_ex[1:-1, 2:] - x_ex[1:-1, :-2]
@@ -524,7 +525,9 @@ class Domain:
         self._dx = scale * np.hypot(dx_x, dy_x)
         self._dy = scale * np.hypot(dx_y, dy_y)
 
-        if has_lonlat:
+        if has_lonlat and (
+            (self._lat != self._lat[0, 0]).any() or (self._lon != self._lon[0, 0]).any()
+        ):
             # Proper rotation with respect to true North
             self._rotation = _rotation(lon_rad_ex, lat_rad_ex)
         else:
@@ -662,7 +665,7 @@ class Domain:
                 overlap=overlap,
                 **kwargs,
             )
-            self.populate_grid(grid)
+            self._populate_grid(grid)
             grid.input_manager = input_manager
             grid.default_output_transforms = self.default_output_transforms
             grid.input_grid_mappers = self.input_grid_mappers
@@ -714,9 +717,12 @@ class Domain:
 
         return T
 
-    def populate_grid(self, grid: core.Grid):
+    def _populate_grid(self, grid: core.Grid):
         NAMEMAP = dict(z0="_z0b_min", f="_cor", rotation="rotation")
         is_root = grid.tiling.rank == 0
+
+        edges_x = EdgeTreatment.PERIODIC if self.periodic_x else EdgeTreatment.MISSING
+        edges_y = EdgeTreatment.PERIODIC if self.periodic_y else EdgeTreatment.MISSING
 
         def scatter(source: np.ndarray, target: np.ndarray, fill_value):
             s = parallel.Scatter(
@@ -724,9 +730,18 @@ class Domain:
             )
             all_data = None
             if is_root:
+                if grid.joffset > 1 or grid.ioffset > 1:
+                    # UU or VV grid that needs one more strip of 1 cell beyond the end
+                    # of the supergrid. Normally that is
+                    source = expand_2d(
+                        source,
+                        edges_x=edges_x,
+                        edges_y=edges_y,
+                        missing_value=fill_value,
+                    )[1:, 1:]
                 data = source[grid.joffset :: 2, grid.ioffset :: 2]
                 all_data = np.full(global_shape, fill_value, dtype=target.dtype)
-                all_data[: data.shape[0], : data.shape[1]] = data
+                all_data[...] = data[: global_shape[0], : global_shape[1]]
             s(all_data)
             return all_data
 
