@@ -491,13 +491,10 @@ class Domain:
         else:
             self._lon = self._map_array(lon)
         self._lat = self._map_array(lat, edges=EdgeTreatment.EXTRAPOLATE)
+        self._f = self._map_array(f)
         self._mask = self._map_array(mask, missing_value=0, dtype=int)
         self._H = self._map_array(H)
         self._z0 = self._map_array(z0)
-        if f is None:
-            # Calculate Coriolis parameter from latitude
-            f = coriolis(lat)
-        self._f = self._map_array(f)
 
         kwargs_expand = {}
         if self.periodic_x:
@@ -763,6 +760,8 @@ class Domain:
             grid.tiling.ny_glob + grid.overlap,
             grid.tiling.nx_glob + grid.overlap,
         )
+
+        retrieved_from_domain = set()
         for name in (
             "x",
             "y",
@@ -788,6 +787,10 @@ class Domain:
                     target.attrs["_global_values"] = source
                 if self.periodic_x or self.periodic_y:
                     target.update_halos()
+                retrieved_from_domain.add(name)
+        if "f" not in retrieved_from_domain:
+            # Calculate Coriolis parameter from latitude
+            grid._cor.all_values[...] = coriolis(grid._lat.all_values)
         if self.coordinate_type == CoordinateType.XY:
             grid.horizontal_coordinates += [grid.x, grid.y]
         elif self.coordinate_type == CoordinateType.LONLAT:
@@ -931,8 +934,12 @@ class Domain:
         self.mask[selected] = mask_value
 
     @calculate_and_bcast
-    def mask_indices(self, istart, istop, jstart, jstop, value: int = 0):
+    def mask_indices(
+        self, istart: int, istop: int, jstart: int, jstop: int, mask_value: int = 0
+    ):
         """Mask all points that fall within the specified rectangle.
+        Indices must be provided for the T grid, and thus range between 0 and `nx`
+        for i, and between 0 and `ny` for j.
 
         Args:
             istart: lower x index (first that is included)
@@ -944,7 +951,7 @@ class Domain:
         istop_T = 1 + 2 * istop
         jstart_T = 1 + 2 * jstart
         jstop_T = 1 + 2 * jstop
-        self.mask_[jstart_T:jstop_T, istart_T:istop_T] = value
+        self.mask_[jstart_T:jstop_T, istart_T:istop_T] = mask_value
 
     def rotate(self) -> "Domain":
         def tp(array):
