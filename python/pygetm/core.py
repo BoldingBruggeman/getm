@@ -1036,23 +1036,16 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             if value is not None:
                 attrs[key] = value
         coords = {}
-        # dom = self.grid.domain
-        # if self.name not in (
-        #     "x" + self.grid.postfix,
-        #     "y" + self.grid.postfix,
-        #     "lon" + self.grid.postfix,
-        #     "lat" + self.grid.postfix,
-        # ):
-        #     if dom.x_is_1d:
-        #         coords[f"x{self.grid.postfix}"] = self.grid.x.xarray[0, :]
-        #     if dom.y_is_1d:
-        #         coords[f"y{self.grid.postfix}"] = self.grid.y.xarray[:, 0]
-        #     coords[f"x{self.grid.postfix}2"] = self.grid.x.xarray
-        #     coords[f"y{self.grid.postfix}2"] = self.grid.y.xarray
-        #     if dom.lon is not None:
-        #         coords[f"lon{self.grid.postfix}"] = self.grid.lon.xarray
-        #     if dom.lat is not None:
-        #         coords[f"lat{self.grid.postfix}"] = self.grid.lat.xarray
+        if not (
+            self is self.grid.x
+            or self is self.grid.y
+            or self is self.grid.lon
+            or self is self.grid.lat
+        ):
+            coords[f"x{self.grid.postfix}"] = self.grid.x.xarray
+            coords[f"y{self.grid.postfix}"] = self.grid.y.xarray
+            coords[f"lon{self.grid.postfix}"] = self.grid.lon.xarray
+            coords[f"lat{self.grid.postfix}"] = self.grid.lat.xarray
         dims = ("y" + self.grid.postfix, "x" + self.grid.postfix)
         if self.ndim == 3:
             dims = ("zi" if self.z == INTERFACES else "z",) + dims

@@ -652,6 +652,11 @@ class Domain:
         elif tiling.nx_glob is None:
             tiling.set_extent(self.nx, self.ny)
 
+        # NB the fields argument cannot have a default of {}, as that causes
+        # that global dictionary to be shared among all calls to create_grids.
+        if fields is None:
+            fields = {}
+
         def create_grid(
             postfix: str,
             ioffset: int,
@@ -667,7 +672,7 @@ class Domain:
                 halox=halox,
                 haloy=haloy,
                 postfix=postfix,
-                fields={} if fields is None else fields,
+                fields=fields,
                 tiling=tiling,
                 ioffset=ioffset,
                 joffset=joffset,
@@ -783,6 +788,10 @@ class Domain:
                     target.attrs["_global_values"] = source
                 if self.periodic_x or self.periodic_y:
                     target.update_halos()
+        if self.coordinate_type == CoordinateType.XY:
+            grid.horizontal_coordinates += [grid.x, grid.y]
+        elif self.coordinate_type == CoordinateType.LONLAT:
+            grid.horizontal_coordinates += [grid.lon, grid.lat]
 
     @calculate_and_bcast
     def cfl_check(
