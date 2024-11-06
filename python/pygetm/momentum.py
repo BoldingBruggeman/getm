@@ -8,7 +8,7 @@ from . import core
 from . import parallel
 from . import operators
 import pygetm._pygetm
-from .constants import FILL_VALUE, BAROTROPIC_2D, CENTERS, RHO0, INTERFACES
+from .constants import FILL_VALUE, RunType, CENTERS, RHO0, INTERFACES
 
 
 class CoriolisScheme(enum.IntEnum):
@@ -148,7 +148,7 @@ class Momentum:
         self,
         logger: logging.Logger,
         tgrid: core.Grid,
-        runtype: int,
+        runtype: RunType,
         default_advection_scheme: operators.AdvectionScheme,
     ):
 
@@ -387,7 +387,7 @@ class Momentum:
             "fU",
             "fV",
         )
-        if runtype > BAROTROPIC_2D:
+        if runtype > RunType.BAROTROPIC_2D:
             ZERO_EVERYWHERE = ZERO_EVERYWHERE + MASK_ZERO_3D
             ZERO_UNMASKED = ZERO_UNMASKED + (
                 "SS",
@@ -413,7 +413,7 @@ class Momentum:
         self.fU.all_values[-1, :] = 0.0
         self.fV.all_values[:, -1] = 0.0
         self.fV.all_values[0, :] = 0.0
-        if runtype > BAROTROPIC_2D:
+        if runtype > RunType.BAROTROPIC_2D:
             self.fpk.all_values[:, :, 0] = 0.0
             self.fpk.all_values[:, -1, :] = 0.0
             self.fqk.all_values[:, :, -1] = 0.0
@@ -443,7 +443,7 @@ class Momentum:
         self.u_V = vgrid.array()
         self.v_U = ugrid.array()
 
-        if self.runtype > BAROTROPIC_2D:
+        if self.runtype > RunType.BAROTROPIC_2D:
             self.uua3d = ugrid.ugrid.array(fill=np.nan, z=CENTERS)
             self.uva3d = ugrid.vgrid.array(fill=np.nan, z=CENTERS)
             self.vua3d = vgrid.ugrid.array(fill=np.nan, z=CENTERS)
@@ -524,7 +524,7 @@ class Momentum:
         # NB velocities will be computed from transports, but only in unmasked points,
         # so zeroing them here is needed.
         ZERO = MASK_ZERO_2D
-        if self.runtype > BAROTROPIC_2D:
+        if self.runtype > RunType.BAROTROPIC_2D:
             ZERO = ZERO + MASK_ZERO_3D
         for v in ZERO:
             array = getattr(self, v)

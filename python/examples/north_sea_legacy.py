@@ -23,7 +23,6 @@ pygetm.legacy.load_riverinfo(domain, os.path.join(args.setup_dir, "riverinfo.dat
 
 sim = pygetm.Simulation(
     domain,
-    runtype=pygetm.BAROCLINIC,
     gotm=os.path.join(args.setup_dir, "gotmturb.nml"),
     airsea=pygetm.airsea.FluxesFromMeteo(
         humidity_measure=pygetm.HumidityMeasure.SPECIFIC_HUMIDITY,

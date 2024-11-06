@@ -108,7 +108,7 @@ class TestInternalPressure(unittest.TestCase):
         # domain.H_[...] = domain.H_ + domain.x_ * dH_dx + domain.y_ * dH_dy
 
         # sim = pygetm.Simulation(
-        #     domain, pygetm.BAROCLINIC, internal_pressure_method=method,
+        #     domain, internal_pressure_method=method,
         # )
         # # ((D2 * g * rho) - (D1 * g * rho))/dx
 

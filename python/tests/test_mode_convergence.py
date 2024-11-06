@@ -82,7 +82,7 @@ class TestConvergence(unittest.TestCase):
 
         sim = north_sea.create_simulation(
             self.domain,
-            pygetm.BAROCLINIC,
+            pygetm.RunType.BAROCLINIC,
             self.setup_dir,
             delay_slow_ip=False,
             momentum=pygetm.momentum.Momentum(
@@ -134,4 +134,3 @@ class TestConvergence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

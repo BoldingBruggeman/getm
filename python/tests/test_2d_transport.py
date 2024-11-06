@@ -55,7 +55,7 @@ class Test2DTransport(unittest.TestCase):
         )
         if not apply_bottom_friction:
             domain.z0 = 0
-        sim = pygetm.Simulation(domain, runtype=pygetm.BAROTROPIC_2D)
+        sim = pygetm.Simulation(domain, runtype=pygetm.RunType.BAROTROPIC_2D)
 
         # Idealized surface forcing
         tausx = sim.U.array(fill=tau_x)

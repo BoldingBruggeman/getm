@@ -32,7 +32,7 @@ def for_each_grid(test_func):
                 domain.mask = rng.random(domain.mask.shape) > 0.5
                 self.sim = pygetm.Simulation(
                     domain,
-                    runtype=pygetm.BAROTROPIC_3D,
+                    runtype=pygetm.RunType.BAROTROPIC_3D,
                     vertical_coordinates=pygetm.vertical_coordinates.Sigma(
                         25, **grid_args
                     ),

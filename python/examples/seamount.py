@@ -29,7 +29,6 @@ domain = pygetm.domain.create_cartesian(
 
 sim = pygetm.Simulation(
     domain,
-    pygetm.BAROCLINIC,
     airsea=pygetm.airsea.Fluxes(taux=0.0),
     gotm=os.path.join("../../../getm-setups/seamount/gotmturb.nml"),
     #internal_pressure=pygetm.internal_pressure.BlumbergMellor(),

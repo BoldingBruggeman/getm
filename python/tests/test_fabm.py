@@ -29,7 +29,6 @@ class TestFABM(unittest.TestCase):
         )
         sim = pygetm.Simulation(
             domain,
-            pygetm.BAROCLINIC,
             airsea=pygetm.airsea.Fluxes(),
             radiation=pygetm.radiation.Radiation(),
             fabm=pygetm.fabm.FABM(

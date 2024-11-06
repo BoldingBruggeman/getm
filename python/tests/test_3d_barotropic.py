@@ -41,7 +41,7 @@ class Test3DBarotropic(unittest.TestCase):
         )
         sim = pygetm.Simulation(
             domain,
-            runtype=pygetm.BAROTROPIC_3D,
+            runtype=pygetm.RunType.BAROTROPIC_3D,
             vertical_coordinates=pygetm.vertical_coordinates.Sigma(50),
         )
 

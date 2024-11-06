@@ -12,14 +12,13 @@ import cftime
 import xarray as xr
 
 from .constants import (
-    BAROTROPIC_2D,
-    BAROCLINIC,
     INTERFACES,
     FILL_VALUE,
     RHO0,
     CENTERS,
     GRAVITY,
     TimeVarying,
+    RunType,
 )
 from . import _pygetm
 from . import core
@@ -38,17 +37,6 @@ import pygetm.radiation
 import pygetm.tracer
 import pygetm.internal_pressure
 import pygetm.vertical_coordinates
-
-
-class InternalPressure(enum.IntEnum):
-    OFF = 0  #: internal pressure is disabled
-    BLUMBERG_MELLOR = 1  #: Blumberg and Mellor
-    #    BLUMBERG_MELLOR_LIN=2
-    #    Z_INTERPOL=3
-    #    SONG_WRIGHT=4
-    #    CHU_FAN=5
-    SHCHEPETKIN_MCWILLIAMS = 6  #: Shchepetkin and McWilliams (2003)
-    #    STELLING_VANKESTER=7
 
 
 def to_cftime(time: Union[datetime.datetime, cftime.datetime]) -> cftime.datetime:
@@ -456,14 +444,12 @@ class Simulation(BaseSimulation):
         "depth",
     )
 
-    runtype: int
-
     @log_exceptions
     def __init__(
         self,
         domain: pygetm.domain.Domain,
-        runtype: int,
         *,
+        runtype: RunType = RunType.BAROCLINIC,
         advection_scheme: operators.AdvectionScheme = operators.AdvectionScheme.DEFAULT,
         fabm: Union[pygetm.fabm.FABM, bool, str, None] = None,
         gotm: Union[str, None] = None,
@@ -485,10 +471,17 @@ class Simulation(BaseSimulation):
 
         Args:
             domain: simulation domain
-            runtype: simulation run type (BAROTROPIC_2D, BAROTROPIC_3D, BAROCLINIC)
+            runtype: simulation run type
+            Dmin: minimum depth (m) for wet points. At this depth, all hydrodynamic
+                terms except the pressure gradient and bottom friction are switched off.
+            Dcrit: depth (m) at which tapering of processes (all except pressure
+                gradient and bottom friction) begins.
             delay_slow_ip: let slow internal pressure terms lag one macrotimestep
                 behind the 3d internal pressure terms. This can help stabilize
                 density-driven flows in deep water
+            tiling: subdomain decomposition. If not provided, an optimal subdomain
+                division is determined automatically based on the land-sea mask and
+                the number of active CPU cores
         """
         super().__init__(domain, log_level=log_level, tiling=tiling)
 
@@ -510,7 +503,7 @@ class Simulation(BaseSimulation):
         self.vertical_coordinates = vertical_coordinates
 
         self.T = domain.create_grids(
-            nz=1 if runtype == BAROTROPIC_2D else vertical_coordinates.nz,
+            nz=1 if runtype == RunType.BAROTROPIC_2D else vertical_coordinates.nz,
             halox=HALO,
             haloy=HALO,
             fields=self._fields,
@@ -572,14 +565,14 @@ class Simulation(BaseSimulation):
         # as part of model state (saved in/loaded from restarts)
         self.T.z.attrs["_part_of_state"] = True
         self.T.zo.attrs["_part_of_state"] = True
-        if self.runtype > BAROTROPIC_2D:
+        if runtype > RunType.BAROTROPIC_2D:
             self.T.zio.attrs["_part_of_state"] = True
             self.T.zin.attrs["_part_of_state"] = True
 
             # ho cannot be computed from zio,
             # because rivers modify ho-from-zio before it is stored
             self.T.ho.attrs["_part_of_state"] = True
-        if self.runtype == BAROTROPIC_2D:
+        if runtype == RunType.BAROTROPIC_2D:
             self.U.z0b.attrs["_part_of_state"] = True
             self.V.z0b.attrs["_part_of_state"] = True
 
@@ -653,7 +646,7 @@ class Simulation(BaseSimulation):
 
         self.fabm = None
 
-        if runtype > BAROTROPIC_2D:
+        if runtype > RunType.BAROTROPIC_2D:
             #: Provider of turbulent viscosity and diffusivity. This must inherit from
             #: :class:`pygetm.mixing.Turbulence` and should be provided as argument
             #: turbulence to :class:`Simulation`.
@@ -736,7 +729,7 @@ class Simulation(BaseSimulation):
         self.ssu = self.T.array(fill=0.0)
         self.ssv = self.T.array(fill=0.0)
 
-        if runtype == BAROCLINIC:
+        if runtype == RunType.BAROCLINIC:
             self.density = density or pygetm.density.Density()
 
             self.radiation = radiation or pygetm.radiation.TwoBand()
@@ -817,11 +810,11 @@ class Simulation(BaseSimulation):
 
         # Derive old and new elevations, water depths and thicknesses from current
         # surface elevation on T grid. This must be done after self.pres.saved is set
-        self.update_depth(_3d=runtype > BAROTROPIC_2D)
-        self.update_depth(_3d=runtype > BAROTROPIC_2D)
+        self.update_depth(_3d=runtype > RunType.BAROTROPIC_2D)
+        self.update_depth(_3d=runtype > RunType.BAROTROPIC_2D)
 
     def _after_restart(self):
-        if self.runtype > BAROTROPIC_2D:
+        if self.runtype > RunType.BAROTROPIC_2D:
             # Restore elevation from before open boundary condition was applied
             self.T.z.all_values[...] = self.T.zin.all_values
 
@@ -863,7 +856,7 @@ class Simulation(BaseSimulation):
         self.T.z.all_values[...] = self.T.zo.all_values
         self.update_depth(_3d=False)
 
-        if self.runtype > BAROTROPIC_2D:
+        if self.runtype > RunType.BAROTROPIC_2D:
             zin_backup = self.T.zin.all_values.copy()
             ho_T_backup = self.T.ho.all_values.copy()
 
@@ -925,7 +918,7 @@ class Simulation(BaseSimulation):
             self.rivers.flow * self.rivers.iarea * self.timestep
         )
 
-        if self.runtype > BAROTROPIC_2D and macro_active:
+        if self.runtype > RunType.BAROTROPIC_2D and macro_active:
             # Use previous source terms for biogeochemistry (valid for the start of the
             # current macrotimestep) to update tracers. This should be done before the
             # tracer concentrations change due to transport or rivers, as the source
@@ -965,7 +958,7 @@ class Simulation(BaseSimulation):
                 self.turbulence.num,
             )
 
-            if self.runtype == BAROCLINIC:
+            if self.runtype == RunType.BAROCLINIC:
                 # Update turbulent quantities (T grid - interfaces) from time=0 to
                 # time=1 (macrotimestep), using surface/buoyancy-related forcing
                 # (ustar_s, z0s, NN) at time=0, and bottom/velocity-related forcing
@@ -1013,9 +1006,9 @@ class Simulation(BaseSimulation):
         # Hydrodynamic bottom roughness is updated iteratively in barotropic simulations
         # Do this only at the end of a time step, that is, not at the very start of the
         # simulation.
-        update_z0b = self.istep != 0 and self.runtype == BAROTROPIC_2D
+        update_z0b = self.istep != 0 and self.runtype == RunType.BAROTROPIC_2D
 
-        baroclinic_active = self.runtype == BAROCLINIC and macro_active
+        baroclinic_active = self.runtype == RunType.BAROCLINIC and macro_active
         if baroclinic_active:
             self.open_boundaries.prepare_depth_explicit()
 
@@ -1118,7 +1111,7 @@ class Simulation(BaseSimulation):
         self.airsea.tauy.update_halos(parallel.Neighbor.TOP)
         self.airsea.tauy.interp(self.tausy)
 
-        if self.runtype > BAROTROPIC_2D and macro_active:
+        if self.runtype > RunType.BAROTROPIC_2D and macro_active:
             # Save surface forcing variables for the next macro momentum update
             self.tausxo.all_values[...] = self.tausx.all_values
             self.tausyo.all_values[...] = self.tausy.all_values

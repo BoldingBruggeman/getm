@@ -28,7 +28,7 @@ class TestLandMask(unittest.TestCase):
         stop = cftime.datetime(2006, 1, 3)
 
         sim = north_sea.create_simulation(
-            self.domain, pygetm.BAROCLINIC, self.setup_dir
+            self.domain, pygetm.RunType.BAROCLINIC, self.setup_dir
         )
 
         # Set land points (mask==0) of every variable to NaN
@@ -78,7 +78,7 @@ class TestLandMask(unittest.TestCase):
         )
         stop = cftime.datetime(2006, 1, 3)
         sim = north_sea.create_simulation(
-            self.domain, pygetm.BAROCLINIC, self.setup_dir
+            self.domain, pygetm.RunType.BAROCLINIC, self.setup_dir
         )
         north_sea.run(sim, stop=stop)
 

@@ -31,7 +31,6 @@ class TestFreshwaterFluxes(unittest.TestCase):
     def create_simulation(self, domain) -> pygetm.Simulation:
         sim = pygetm.Simulation(
             domain,
-            pygetm.BAROCLINIC,
             airsea=pygetm.airsea.Fluxes(),
             radiation=pygetm.radiation.Radiation(),
             vertical_coordinates=pygetm.vertical_coordinates.Sigma(30),

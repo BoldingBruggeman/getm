@@ -27,9 +27,7 @@ class TestCoriolis(unittest.TestCase):
         )
 
         sim = pygetm.Simulation(
-            domain,
-            pygetm.BAROCLINIC,
-            vertical_coordinates=pygetm.vertical_coordinates.Sigma(nz),
+            domain, vertical_coordinates=pygetm.vertical_coordinates.Sigma(nz)
         )
         sim.momentum.U.all_values[...] = np.where(
             sim.U.mask.all_values != 0, u * H, 0.0

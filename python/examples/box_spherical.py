@@ -55,7 +55,6 @@ domain = pygetm.domain.create_spherical(
 
 sim = pygetm.Simulation(
     domain,
-    runtype=pygetm.BAROCLINIC,
     gotm=os.path.join(args.setup_dir, "gotmturb.nml"),
     airsea=pygetm.airsea.Fluxes(taux=0.1),
     internal_pressure=pygetm.internal_pressure.ShchepetkinMcwilliams(),

@@ -15,14 +15,6 @@ from . import open_boundaries
 from .constants import CoordinateType, GRAVITY
 
 
-# class VerticalCoordinates(enum.IntEnum):
-#     SIGMA = 1
-#     #    Z = 2
-#     GVC = 3
-#     #    HYBRID = 4
-#     #    ADAPTIVE = 5
-
-
 class EdgeTreatment(enum.Enum):
     MISSING = enum.auto()
     CLAMP = enum.auto()
