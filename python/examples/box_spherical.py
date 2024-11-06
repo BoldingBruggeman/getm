@@ -58,7 +58,7 @@ sim = pygetm.Simulation(
     runtype=pygetm.BAROCLINIC,
     gotm=os.path.join(args.setup_dir, "gotmturb.nml"),
     airsea=pygetm.airsea.Fluxes(taux=0.1),
-    internal_pressure_method=pygetm.InternalPressure.SHCHEPETKIN_MCWILLIAMS,
+    internal_pressure=pygetm.internal_pressure.ShchepetkinMcwilliams(),
     vertical_coordinates=pygetm.vertical_coordinates.GVC(
         30, Dgamma=40.0, ddu=1.0, ddl=1.0
     ),

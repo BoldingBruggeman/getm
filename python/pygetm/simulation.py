@@ -478,7 +478,6 @@ class Simulation(BaseSimulation):
         Dcrit: float = 2.0,
         logger: Optional[logging.Logger] = None,
         log_level: Optional[int] = None,
-        internal_pressure_method: InternalPressure = InternalPressure.SHCHEPETKIN_MCWILLIAMS,
         delay_slow_ip: bool = False,
         tiling: Optional[parallel.Tiling] = None,
     ):
@@ -804,12 +803,7 @@ class Simulation(BaseSimulation):
             self.ssv_V = self.momentum.vk.isel(z=-1)
 
             if internal_pressure is None:
-                if internal_pressure_method == InternalPressure.OFF:
-                    internal_pressure = pygetm.internal_pressure.Constant()
-                elif internal_pressure_method == InternalPressure.BLUMBERG_MELLOR:
-                    internal_pressure = pygetm.internal_pressure.BlumbergMellor()
-                else:
-                    internal_pressure = pygetm.internal_pressure.ShchepetkinMcwilliams()
+                internal_pressure = pygetm.internal_pressure.ShchepetkinMcwilliams()
             internal_pressure.initialize(self.U, self.V)
             self.logger.info(f"Internal pressure method: {internal_pressure!r}")
             self.internal_pressure = internal_pressure

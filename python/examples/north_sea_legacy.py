@@ -29,7 +29,7 @@ sim = pygetm.Simulation(
         humidity_measure=pygetm.HumidityMeasure.SPECIFIC_HUMIDITY,
         calculate_evaporation=True,
     ),
-    internal_pressure_method=pygetm.InternalPressure.SHCHEPETKIN_MCWILLIAMS,
+    internal_pressure=pygetm.internal_pressure.ShchepetkinMcwilliams(),
     vertical_coordinates=pygetm.vertical_coordinates.GVC(
         30, Dgamma=40.0, ddu=0.75, ddl=0.5
     ),

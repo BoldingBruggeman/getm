@@ -54,7 +54,7 @@ def create_simulation(
         advection_scheme=pygetm.AdvectionScheme.SUPERBEE,
         gotm=os.path.join(setup_dir, "gotmturb.nml"),
         airsea=airsea,
-        internal_pressure_method=pygetm.InternalPressure.SHCHEPETKIN_MCWILLIAMS,
+        internal_pressure=pygetm.internal_pressure.ShchepetkinMcwilliams(),
         delay_slow_ip=True,
         Dcrit=0.2,
         Dmin=0.05,
