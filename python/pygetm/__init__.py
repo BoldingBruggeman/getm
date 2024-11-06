@@ -5,7 +5,7 @@ from . import domain
 from . import input
 from . import airsea
 from . import radiation
-from . import mixing
+from . import vertical_mixing
 from . import density
 from . import operators
 from . import tracer

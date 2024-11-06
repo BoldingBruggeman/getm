@@ -107,7 +107,7 @@ def create_simulation(
     if sim.runtype < pygetm.RunType.BAROCLINIC:
         sim.sst = sim.airsea.t2m
         if sim.runtype > pygetm.RunType.BAROTROPIC_2D:
-            sim.turbulence.num[...] = 1e-2
+            sim.vertical_mixing.num[...] = 1e-2
     if sim.runtype == pygetm.RunType.BAROCLINIC:
         sim.radiation.set_jerlov_type(pygetm.Jerlov.Type_II)
         sim.temp.set(11.6)

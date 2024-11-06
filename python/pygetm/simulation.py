@@ -31,7 +31,7 @@ import pygetm.ice
 import pygetm.density
 import pygetm.fabm
 import pygetm.input
-import pygetm.mixing
+import pygetm.vertical_mixing
 import pygetm.momentum
 import pygetm.radiation
 import pygetm.tracer
@@ -388,7 +388,7 @@ class Simulation(BaseSimulation):
         "momentum",
         "airsea",
         "ice",
-        "turbulence",
+        "vertical_mixing",
         "density",
         "internal_pressure",
         "buoy",
@@ -454,7 +454,7 @@ class Simulation(BaseSimulation):
         fabm: Union[pygetm.fabm.FABM, bool, str, None] = None,
         gotm: Union[str, None] = None,
         momentum: Optional[pygetm.momentum.Momentum] = None,
-        turbulence: Optional[pygetm.mixing.Turbulence] = None,
+        vertical_mixing: Optional[pygetm.vertical_mixing.VerticalMixing] = None,
         airsea: Optional[pygetm.airsea.Fluxes] = None,
         density: Optional[pygetm.density.Density] = None,
         radiation: Optional[pygetm.radiation.Radiation] = None,
@@ -648,10 +648,12 @@ class Simulation(BaseSimulation):
 
         if runtype > RunType.BAROTROPIC_2D:
             #: Provider of turbulent viscosity and diffusivity. This must inherit from
-            #: :class:`pygetm.mixing.Turbulence` and should be provided as argument
-            #: turbulence to :class:`Simulation`.
-            self.turbulence = turbulence or pygetm.mixing.GOTM(gotm)
-            self.turbulence.initialize(self.T, self.logger.getChild("turbulence"))
+            #: :class:`pygetm.vertical_mixing.VerticalMixing` and should be provided as
+            # argument `vertical_mixing` to :class:`Simulation`.
+            self.vertical_mixing = vertical_mixing or pygetm.vertical_mixing.GOTM(gotm)
+            self.vertical_mixing.initialize(
+                self.T, self.logger.getChild("vertical_mixing")
+            )
             self.NN = self.T.array(
                 z=INTERFACES,
                 name="NN",
@@ -888,7 +890,9 @@ class Simulation(BaseSimulation):
             # this moves our zin backup into zin, and at the same time moves the
             # current zin (originally zio) to zio
             self.update_depth(_3d=True, timestep=self.macrotimestep)
-            self.momentum.update_diagnostics(self.macrotimestep, self.turbulence.num)
+            self.momentum.update_diagnostics(
+                self.macrotimestep, self.vertical_mixing.num
+            )
 
         # Update all forcing, which includes the final 2D depth update based on
         # (original) z
@@ -955,7 +959,7 @@ class Simulation(BaseSimulation):
                 self.dpdyo,
                 self.internal_pressure.idpdx,
                 self.internal_pressure.idpdy,
-                self.turbulence.num,
+                self.vertical_mixing.num,
             )
 
             if self.runtype == RunType.BAROCLINIC:
@@ -964,7 +968,7 @@ class Simulation(BaseSimulation):
                 # (ustar_s, z0s, NN) at time=0, and bottom/velocity-related forcing
                 # (ustar_b, z0b, SS) at time=1/2
                 # self.T.z0b.all_values[1:, 1:] = 0.5 * (np.maximum(self.U.z0b.all_values[1:, 1:], self.U.z0b.all_values[1:, :-1]) + np.maximum(self.V.z0b.all_values[:-1, 1:], self.V.z0b.all_values[1:, :-1]))
-                self.turbulence.advance(
+                self.vertical_mixing.advance(
                     self.macrotimestep,
                     self.ustar_s,
                     self.momentum.ustar_b,
@@ -981,7 +985,7 @@ class Simulation(BaseSimulation):
                     self.momentum.uk,
                     self.momentum.vk,
                     self.momentum.ww,
-                    self.turbulence.nuh,
+                    self.vertical_mixing.nuh,
                 )
 
                 if self.delay_slow_ip:

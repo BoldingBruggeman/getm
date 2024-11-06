@@ -11,7 +11,7 @@ from pygotm import _pygotm
 from .constants import INTERFACES, FILL_VALUE, ZERO_GRADIENT
 
 
-class Turbulence:
+class VerticalMixing:
     """Base class that provides the turbulent viscosity :attr:`num` and diffusivity
     :attr:`nuh`. When using this class directly, viscosity and diffusivity are
     prescribed, not calculated. In this case, both default to zero; assign to
@@ -57,7 +57,7 @@ class Turbulence:
         pass
 
 
-class GOTM(Turbulence):
+class GOTM(VerticalMixing):
     """Calculate the turbulent viscosity :attr:`num` and diffusivity :attr:`nuh`
     using the `General Ocean Turbulence Model (GOTM) <https://gotm.net>`_.
     """
