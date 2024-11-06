@@ -44,7 +44,9 @@ class TestCoriolis(unittest.TestCase):
         OMEGA = 2.0 * np.pi / 86164.0  # 86164 is number of seconds in sidereal day
 
         f = 2.0 * OMEGA * np.sin(np.pi * lat / 180.0)
-        self.assertTrue((domain.f == f).all())
+        self.assertTrue((sim.T.cor.values == f).all())
+        self.assertTrue((sim.U.cor.values == f).all())
+        self.assertTrue((sim.V.cor.values == f).all())
 
         fu = sim.momentum.fU / sim.V.H
         fv = sim.momentum.fV / sim.U.H
