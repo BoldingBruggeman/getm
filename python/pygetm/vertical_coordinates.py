@@ -209,7 +209,7 @@ class Adaptive(Base):
         self.dga_t = tgrid.array(z=CENTERS)
         self.dga_other = tuple(grid.array(z=CENTERS) for grid in other_grids)
 
-        # Here you can obtain any other model field by name, as tgrid.domain.fields[NAME]
+        # Here you can obtain any other model field by name, as tgrid.fields[NAME]
         # and store it as attribte of self for later use in update
 
     def update(self, timestep: float):

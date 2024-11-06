@@ -81,14 +81,9 @@ class TestFlowSymmetry(unittest.TestCase):
         distance_from_center = np.hypot(
             domain.x - 0.5 * extent, domain.y - 0.5 * extent
         )
-        domain._mask = domain._mask.copy()
         domain.mask[distance_from_center < extent * (1.0 / 6.0 + 1e-12)] = 0
 
-        sim = pygetm.Simulation(
-            domain,
-            runtype=pygetm.BAROTROPIC,
-            vertical_coordinates=pygetm.vertical_coordinates.Sigma(1),
-        )
+        sim = pygetm.Simulation(domain, runtype=pygetm.BAROTROPIC)
         assert timestep < domain.maxdt, "Request time step %s exceeds maxdt=%.5f s" % (
             timestep,
             domain.maxdt,

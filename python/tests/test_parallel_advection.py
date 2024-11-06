@@ -157,13 +157,13 @@ class TestParallelAdvection(unittest.TestCase):
 
             # Set up figure for plotting tracer per subdomain
             fig_sub, ax_sub = matplotlib.pyplot.subplots()
-            pc_sub = ax_sub.pcolormesh(T.xi, T.yi, f)
+            pc_sub = ax_sub.pcolormesh(T.xgrid.x, T.xgrid.y, f)
             cb_sub = fig_sub.colorbar(pc_sub)
 
         # Set up figure for plotting global tracer field
         if values_glob is not None and plot:
             fig, ax = matplotlib.pyplot.subplots()
-            pc = ax.pcolormesh(T.xi, T.yi, values_glob)
+            pc = ax.pcolormesh(T.xgrid.x, T.xgrid.y, values_glob)
             cb = fig.colorbar(pc)
 
         if output:

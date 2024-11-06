@@ -61,55 +61,58 @@ def coriolis(lat: npt.ArrayLike) -> np.ndarray:
 
 
 def centers_to_supergrid_1d(
-    data: npt.ArrayLike,
+    source: npt.ArrayLike,
     *,
     dtype: Optional[npt.DTypeLike] = None,
     edges: EdgeTreatment = EdgeTreatment.MISSING,
     missing_value=np.nan,
 ) -> np.ndarray:
-    assert data.ndim == 1, "data must be one-dimensional"
-    assert data.size > 1, "data must have at least 2 elements"
+    source = np.asarray(source, dtype=dtype)
+    assert source.ndim == 1, "source must be one-dimensional"
+    assert source.size > 1, "source must have at least 2 elements"
+    out_shape = (source.size * 2 + 1,)
+    out = np.empty_like(source, shape=out_shape)
+    out[1::2] = source
+    out[2:-2:2] = 0.5 * (source[1:] + source[:-1])
     edges = EdgeTreatment(edges)
-    data_sup = np.empty((data.size * 2 + 1,), dtype=dtype)
-    data_sup[1::2] = data
-    data_sup[2:-2:2] = 0.5 * (data[1:] + data[:-1])
     if edges == EdgeTreatment.PERIODIC:
         # Reconstruct first and last interface by averaging very first and last values
-        data_sup[0] = data_sup[-1] = 0.5 * (data[0] + data[-1])
+        out[0] = out[-1] = 0.5 * (out[1] + out[-2])
     elif edges == EdgeTreatment.EXTRAPOLATE:
         # Reconstruct first and last interface through linear extrapolation,
         # using nearest interior difference
-        data_sup[0] = 2 * data_sup[1] - data_sup[2]
-        data_sup[-1] = 2 * data_sup[-2] - data_sup[-3]
+        out[0] = 2 * out[1] - out[2]
+        out[-1] = 2 * out[-2] - out[-3]
     elif edges == EdgeTreatment.EXTRAPOLATE_PERIODIC:
         # Reconstruct first and last interface through linear extrapolation,
         # using oppposite interior difference
-        data_sup[0] = data_sup[1] + (data_sup[-3] - data_sup[-2])
-        data_sup[-1] = data_sup[-2] + (data_sup[2] - data_sup[1])
+        out[0] = out[1] + (out[-3] - out[-2])
+        out[-1] = out[-2] + (out[2] - out[1])
     elif edges == EdgeTreatment.CLAMP:
-        data_sup[0] = data_sup[1]
-        data_sup[-1] = data_sup[-2]
+        out[0] = out[1]
+        out[-1] = out[-2]
     else:
-        data_sup[0] = data_sup[-1] = missing_value
-    return data_sup
+        out[0] = out[-1] = missing_value
+    return out
 
 
 def expand_2d(
-    source: np.ndarray,
+    source: npt.ArrayLike,
     *,
     dtype: Optional[npt.DTypeLike] = None,
     edges_x: EdgeTreatment = EdgeTreatment.MISSING,
     edges_y: EdgeTreatment = EdgeTreatment.MISSING,
     missing_value=np.nan,
 ) -> np.ndarray:
-    edges_x = EdgeTreatment(edges_x)
-    edges_y = EdgeTreatment(edges_y)
-
     # Create an array to hold data at centers (T points),
     # with strips of size 1 on all sides to support interpolation to interfaces
-    out_shape = source.shape[:-2] + (source.shape[-2] + 2, source.shape[-1] + 2)
+    source_shape = np.shape(source)
+    out_shape = source_shape[:-2] + (source_shape[-2] + 2, source_shape[-1] + 2)
     out = np.empty_like(source, shape=out_shape, dtype=dtype)
     out[..., 1:-1, 1:-1] = source
+
+    edges_x = EdgeTreatment(edges_x)
+    edges_y = EdgeTreatment(edges_y)
 
     if edges_x == EdgeTreatment.EXTRAPOLATE:
         out[..., 0] = 2 * out[..., 1] - out[..., 2]
@@ -165,10 +168,10 @@ def centers_to_supergrid_2d(
         missing_value=missing_value,
     )
 
-    out_shape = source.shape[:-2] + (ny * 2 + 1, nx * 2 + 1)
+    out_shape = source_ex.shape[:-2] + (ny * 2 + 1, nx * 2 + 1)
     out = np.empty_like(source_ex, shape=out_shape)
 
-    if_ip_shape = (4,) + source.shape[:-2] + (ny + 1, nx + 1)
+    if_ip_shape = (4,) + source_ex.shape[:-2] + (ny + 1, nx + 1)
     data_if_ip = np.empty_like(source_ex, shape=if_ip_shape)
     data_if_ip[0, ...] = source_ex[..., :-1, :-1]
     data_if_ip[1, ...] = source_ex[..., 1:, :-1]
@@ -189,35 +192,40 @@ def centers_to_supergrid_2d(
 
 
 def interfaces_to_supergrid_1d(
-    data: npt.ArrayLike,
+    source: npt.ArrayLike,
     *,
     dtype: Optional[npt.DTypeLike] = None,
     out: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    assert data.ndim == 1, "data must be one-dimensional"
-    assert data.size > 1, "data must have at least 2 elements"
+    source = np.asarray(source, dtype=dtype)
+    assert source.ndim == 1, "data must be one-dimensional"
+    assert source.size > 1, "data must have at least 2 elements"
     if out is None:
-        out = np.empty((data.size * 2 - 1,), dtype=dtype)
-    out[0::2] = data
-    out[1::2] = 0.5 * (data[1:] + data[:-1])
+        out = np.empty_like(source, shape=(source.size * 2 - 1,))
+    out[0::2] = source
+    out[1::2] = 0.5 * (source[1:] + source[:-1])
     return out
 
 
 def interfaces_to_supergrid_2d(
-    data: npt.ArrayLike,
+    source: npt.ArrayLike,
     *,
     dtype: Optional[npt.DTypeLike] = None,
     out: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    assert data.ndim == 2, "data must be two-dimensional"
-    assert data.shape[0] > 1 and data.shape[1] > 1, "dimensions must have length >= 2"
+    source = np.asarray(source, dtype=dtype)
+    assert source.ndim == 2, "data must be two-dimensional"
+    assert (
+        source.shape[0] > 1 and source.shape[1] > 1
+    ), "dimensions must have length >= 2"
     if out is None:
-        out = np.empty((data.shape[0] * 2 - 1, data.shape[1] * 2 - 1), dtype=dtype)
-    out[0::2, 0::2] = data
-    out[1::2, 0::2] = 0.5 * (data[:-1, :] + data[1:, :])
-    out[0::2, 1::2] = 0.5 * (data[:, :-1] + data[:, 1:])
+        out_shape = (source.shape[0] * 2 - 1, source.shape[1] * 2 - 1)
+        out = np.empty_like(source, shape=out_shape)
+    out[0::2, 0::2] = source
+    out[1::2, 0::2] = 0.5 * (source[:-1, :] + source[1:, :])
+    out[0::2, 1::2] = 0.5 * (source[:, :-1] + source[:, 1:])
     out[1::2, 1::2] = 0.25 * (
-        data[:-1, :-1] + data[:-1, 1:] + data[1:, :-1] + data[1:, 1:]
+        source[:-1, :-1] + source[:-1, 1:] + source[1:, :-1] + source[1:, 1:]
     )
     return out
 
@@ -334,8 +342,9 @@ class DomainArray:
 
     def __set__(self, domain: "Domain", values):
         assert self.writable
-        values = getattr(domain, self.private_name, None)
-        values[...] = domain._map_array(values, **self.kwargs)
+        if domain.comm.rank == 0:
+            values = domain._map_array(values, **self.kwargs)
+            setattr(domain, self.private_name, values)
 
 
 def calculate_and_bcast(method):
@@ -374,10 +383,10 @@ def _rotation(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 
 class Domain:
     # Grid metrics frozen at initialization
-    x = DomainArray(writeable=False, xcoordinate=True)
-    y = DomainArray(writeable=False, ycoordinate=True)
-    lon = DomainArray(writeable=False, xcoordinate=True)
-    lat = DomainArray(writeable=False, ycoordinate=True)
+    x = DomainArray(writeable=False)
+    y = DomainArray(writeable=False)
+    lon = DomainArray(writeable=False)
+    lat = DomainArray(writeable=False)
     f = DomainArray(writeable=False)
     dx = DomainArray(writeable=False)
     dy = DomainArray(writeable=False)
@@ -385,7 +394,7 @@ class Domain:
     area = DomainArray(writeable=False)
 
     # Grid metrics that can be manipulated after the domain is created
-    mask = DomainArray()
+    mask = DomainArray(missing_value=0, dtype=int)
     H = DomainArray()
     z0 = DomainArray()
 
@@ -788,17 +797,17 @@ class Domain:
 
         Note: this returns global indices for the T grid, not the supergrid
         """
-        mask = self.mask[1::2, 1::2] > 0
-        dx = self.dx[1::2, 1::2]
-        dy = self.dy[1::2, 1::2]
-        H = self.H[1::2, 1::2]
+        mask = self._mask[1::2, 1::2] > 0
+        dx = self._dx[1::2, 1::2]
+        dy = self._dy[1::2, 1::2]
+        H = self._H[1::2, 1::2]
         denom2 = (2.0 * GRAVITY) * (H + z) * (dx**2 + dy**2)
         maxdts = dx * dy / np.sqrt(denom2, where=mask, out=np.ones_like(H))
         maxdts[~mask] = np.inf
         maxdt = maxdts.min()
         if return_location:
             j, i = np.unravel_index(np.argmin(maxdts), maxdts.shape)
-            return (maxdt, i, j, self.H[1 + 2 * j, 1 + 2 * i])
+            return (maxdt, i, j, self._H[1 + 2 * j, 1 + 2 * i])
         return maxdt
 
     @property
@@ -841,7 +850,7 @@ class Domain:
             minimum_depth: minimum bathmetric depth :attr:`H`; points that are
                 shallower will be masked
         """
-        self.mask[self.H < minimum_depth] = 0
+        self.mask[self._H < minimum_depth] = 0
 
     @calculate_and_bcast
     def limit_velocity_depth(self, critical_depth: float = np.inf):
@@ -896,9 +905,9 @@ class Domain:
         selected = np.ones(self.mask.shape, dtype=bool)
         coordinate_type = coordinate_type or self.coordinate_type
         if coordinate_type == CoordinateType.LONLAT:
-            x, y = (self.lon, self.lat)
+            x, y = (self._lon, self._lat)
         elif coordinate_type == CoordinateType.XY:
-            x, y = (self.x, self.y)
+            x, y = (self._x, self._y)
         else:
             x = np.linspace(-0.5, self.nx + 0.5, 1 + 2 * self.nx)
             y = np.linspace(-0.5, self.ny + 0.5, 1 + 2 * self.ny)
@@ -940,14 +949,14 @@ class Domain:
         )
         if self.comm.rank == 0:
             kwargs.update(
-                lon=tp(self.lon),
-                lat=tp(self.lat),
-                x=tp(self.x),
-                y=tp(self.y),
-                mask=tp(self.mask),
-                H=tp(self.H),
-                z0=tp(self.z0),
-                f=tp(self.f),
+                lon=tp(self._lon),
+                lat=tp(self._lat),
+                x=tp(self._x),
+                y=tp(self._y),
+                mask=tp(self._mask),
+                H=tp(self._H),
+                z0=tp(self._z0),
+                f=tp(self._f),
             )
         return Domain(self.ny, self.nx, **kwargs)
 
@@ -1097,7 +1106,7 @@ class Domain:
                 max(eclick.ydata, erelease.ydata),
             )
             self.mask_rectangle(xmin, xmax, ymin, ymax)
-            c.set_array(np.ma.array(self.H, mask=self.mask == 0).ravel())
+            c.set_array(np.ma.array(self._H, mask=self._mask == 0).ravel())
             fig.canvas.draw()
             # self.sel.set_active(False)
             # self.sel = None

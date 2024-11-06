@@ -29,8 +29,7 @@ def for_each_grid(test_func):
                     logger=pygetm.parallel.get_logger(level="ERROR"),
                 )
                 # randomly mask half of the domain
-                domain._mask = domain.mask.copy()
-                domain.mask[...] = rng.random(domain.mask.shape) > 0.5
+                domain.mask = rng.random(domain.mask.shape) > 0.5
                 self.sim = pygetm.Simulation(
                     domain,
                     runtype=pygetm.BAROTROPIC_3D,
