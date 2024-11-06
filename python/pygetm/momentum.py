@@ -543,7 +543,7 @@ class Momentum:
             self.An_uv = self.uva.grid.array(fill=np.nan)
             self.An_vu = self.vua.grid.array(fill=np.nan)
             self.An_vv = self.vva.grid.array(fill=np.nan)
-            An_x = self.An.interp(self.domain.X)
+            An_x = self.An.interp(self.ww.grid.xgrid)
             self.An_uu.all_values[:, :-1] = self.An.all_values[:, 1:]
             self.An_vv.all_values[:-1, :] = self.An.all_values[1:, :]
             self.An_uv.all_values[:, :] = self.An_vu.all_values[:, :] = An_x.all_values[
