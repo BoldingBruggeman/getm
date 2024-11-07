@@ -1002,15 +1002,15 @@ class Simulation(BaseSimulation):
         Args:
             macro_active: update all quantities associated with the macrotimestep
         """
-        # Only do 2D Coriolis update at the start of the simulation
-        # At subsequent times, this term will already have been updated
-        # as part of the momentum update in _advance_state
-        skip_2d_coriolis = self.istep != 0
+        starting = self.istep == 0
+
+        if starting:
+            self.rivers.flag_prescribed_tracers()
 
         # Hydrodynamic bottom roughness is updated iteratively in barotropic simulations
         # Do this only at the end of a time step, that is, not at the very start of the
         # simulation.
-        update_z0b = self.istep != 0 and self.runtype == RunType.BAROTROPIC_2D
+        update_z0b = self.runtype == RunType.BAROTROPIC_2D and not starting
 
         baroclinic_active = self.runtype == RunType.BAROCLINIC and macro_active
         if baroclinic_active:
@@ -1071,9 +1071,11 @@ class Simulation(BaseSimulation):
         self.update_depth()
 
         # Calculate advection and diffusion tendencies of transports, bottom friction
-        # and, if needed, Coriolis terms
+        # and Coriolis terms. Only do Coriolis update at the start of the simulation.
+        # At subsequent times, this term will already have been updated
+        # as part of the momentum update in _advance_state
         self.momentum.update_depth_integrated_diagnostics(
-            self.timestep, skip_coriolis=skip_2d_coriolis, update_z0b=update_z0b
+            self.timestep, skip_coriolis=not starting, update_z0b=update_z0b
         )
 
         # Update air-sea fluxes of heat and momentum (all on T grid)

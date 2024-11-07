@@ -101,7 +101,7 @@ class Tracer(core.Array):
         self.open_boundaries: ArrayOpenBoundaries = ArrayOpenBoundaries(
             self, ZERO_GRADIENT
         )
-        self.river_values: np.ndarray = np.zeros((len(grid.rivers),))
+        self.river_values: np.ndarray = np.full((len(grid.rivers),), self.fill_value)
         self.river_follow: np.ndarray = np.full(
             (len(grid.rivers),), rivers_follow_target_cell, dtype=bool
         )
@@ -115,6 +115,7 @@ class Tracer(core.Array):
                 self.river_values[..., iriver],
                 self.river_follow[..., iriver],
                 units=self.units,
+                fill_value=self.fill_value,
                 attrs={"_time_varying": TimeVarying.MACRO},
             )
             river._tracers[self.name] = river_tracer

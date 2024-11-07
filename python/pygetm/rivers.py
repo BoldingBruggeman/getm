@@ -248,6 +248,22 @@ class Rivers(Mapping[str, River]):
         self.zl = np.array([river.zl for river in self._rivers])
         self.zu = np.array([river.zu for river in self._rivers])
 
+    def flag_prescribed_tracers(self):
+        for river in self._rivers:
+            for rt in river._tracers.values():
+                prescribed = rt.values != rt.fill_value
+                if prescribed and rt.follow_target_cell:
+                    self.logger.warning(
+                        f"Values for {rt.name} are prescribed."
+                        " Disabling follow_target_cell."
+                    )
+                    rt.follow_target_cell = False
+                elif not prescribed and not rt.follow_target_cell:
+                    self.logger.warning(
+                        f"Value for {rt.name} not set. Using default of 0.0"
+                    )
+                    rt.values[...] = 0.0
+
     def __getitem__(self, key: str) -> River:
         for river in self._rivers:
             if key == river.name:
