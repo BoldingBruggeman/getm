@@ -59,11 +59,11 @@ def centers_to_supergrid_1d(
     edges: EdgeTreatment = EdgeTreatment.MISSING,
     missing_value=np.nan,
 ) -> np.ndarray:
-    source = np.asarray(source, dtype=dtype)
+    source = np.asarray(source)
     assert source.ndim == 1, "source must be one-dimensional"
     assert source.size > 1, "source must have at least 2 elements"
     out_shape = (source.size * 2 + 1,)
-    out = np.empty_like(source, shape=out_shape)
+    out = np.empty_like(source, shape=out_shape, dtype=dtype)
     out[1::2] = source
     out[2:-2:2] = 0.5 * (source[1:] + source[:-1])
     edges = EdgeTreatment(edges)
@@ -189,11 +189,11 @@ def interfaces_to_supergrid_1d(
     dtype: Optional[npt.DTypeLike] = None,
     out: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    source = np.asarray(source, dtype=dtype)
+    source = np.asarray(source)
     assert source.ndim == 1, "data must be one-dimensional"
     assert source.size > 1, "data must have at least 2 elements"
     if out is None:
-        out = np.empty_like(source, shape=(source.size * 2 - 1,))
+        out = np.empty_like(source, shape=(source.size * 2 - 1,), dtype=dtype)
     out[0::2] = source
     out[1::2] = 0.5 * (source[1:] + source[:-1])
     return out
@@ -205,14 +205,14 @@ def interfaces_to_supergrid_2d(
     dtype: Optional[npt.DTypeLike] = None,
     out: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    source = np.asarray(source, dtype=dtype)
+    source = np.asarray(source)
     assert source.ndim == 2, "data must be two-dimensional"
     assert (
         source.shape[0] > 1 and source.shape[1] > 1
     ), "dimensions must have length >= 2"
     if out is None:
         out_shape = (source.shape[0] * 2 - 1, source.shape[1] * 2 - 1)
-        out = np.empty_like(source, shape=out_shape)
+        out = np.empty_like(source, shape=out_shape, dtype=dtype)
     out[0::2, 0::2] = source
     out[1::2, 0::2] = 0.5 * (source[:-1, :] + source[1:, :])
     out[0::2, 1::2] = 0.5 * (source[:, :-1] + source[:, 1:])

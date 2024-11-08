@@ -1,5 +1,6 @@
 import unittest
 import logging
+from typing import Tuple
 
 import numpy as np
 import netCDF4
@@ -28,9 +29,8 @@ class TestDomain(unittest.TestCase):
                         velocity_grids=2,
                     )
 
-    def test_create(self):
-        with netCDF4.Dataset("test.nc", "w") as nc:
-            nx, ny = 50, 51
+    def _create_netcdf(self, file: str, nx: int, ny: int):
+        with netCDF4.Dataset(file, "w") as nc:
             nc.createDimension("x", nx)
             nc.createDimension("y", ny)
             nc.createVariable("lon", "f4", ("x",))
@@ -46,6 +46,73 @@ class TestDomain(unittest.TestCase):
             nc.createVariable("yi", "f4", ("yi",))
 
             nc.createVariable("H", "f4", ("y", "x"))
+
+    def _check(self, arr, shape: Tuple[int], dtype=float):
+        self.assertEqual(type(arr), np.ndarray)
+        self.assertEqual(arr.shape, shape)
+        self.assertEqual(arr.dtype, np.dtype(dtype))
+
+    def test_supergrid_mapping_nc(self):
+        nx, ny = 50, 51
+        self._create_netcdf("test.nc", nx, ny)
+        with netCDF4.Dataset("test.nc") as nc:
+            self._check(
+                pygetm.domain.centers_to_supergrid_1d(nc["lon"]), (1 + nx * 2,), "f4"
+            )
+            self._check(
+                pygetm.domain.centers_to_supergrid_1d(nc["lon"], dtype=float),
+                (1 + nx * 2,),
+            )
+            self._check(
+                pygetm.domain.centers_to_supergrid_2d(nc["H"]),
+                (1 + ny * 2, 1 + nx * 2),
+                "f4",
+            )
+            self._check(
+                pygetm.domain.centers_to_supergrid_2d(nc["H"], dtype=float),
+                (1 + ny * 2, 1 + nx * 2),
+            )
+            self._check(
+                pygetm.domain.interfaces_to_supergrid_1d(nc["loni"]),
+                (1 + nx * 2,),
+                "f4",
+            )
+            self._check(
+                pygetm.domain.interfaces_to_supergrid_1d(nc["loni"], dtype=float),
+                (1 + nx * 2,),
+            )
+            self._check(
+                pygetm.domain.interfaces_to_supergrid_2d(nc["H"]),
+                (ny * 2 - 1, nx * 2 - 1),
+                "f4",
+            )
+            self._check(
+                pygetm.domain.interfaces_to_supergrid_2d(nc["H"], dtype=float),
+                (ny * 2 - 1, nx * 2 - 1),
+            )
+
+    def test_supergrid_mapping_list(self):
+        x = [1, 2, 3]
+        nx = len(x)
+        self._check(
+            pygetm.domain.centers_to_supergrid_1d(x, missing_value=0),
+            (1 + nx * 2,),
+            int,
+        )
+        self._check(
+            pygetm.domain.centers_to_supergrid_1d(x, dtype=float),
+            (1 + nx * 2,),
+        )
+        self._check(pygetm.domain.interfaces_to_supergrid_1d(x), (nx * 2 - 1,), int)
+        self._check(
+            pygetm.domain.interfaces_to_supergrid_1d(x, dtype=float),
+            (nx * 2 - 1,),
+        )
+
+    def test_create(self):
+        nx, ny = 50, 51
+        self._create_netcdf("test.nc", nx, ny)
+
         logger = logging.getLogger()
         logger.setLevel("ERROR")
         with netCDF4.Dataset("test.nc") as nc:
