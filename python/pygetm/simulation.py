@@ -1071,7 +1071,7 @@ class Simulation(BaseSimulation):
         self.update_depth()
 
         # Calculate advection and diffusion tendencies of transports, bottom friction
-        # and Coriolis terms. Only do Coriolis update at the start of the simulation.
+        # and Coriolis terms. Only do 2D Coriolis update at the start of the simulation
         # At subsequent times, this term will already have been updated
         # as part of the momentum update in _advance_state
         self.momentum.update_depth_integrated_diagnostics(

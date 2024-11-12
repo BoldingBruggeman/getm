@@ -6,6 +6,7 @@ import numpy as np
 import netCDF4
 
 import pygetm
+from pygetm import FILL_VALUE
 
 
 class TestDomain(unittest.TestCase):
@@ -169,6 +170,64 @@ class TestDomain(unittest.TestCase):
                 H=nc["H"],
                 logger=logger,
             )
+
+    def test_grid_mapping(self):
+        Lx, Ly = 100e3, 100e3
+        nx, ny = 100, 52
+        HALO = 2
+        x = np.linspace(-Lx / 2, Lx / 2, nx)
+        y = np.linspace(-Ly / 2, Ly / 2, ny)
+        logger = logging.getLogger()
+        logger.setLevel("ERROR")
+        domain = pygetm.domain.create_cartesian(x, y, H=10.0, lat=0.0, logger=logger)
+
+        self.assertTrue((domain.H == 10.0).all())
+        self.assertTrue((domain.mask == 1).all())
+        domain.infer_UVX_masks2()
+        self.assertTrue((domain.mask[1:-1, 1:-1] == 1).all())
+        self.assertTrue((domain.mask[0, :] == 0).all())
+        self.assertTrue((domain.mask[-1, :] == 0).all())
+        self.assertTrue((domain.mask[:, 0] == 0).all())
+        self.assertTrue((domain.mask[:, -1] == 0).all())
+
+        T = domain.create_grids(1, halox=HALO, haloy=HALO, velocity_grids=2)
+        self.assertTrue((T.mask.values == 1).all())
+        self.assertTrue((T.ugrid.mask.values[:, :-1] == 1).all())
+        self.assertTrue((T.ugrid.mask.values[:, -1] == 0).all())
+        self.assertTrue((T.vgrid.mask.values[:-1, :] == 1).all())
+        self.assertTrue((T.vgrid.mask.values[-1, :] == 0).all())
+        self.assertTrue((T.xgrid.mask.values[1:-1, 1:-1] == 1).all())
+        self.assertTrue((T.xgrid.mask.values[:, 0] == 0).all())
+        self.assertTrue((T.xgrid.mask.values[:, -1] == 0).all())
+        self.assertTrue((T.xgrid.mask.values[0, :] == 0).all())
+        self.assertTrue((T.xgrid.mask.values[-1, :] == 0).all())
+
+        self.assertTrue((T.mask.all_values[:, :HALO] == 0).all())
+        self.assertTrue((T.mask.all_values[:, HALO + nx :] == 0).all())
+        self.assertTrue((T.mask.all_values[:HALO, :] == 0).all())
+        self.assertTrue((T.mask.all_values[HALO + nx :, :] == 0).all())
+        self.assertTrue((T.ugrid.mask.all_values[:, :HALO] == 0).all())
+        self.assertTrue((T.ugrid.mask.all_values[:, HALO + nx :] == 0).all())
+        self.assertTrue((T.ugrid.mask.all_values[:HALO, :] == 0).all())
+        self.assertTrue((T.ugrid.mask.all_values[HALO + nx :, :] == 0).all())
+        self.assertTrue((T.vgrid.mask.all_values[:HALO, :] == 0).all())
+        self.assertTrue((T.vgrid.mask.all_values[HALO + nx :, :] == 0).all())
+        self.assertTrue((T.vgrid.mask.all_values[:, :HALO] == 0).all())
+        self.assertTrue((T.vgrid.mask.all_values[:, HALO + nx :] == 0).all())
+        self.assertTrue((T.xgrid.mask.all_values[:HALO, :] == 0).all())
+        self.assertTrue((T.xgrid.mask.all_values[HALO + nx + 1 :, :] == 0).all())
+        self.assertTrue((T.xgrid.mask.all_values[:, :HALO] == 0).all())
+        self.assertTrue((T.xgrid.mask.all_values[:, HALO + nx + 1 :] == 0).all())
+
+        for grid in (T, T.ugrid, T.vgrid, T.xgrid):
+            self.assertTrue((grid._water == ~grid._land).all())
+            self.assertTrue((grid.H.all_values[grid._water] == 10).all())
+            self.assertTrue((grid.H.all_values[grid._land] == FILL_VALUE).all())
+            self.assertTrue((grid.H.all_values[grid._land] == FILL_VALUE).all())
+
+            self.assertTrue((grid.z0b_min.all_values[grid._water] == 0).all())
+            self.assertTrue((grid.z0b_min.all_values[grid._land] == FILL_VALUE).all())
+            self.assertTrue((grid.z0b_min.all_values[grid._land] == FILL_VALUE).all())
 
 
 if __name__ == "__main__":

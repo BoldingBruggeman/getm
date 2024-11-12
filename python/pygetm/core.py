@@ -231,7 +231,10 @@ class Grid(_pygetm.Grid):
         self._land = self.mask.all_values == 0
         self._water = ~self._land
         self._water_nohalo = np.full_like(self._water, False)
-        interior = (slice(self.haloy, -self.haloy), slice(self.halox, -self.halox))
+        interior = (
+            slice(self.haloy, self.haloy + self.ny),
+            slice(self.halox, self.halox + self.nx),
+        )
         self._water_nohalo[interior] = self._water[interior]
         if not hasattr(self, "_water_contact"):
             self._water_contact = self._water
@@ -246,7 +249,7 @@ class Grid(_pygetm.Grid):
         self.z0b.all_values[...] = self.z0b_min.all_values
 
         # Initialize elevation at all water points to 0
-        # The array will ahve been pre-fileld with the correct fill value,
+        # The array will have been pre-filled with the correct fill value,
         # so land points are already ok and remain unchanged.
         self.z.all_values[self._water] = 0.0
         self.zo.all_values[...] = self.z.all_values

@@ -225,7 +225,7 @@ def interfaces_to_supergrid_2d(
 def create_cartesian(
     x: npt.ArrayLike, y: npt.ArrayLike, *, interfaces=False, **kwargs
 ) -> "Domain":
-    """Create Cartesian domain from 1D arrays with x coordinates and  y coordinates.
+    """Create Cartesian domain from x and y coordinates.
 
     Args:
         x: array with x coordinates (1d or 2d)
@@ -249,7 +249,7 @@ def create_cartesian(
 def create_spherical(
     lon: npt.ArrayLike, lat: npt.ArrayLike, *, interfaces=False, **kwargs
 ) -> "Domain":
-    """Create spherical domain from 1D arrays with longitudes and latitudes.
+    """Create spherical domain from longitudes and latitudes.
 
     Args:
         lon: array with longitude coordinates (1d or 2d)
@@ -414,8 +414,8 @@ class Domain:
         Args:
             nx: number of tracer points in x-direction
             ny: number of tracer points in y-direction
-            lon: longitude (degrees East)
-            lat: latitude (degrees North)
+            lon: longitude (°East)
+            lat: latitude (°North)
             x: x coordinate (m)
             y: y coordinate (m)
             coordinate_type: preferred coordinate type for plots and output
@@ -424,10 +424,13 @@ class Domain:
                 some arbitrary depth reference (m, positive if bottom lies below the
                 depth reference). Typically the depth reference is mean sea level.
             z0: minimum hydrodynamic bottom roughness (m)
-            f: Coriolis parameter. By default this is calculated from latitude ``lat``
-                if provided.
+            f: Coriolis parameter. If not provided, it will be calculated from latitude.
+                In that case argument `lat` must be provided.
             periodic_x: use periodic boundary in x-direction (left == right)
             periodic_y: use periodic boundary in y-direction (top == bottom)
+            comm: MPI communicator that comprises all processes that should get access
+                to the domain
+            logger: logger for diagnostic messages
         """
         if nx <= 0:
             raise Exception(f"Number of x points is {nx} but must be > 0")
@@ -823,8 +826,8 @@ class Domain:
     # @calculate_and_bcast
     def infer_UVX_masks2(self):
         tmask = self.mask[1::2, 1::2]
-        umask = self.mask[1::2, 2::2]
-        vmask = self.mask[2::2, 1::2]
+        umask = self.mask[1::2, ::2]
+        vmask = self.mask[::2, 1::2]
         xmask = self.mask[::2, ::2]
 
         edges_x = EdgeTreatment.PERIODIC if self.periodic_x else EdgeTreatment.MISSING
@@ -833,9 +836,9 @@ class Domain:
 
         # Now mask U,V,X points unless all their T neighbors are valid - this mask will
         # be sent to Fortran and determine which points are computed
-        bad = (tmask_ex[1:-1, 2:] == 0) | (tmask_ex[1:-1, 1:-1] == 0)
+        bad = (tmask_ex[1:-1, 1:] == 0) | (tmask_ex[1:-1, :-1] == 0)
         umask[bad & (umask == 1)] = 0
-        bad = (tmask_ex[2:, 1:-1] == 0) | (tmask_ex[1:-1, 1:-1] == 0)
+        bad = (tmask_ex[1:, 1:-1] == 0) | (tmask_ex[:-1, 1:-1] == 0)
         vmask[bad & (vmask == 1)] = 0
         bad = (
             (tmask_ex[1:, 1:] == 0)
@@ -969,7 +972,6 @@ class Domain:
             )
         return Domain(self.ny, self.nx, **kwargs)
 
-    @calculate_and_bcast
     def plot(
         self,
         field: Optional[np.ndarray] = None,
@@ -990,20 +992,29 @@ class Domain:
         river positions.
 
         Args:
+            field: 2D field to plot. it must be defined on the supergrid.
             fig: :class:`matplotlib.figure.Figure` instance to plot to. If not provided,
                 a new figure is created.
             show_bathymetry: show bathymetry as color map
             show_mask: show mask as color map (this disables ``show_bathymetry``)
             show_mesh: show model grid
             show_rivers: show rivers with position and name
+            show_subdomains: show subdomain decompositon
             editable: allow interactive selection of rectangular regions in the domain
                 plot that are subsequently masked out
-            sub: plot the subdomain, not the global domain
+            coordinate_type: coordinates to use for x and y axes (x/y, lon/lat, or i/j)
+            tiling: subdomain decomposition. This must be provided if `show_subdomains`
+                is set
+            label: label for the colorbar of the plotted field
+            cmap: colormap to use
 
         Returns:
-            :class:`matplotlib.figure.Figure` instance for processes with rank 0 or if
-                ``sub`` is ``True``, otherwise ``None``
+            :class:`matplotlib.figure.Figure` instance for processes with rank 0,
+            otherwise ``None``
         """
+        if self.comm.rank != 0:
+            return
+
         import matplotlib.pyplot
         import matplotlib.collections
         import matplotlib.widgets
@@ -1024,9 +1035,9 @@ class Domain:
             x, y = (self._x, self._y)
             xlabel, ylabel = "x (m)", "y (m)"
         else:
-            x = 0.5 * np.arange(1 + self.nx * 2)
-            y = 0.5 * np.arange(1 + self.ny * 2)[:, np.newaxis]
-            x, y = np.broadcast_arrays(x, y)
+            x = -0.5 + 0.5 * np.arange(1 + self.nx * 2)
+            y = -0.5 + 0.5 * np.arange(1 + self.ny * 2)
+            x, y = np.broadcast_arrays(x, y[:, np.newaxis])
             xlabel, ylabel = "cell index", "cell index"
 
         if field is None:
