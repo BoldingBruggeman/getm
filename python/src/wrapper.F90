@@ -287,7 +287,8 @@ contains
                     w, w_var, tgrid%mask, timestep, h, var)
    end subroutine
 
-   subroutine c_momentum_diffusion(pugrid, pvgrid, puugrid, puvgrid, pvugrid, pvvgrid, nk, phuu, phuv, phvu, phvv, pu, pv, Am0, pdiffu, pdiffv) bind(c)
+   subroutine c_momentum_diffusion(pugrid, pvgrid, puugrid, puvgrid, pvugrid, pvvgrid, nk, phuu, phuv, phvu, phvv, pu, pv, Am0, &
+         pdiffu, pdiffv) bind(c)
       integer(c_int), intent(in), value :: nk
       type(c_ptr),    intent(in), value :: pugrid, pvgrid, puugrid, puvgrid, pvugrid, pvvgrid, phuu, phuv, phvu, phvv, pu, pv
       real(c_double), intent(in), value :: Am0
