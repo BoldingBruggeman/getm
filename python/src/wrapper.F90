@@ -287,35 +287,41 @@ contains
                     w, w_var, tgrid%mask, timestep, h, var)
    end subroutine
 
-   subroutine c_momentum_diffusion(ptgrid, pugrid, pvgrid, pxgrid, nk, ph, phx, pu, pv, Am0, pdiffu, pdiffv) bind(c)
+   subroutine c_momentum_diffusion(pugrid, pvgrid, puugrid, puvgrid, pvugrid, pvvgrid, nk, phuu, phuv, phvu, phvv, pu, pv, Am0, pdiffu, pdiffv) bind(c)
       integer(c_int), intent(in), value :: nk
-      type(c_ptr),    intent(in), value :: ptgrid, pugrid, pvgrid, pxgrid, ph, phx, pu, pv
+      type(c_ptr),    intent(in), value :: pugrid, pvgrid, puugrid, puvgrid, pvugrid, pvvgrid, phuu, phuv, phvu, phvv, pu, pv
       real(c_double), intent(in), value :: Am0
       type(c_ptr),    intent(in), value :: pdiffu, pdiffv
 
-      type (type_getm_grid),      pointer                   :: TG, UG, VG, XG
-      real(c_double), contiguous, pointer, dimension(:,:,:) :: h, hx, u, v, diffu, diffv
+      type (type_getm_grid),      pointer                   :: UG, VG, UUG, UVG, VUG, VVG
+      real(c_double), contiguous, pointer, dimension(:,:,:) :: huu, huv, hvu, hvv, u, v, diffu, diffv
       integer :: k
 
-      call c_f_pointer(ptgrid, TG)
       call c_f_pointer(pugrid, UG)
       call c_f_pointer(pvgrid, VG)
-      call c_f_pointer(pxgrid, XG)
-      call c_f_pointer(ph, h,   (/TG%u(1) - TG%l(1) + 1, TG%u(2) - TG%l(2) + 1, nk/))
-      call c_f_pointer(phx, hx, (/XG%u(1) - XG%l(1) + 1, XG%u(2) - XG%l(2) + 1, nk/))
+      call c_f_pointer(puugrid, UUG)
+      call c_f_pointer(puvgrid, UVG)
+      call c_f_pointer(pvugrid, VUG)
+      call c_f_pointer(pvvgrid, VVG)
+      call c_f_pointer(phuu, huu, (/UUG%u(1) - UUG%l(1) + 1, UUG%u(2) - UUG%l(2) + 1, nk/))
+      call c_f_pointer(phuv, huv, (/UVG%u(1) - UVG%l(1) + 1, UVG%u(2) - UVG%l(2) + 1, nk/))
+      call c_f_pointer(phvu, hvu, (/VUG%u(1) - VUG%l(1) + 1, VUG%u(2) - VUG%l(2) + 1, nk/))
+      call c_f_pointer(phvv, hvv, (/VVG%u(1) - VVG%l(1) + 1, VVG%u(2) - VVG%l(2) + 1, nk/))
       call c_f_pointer(pu, u,   (/UG%u(1) - UG%l(1) + 1, UG%u(2) - UG%l(2) + 1, nk/))
       call c_f_pointer(pv, v,   (/VG%u(1) - VG%l(1) + 1, VG%u(2) - VG%l(2) + 1, nk/))
       call c_f_pointer(pdiffu, diffu, (/UG%u(1) - UG%l(1) + 1, UG%u(2) - UG%l(2) + 1, nk/))
       call c_f_pointer(pdiffv, diffv, (/VG%u(1) - VG%l(1) + 1, VG%u(2) - VG%l(2) + 1, nk/))
       do k = 1, nk
-         call diffusion_driver(TG, UG, VG, XG, h(:,:,k), hx(:,:,k), u(:,:,k), v(:,:,k), Am0, diffu(:,:,k), diffv(:,:,k))
+         call horizontal_momentum_diffusion(UG, VG, UUG, UVG, VUG, VVG, huu(:,:,k), huv(:,:,k), hvu(:,:,k), hvv(:,:,k), u(:,:,k), v(:,:,k), Am0, diffu(:,:,k), diffv(:,:,k))
       end do
    end subroutine
 
-   subroutine diffusion_driver(TG, UG, VG, XG, h, hx, u, v, Am0, diffu, diffv)
-      type (type_getm_grid), intent(in) :: TG,  UG, VG, XG
-      real(c_double), dimension(:,:), intent(in) :: h(TG%l(1):,TG%l(2):)
-      real(c_double), dimension(:,:), intent(in) :: hx(XG%l(1):,XG%l(2):)
+   subroutine horizontal_momentum_diffusion(UG, VG, UUG, UVG, VUG, VVG, huu, huv, hvu, hvv, u, v, Am0, diffu, diffv)
+      type (type_getm_grid), intent(in) :: UG, VG, UUG, UVG, VUG, VVG
+      real(c_double), dimension(:,:), intent(in) :: huu(UUG%l(1):,UUG%l(2):)
+      real(c_double), dimension(:,:), intent(in) :: huv(UVG%l(1):,UVG%l(2):)
+      real(c_double), dimension(:,:), intent(in) :: hvu(VUG%l(1):,VUG%l(2):)
+      real(c_double), dimension(:,:), intent(in) :: hvv(VVG%l(1):,VVG%l(2):)
       real(c_double), dimension(:,:), intent(in) :: u(UG%l(1):,UG%l(2):)
       real(c_double), dimension(:,:), intent(in) :: v(VG%l(1):,VG%l(2):)
       real(c_double),                 intent(in) :: Am0
@@ -325,32 +331,32 @@ contains
       integer :: i,j
       real(c_double), allocatable :: flux(:,:)
 
-      allocate(flux(TG%l(1):TG%u(1), TG%l(2):TG%u(2)))
+      allocate(flux(UG%l(1):UG%u(1), UG%l(2):UG%u(2)))
    
       ! Central for dx(2*Am*dx(U/DU))
-      do j=TG%jmin,TG%jmax
-         do i=TG%imin,TG%imax+1 ! shear defined on T-points
+      do j=UUG%jmin,UUG%jmax
+         do i=UUG%imin-1,UUG%imax ! shear defined on T-points
             flux(i,j)=0._real64
-            if (TG%mask(i,j) == 1) then
-               flux(i,j) = 2._real64 * Am0 * TG%dy(i,j) * h(i,j) * (u(i,j) - u(i-1,j)) * TG%idx(i,j)
+            if (UUG%mask(i,j) /= 0) then
+               flux(i,j) = 2._real64 * Am0 * UUG%dy(i,j) * huu(i,j) * (u(i+1,j) - u(i,j)) * UUG%idx(i,j)
             end if
          end do
       end do
       do j=UG%jmin,UG%jmax
          do i=UG%imin,UG%imax ! diffu defined on U-points
             diffu(i,j)=0._real64
-            if (UG%mask(i,j) == 1 .or. UG%mask(i,j) == 2) then
-               diffu(i,j) = (flux(i+1,j) - flux(i,j)) * UG%iarea(i,j)
+            if (UG%mask(i,j) == 1) then
+               diffu(i,j) = (flux(i,j) - flux(i-1,j)) * UG%iarea(i,j)
             end if
          end do
       end do
    
       ! Central for dy(Am*(dy(U/DU)+dx(V/DV)))
-      do j=XG%jmin,XG%jmax ! work2d defined on X-points
-         do i=XG%imin,XG%imax
+      do j=UVG%jmin-1,UVG%jmax ! work2d defined on X-points
+         do i=UVG%imin,UVG%imax
             flux(i,j)=0._real64
-            if (XG%mask(i,j) > 0) then
-               flux(i,j) = Am0 * XG%dx(i,j) * hx(i,j) * ((u(i,j+1) - u(i,j)) * XG%idy(i,j) + (v(i+1,j) - v(i,j)) * XG%idx(i,j))
+            if (UVG%mask(i,j) /= 0) then
+               flux(i,j) = Am0 * UVG%dx(i,j) * huv(i,j) * ((u(i,j+1) - u(i,j)) * UVG%idy(i,j) + (v(i+1,j) - v(i,j)) * UVG%idx(i,j))
             end if
          end do
       end do
@@ -363,41 +369,41 @@ contains
       end do
    
       ! Central for dx(Am*(dy(U/DU)+dx(V/DV)))
-      do j=XG%jmin,XG%jmax
-         do i=XG%imin,XG%imax ! work2d defined on X-points
+      do j=VUG%jmin,VUG%jmax
+         do i=VUG%imin-1,VUG%imax ! work2d defined on X-points
             flux(i,j)=0._real64
-            if (XG%mask(i,j) > 0) then
-               flux(i,j) = Am0 * XG%dy(i,j) * hx(i,j) * ((u(i,j+1) - u(i,j)) * XG%idy(i,j) + (v(i+1,j) - v(i,j)) * XG%idx(i,j))
+            if (VUG%mask(i,j) /= 0) then
+               flux(i,j) = Am0 * VUG%dy(i,j) * hvu(i,j) * ((u(i,j+1) - u(i,j)) * VUG%idy(i,j) + (v(i+1,j) - v(i,j)) * VUG%idx(i,j))
             end if
          end do
       end do
       do j=VG%jmin,VG%jmax ! diffv defined on V-points
          do i=VG%imin,VG%imax ! diffv defined on V-points
             diffv(i,j)=0._real64
-            if (VG%mask(i,j) == 1 .or. VG%mask(i,j) == 2) then
+            if (VG%mask(i,j) == 1) then
                diffv(i,j) = (flux(i,j) - flux(i-1,j)) * VG%iarea(i,j)
             end if
          end do
       end do
    
       ! Central for dy(2*Am*dy(V/DV))
-      do j=TG%jmin,TG%jmax+1 ! work2d defined on T-points
-         do i=TG%imin,TG%imax
+      do j=VVG%jmin-1,VVG%jmax ! work2d defined on T-points
+         do i=VVG%imin,VVG%imax
             flux(i,j)=0._real64
-            if (TG%mask(i,j) == 1) then
-               flux(i,j) = 2._real64 * Am0 * TG%dx(i,j) * h(i,j) * (v(i,j) - v(i,j-1)) * TG%idy(i,j)
+            if (VVG%mask(i,j) /= 0) then
+               flux(i,j) = 2._real64 * Am0 * VVG%dx(i,j) * hvv(i,j) * (v(i,j+1) - v(i,j)) * VVG%idy(i,j)
             end if
          end do
       end do
       do j=VG%jmin,VG%jmax ! diffv defined on V-points
          do i=VG%imin,VG%imax
-            if (VG%mask(i,j) == 1 .or. VG%mask(i,j) == 2) then
-               diffv(i,j) = diffv(i,j) + (flux(i,j+1) - flux(i,j)) * VG%iarea(i,j)
+            if (VG%mask(i,j) == 1) then
+               diffv(i,j) = diffv(i,j) + (flux(i,j) - flux(i,j-1)) * VG%iarea(i,j)
             end if
          end do
       end do
    
-   end subroutine diffusion_driver
+   end subroutine horizontal_momentum_diffusion
 
    subroutine c_thickness2center_depth(nx, ny, nz, istart, istop, jstart, jstop, mask, h, out) bind(c)
       integer(c_int), intent(in), value :: nx, ny, nz, istart, istop, jstart, jstop

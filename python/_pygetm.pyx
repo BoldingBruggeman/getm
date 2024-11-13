@@ -40,7 +40,7 @@ cdef extern void* vertical_diffusion_create(void* tgrid) nogil
 cdef extern void vertical_diffusion_finalize(void* diffusion) nogil
 cdef extern void c_vertical_diffusion_prepare(void* diffusion, int nx, int ny, int nz, double molecular, double* pnuh, double timestep, double cnpar, int* pmask, double* pho, double* phn) nogil
 cdef extern void c_vertical_diffusion_apply(void* diffusion, int nx, int ny, int nz, int* pmask, double* pho, double* phn, double* pvar, double* pea2, double* pea4) nogil
-cdef extern void c_momentum_diffusion(void* tgrid, void* ugrid, void* vgrid, void* xgrid, int nk, double* h, double* hx, double* u, double* v, double Am0, double* diffu, double* diffv) nogil
+cdef extern void c_momentum_diffusion(void* ugrid, void* vgrid, void* uugrid, void* uvgrid, void* vugrid, void* vvgrid, int nk, const double* huu, const double* huv, const double* hvu, const double* hvv, const double* u, const double* v, double Am0, double* diffu, double* diffv) nogil
 cdef extern void c_exponential_profile_1band_interfaces(int nx, int ny, int nz, int istart, int istop, int jstart, int jstop, int* mask, double* h, double* k, double* initial, int up, double* out) nogil
 cdef extern void c_exponential_profile_1band_centers(int nx, int ny, int nz, int istart, int istop, int jstart, int jstop, int* mask, double* h, double* k, double* top, double* out) nogil
 cdef extern void c_thickness2center_depth(int nx, int ny, int nz, int istart, int istop, int jstart, int jstop, int* mask, double* h, double* out) nogil
@@ -313,13 +313,15 @@ cdef class VerticalDiffusion:
         cdef Array ho = var.grid.ho if use_ho else hn
         c_vertical_diffusion_apply(self.p, var.grid.nx_, var.grid.ny_, var.grid.nz_, <int *>mask.p, <double *>ho.p, <double *>hn.p, <double *>var.p, pea2, pea4)
 
-def momentum_diffusion(Array h not None, Array hx not None, Array u not None, Array v not None, double Am0, Array diffu not None, Array diffv not None):
-    assert u.grid is h.grid.ugrid
-    assert v.grid is h.grid.vgrid
+def momentum_diffusion(Array huu not None, Array huv not None, Array hvu not None, Array hvv not None, Array u not None, Array v not None, double Am0, Array diffu not None, Array diffv not None):
+    assert huu.grid is u.grid.ugrid
+    assert huv.grid is u.grid.vgrid
+    assert hvu.grid is v.grid.ugrid
+    assert hvv.grid is v.grid.vgrid
     assert diffu.grid is u.grid
     assert diffv.grid is v.grid
-    cdef int nk = <int>h._array.shape[0] if h.z else 1
-    c_momentum_diffusion(h.grid.p, u.grid.p, v.grid.p, hx.grid.p, nk, <double*> h.p, <double*> hx.p, <double*> u.p, <double*> v.p, Am0, <double*> diffu.p, <double*> diffv.p)
+    cdef int nk = <int>u._array.shape[0] if u.z else 1
+    c_momentum_diffusion(u.grid.p, v.grid.p, huu.grid.p, huv.grid.p, hvu.grid.p, hvv.grid.p, nk, <double*> huu.p, <double*> huv.p, <double*> hvu.p, <double*> hvv.p, <double*> u.p, <double*> v.p, Am0, <double*> diffu.p, <double*> diffv.p)
 
 def exponential_profile_1band_interfaces(Array mask not None, Array h not None, Array k not None, Array initial not None, bint up=False, Array out=None):
     assert mask.grid is h.grid and h.z == CENTERS

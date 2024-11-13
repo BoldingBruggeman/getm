@@ -875,8 +875,10 @@ class Momentum:
             # 1/2 a timestep behind the T grid (already the case for X, but for T we
             # use 1/2(ho+hn))
             pygetm._pygetm.momentum_diffusion(
-                self.domain.h_T_half,
-                self.domain.X.hn,
+                self.uua.grid.hn,
+                self.uva.grid.hn,
+                self.vua.grid.hn,
+                self.vva.grid.hn,
                 self.uk,
                 self.vk,
                 self._Am_const,
@@ -959,8 +961,10 @@ class Momentum:
             # up to date. Water depths should be in sync with velocities, which means
             # they should lag 1/2 a timestep behind the tracer/T grid
             pygetm._pygetm.momentum_diffusion(
-                self.domain.D_T_half,
-                self.domain.X.D,
+                self.uua.grid.D,
+                self.uva.grid.D,
+                self.vua.grid.D,
+                self.vva.grid.D,
                 self.u1,
                 self.v1,
                 self._Am_const,
