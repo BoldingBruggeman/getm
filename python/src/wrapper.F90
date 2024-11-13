@@ -313,7 +313,8 @@ contains
       call c_f_pointer(pdiffu, diffu, (/UG%u(1) - UG%l(1) + 1, UG%u(2) - UG%l(2) + 1, nk/))
       call c_f_pointer(pdiffv, diffv, (/VG%u(1) - VG%l(1) + 1, VG%u(2) - VG%l(2) + 1, nk/))
       do k = 1, nk
-         call horizontal_momentum_diffusion(UG, VG, UUG, UVG, VUG, VVG, huu(:,:,k), huv(:,:,k), hvu(:,:,k), hvv(:,:,k), u(:,:,k), v(:,:,k), Am0, diffu(:,:,k), diffv(:,:,k))
+         call horizontal_momentum_diffusion(UG, VG, UUG, UVG, VUG, VVG, huu(:,:,k), huv(:,:,k), hvu(:,:,k), hvv(:,:,k), &
+            u(:,:,k), v(:,:,k), Am0, diffu(:,:,k), diffv(:,:,k))
       end do
    end subroutine
 
