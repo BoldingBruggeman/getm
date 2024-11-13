@@ -690,7 +690,7 @@ class Domain:
         if velocity_grids > 0:
             U = create_grid("u", 2, 1, ugrid=UU, vgrid=UV)
             V = create_grid("v", 1, 2, ugrid=VU, vgrid=VV)
-            X = create_grid("x", 0, 0, overlap=1)
+            X = create_grid("x", 0, 0, overlap=1, istart=0, jstart=0)
 
         T = create_grid("t", 1, 1, ugrid=U, vgrid=V, xgrid=X)
         T.rivers = self.rivers

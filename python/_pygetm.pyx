@@ -163,11 +163,13 @@ cdef class Grid:
     cdef readonly int nx_, ny_, nz_
     cdef readonly int halox, haloy
 
-    def __init__(self, int nx, int ny, int nz, int halox, int haloy):
+    def __init__(self, int nx, int ny, int nz, int halox, int haloy, int istart, int jstart):
         self.nx, self.ny, self.nz = nx, ny, nz
         self.halox, self.haloy = halox, haloy
         self.nx_, self.ny_, self.nz_ = self.nx + 2 * halox, self.ny + 2 * haloy, self.nz
-        self.p = create_grid(1, self.nx, 1, self.ny, 1, self.nz, halox, haloy)
+        istop = 1 + self.nx - istart
+        jstop = 1 + self.ny - jstart
+        self.p = create_grid(istart, istop, jstart, jstop, 1, self.nz, halox, haloy)
 
     def __dealloc__(self):
         grid_finalize(self.p)

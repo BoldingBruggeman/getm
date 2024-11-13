@@ -187,10 +187,12 @@ class Grid(_pygetm.Grid):
         ioffset: int = 1,
         joffset: int = 1,
         overlap: int = 0,
+        istart: int = 1,
+        jstart: int = 1,
         fields: Optional[Mapping[str, "Array"]] = None,
         tiling: Optional[parallel.Tiling] = None,
     ):
-        super().__init__(nx, ny, nz, halox, haloy)
+        super().__init__(nx, ny, nz, halox, haloy, istart, jstart)
         self.postfix = postfix
         self.ioffset = ioffset
         self.joffset = joffset
