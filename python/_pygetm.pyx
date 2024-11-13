@@ -167,8 +167,8 @@ cdef class Grid:
         self.nx, self.ny, self.nz = nx, ny, nz
         self.halox, self.haloy = halox, haloy
         self.nx_, self.ny_, self.nz_ = self.nx + 2 * halox, self.ny + 2 * haloy, self.nz
-        istop = 1 + self.nx - istart
-        jstop = 1 + self.ny - jstart
+        istop = istart + self.nx - 1
+        jstop = jstart + self.ny - 1
         self.p = create_grid(istart, istop, jstart, jstop, 1, self.nz, halox, haloy)
 
     def __dealloc__(self):
