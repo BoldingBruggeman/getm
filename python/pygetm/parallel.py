@@ -43,6 +43,12 @@ def get_logger(level=logging.INFO, comm=MPI.COMM_WORLD) -> logging.Logger:
     return logger
 
 
+def attach_communicator(obj: object, comm: Optional[MPI.Comm] = None) -> MPI.Comm:
+    comm = (comm or MPI.COMM_WORLD).Dup()
+    weakref.finalize(obj, comm.Free)
+    return comm
+
+
 class Tiling:
     @staticmethod
     def autodetect(
@@ -125,10 +131,7 @@ class Tiling:
         periodic_y: bool = False,
         ncpus: Optional[int] = None,
     ):
-        if comm is None:
-            comm = MPI.COMM_WORLD.Dup()
-            weakref.finalize(self, comm.Free)
-        self.comm = comm
+        self.comm = attach_communicator(self, comm)
         self.rank: int = self.comm.rank
         self.n = ncpus if ncpus is not None else self.comm.size
 

@@ -408,7 +408,7 @@ class Domain:
         f: Optional[np.ndarray] = None,
         periodic_x: bool = False,
         periodic_y: bool = False,
-        comm: parallel.MPI.Comm = parallel.MPI.COMM_WORLD,
+        comm: Optional[parallel.MPI.Comm] = None,
         logger: Optional[logging.Logger] = None,
     ):
         """Create new domain.
@@ -456,7 +456,7 @@ class Domain:
         self.ny = ny
         self.periodic_x = periodic_x
         self.periodic_y = periodic_y
-        self.comm = comm
+        self.comm = parallel.attach_communicator(self, comm)
         self.coordinate_type = coordinate_type
         self.root_logger = logger or parallel.get_logger()
         self.logger = self.root_logger.getChild("domain")
@@ -470,7 +470,7 @@ class Domain:
         self.default_output_transforms = []
         self.input_grid_mappers = []
 
-        if comm.rank != 0:
+        if self.comm.rank != 0:
             return
 
         self._x = self._map_array(x, edges=EdgeTreatment.EXTRAPOLATE)
