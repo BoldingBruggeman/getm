@@ -249,6 +249,31 @@ class TestDomain(unittest.TestCase):
         self.assertTrue((T.vgrid.ugrid.mask.values == 1).all())
         self.assertTrue((T.vgrid.vgrid.mask.values == 1).all())
 
+    def test_rivers(self):
+        nx, ny = 100, 52
+        lon = np.linspace(0.0, 10.0, nx)
+        lat = np.linspace(0.0, 5.0, ny)
+        logger = logging.getLogger()
+        logger.setLevel("ERROR")
+        domain = pygetm.domain.create_spherical(lon, lat, H=10.0, logger=logger)
+        self.assertEqual(
+            domain.rivers.default_coordinate_type, pygetm.CoordinateType.LONLAT
+        )
+        domain.rivers.add_by_location("foo", 2.0, 3.0)
+        domain.create_grids(10, halox=2, haloy=2)
+
+        nx, ny = 100, 52
+        x = np.linspace(0.0, 1e5, nx)
+        y = np.linspace(0.0, 2e5, ny)
+        logger = logging.getLogger()
+        logger.setLevel("ERROR")
+        domain = pygetm.domain.create_cartesian(x, y, H=10.0, lat=0.0, logger=logger)
+        self.assertEqual(
+            domain.rivers.default_coordinate_type, pygetm.CoordinateType.XY
+        )
+        domain.rivers.add_by_location("foo", 25000.0, 34000.0)
+        domain.create_grids(10, halox=2, haloy=2)
+
 
 if __name__ == "__main__":
     unittest.main()

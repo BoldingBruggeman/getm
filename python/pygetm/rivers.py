@@ -96,7 +96,7 @@ class River:
 
         # Location is specified by x, y coordinate.
         # Look up nearest unmasked grid cell.
-        dist = (allx - self.x) ** 2 + (ally - y) ** 2
+        dist = (allx - self.x) ** 2 + (ally - self.y) ** 2
         dist[mask != 1] = np.inf
         idx = np.nanargmin(dist)
         self.j_glob, self.i_glob = np.unravel_index(idx, dist.shape)

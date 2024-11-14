@@ -268,7 +268,9 @@ def create_spherical(
         nx, ny = lon.shape[-1] - 1, lat.shape[0] - 1
     else:
         nx, ny = lon.shape[-1], lat.shape[0]
-    return Domain(nx, ny, lon=lon, lat=lat, **kwargs)
+    return Domain(
+        nx, ny, lon=lon, lat=lat, coordinate_type=CoordinateType.LONLAT, **kwargs
+    )
 
 
 def create_spherical_at_resolution(
@@ -721,6 +723,7 @@ class Domain:
         T.z.open_boundaries = open_boundaries.ArrayOpenBoundaries(T.z)
         self.open_boundaries.z = T.z.open_boundaries.values
 
+        self._map_rivers()
         self.rivers.initialize(T)
 
         return T
@@ -972,6 +975,13 @@ class Domain:
             )
         return Domain(self.ny, self.nx, **kwargs)
 
+    def _map_rivers(self):
+        x_ = None if self._x is None else self._x[1::2, 1::2]
+        y_ = None if self._y is None else self._y[1::2, 1::2]
+        lon_ = None if self._lon is None else self._lon[1::2, 1::2]
+        lat_ = None if self._lat is None else self._lat[1::2, 1::2]
+        self.rivers.map_to_grid(self._mask[1::2, 1::2], x_, y_, lon_, lat_)
+
     def plot(
         self,
         field: Optional[np.ndarray] = None,
@@ -1066,11 +1076,7 @@ class Domain:
             cb.set_label(label)
 
         if show_rivers and self.rivers:
-            x_ = None if self._x is None else self._x[1::2, 1::2]
-            y_ = None if self._y is None else self._y[1::2, 1::2]
-            lon_ = None if self._lon is None else self._lon[1::2, 1::2]
-            lat_ = None if self._lat is None else self._lat[1::2, 1::2]
-            self.rivers.map_to_grid(self._mask[1::2, 1::2], x_, y_, lon_, lat_)
+            self._map_rivers()
             for river in self.rivers.values():
                 i_sup, j_sup = 1 + river.i_glob * 2, 1 + river.j_glob * 2
                 river_x, river_y = x[j_sup, i_sup], y[j_sup, i_sup]
