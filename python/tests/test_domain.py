@@ -31,22 +31,24 @@ class TestDomain(unittest.TestCase):
                     )
 
     def _create_netcdf(self, file: str, nx: int, ny: int):
-        with netCDF4.Dataset(file, "w") as nc:
-            nc.createDimension("x", nx)
-            nc.createDimension("y", ny)
-            nc.createVariable("lon", "f4", ("x",))
-            nc.createVariable("lat", "f4", ("y",))
-            nc.createVariable("x", "f4", ("x",))
-            nc.createVariable("y", "f4", ("y",))
+        if pygetm.parallel.MPI.COMM_WORLD.rank == 0:
+            with netCDF4.Dataset(file, "w") as nc:
+                nc.createDimension("x", nx)
+                nc.createDimension("y", ny)
+                nc.createVariable("lon", "f4", ("x",))
+                nc.createVariable("lat", "f4", ("y",))
+                nc.createVariable("x", "f4", ("x",))
+                nc.createVariable("y", "f4", ("y",))
 
-            nc.createDimension("xi", nx + 1)
-            nc.createDimension("yi", ny + 1)
-            nc.createVariable("loni", "f4", ("xi",))
-            nc.createVariable("lati", "f4", ("yi",))
-            nc.createVariable("xi", "f4", ("xi",))
-            nc.createVariable("yi", "f4", ("yi",))
+                nc.createDimension("xi", nx + 1)
+                nc.createDimension("yi", ny + 1)
+                nc.createVariable("loni", "f4", ("xi",))
+                nc.createVariable("lati", "f4", ("yi",))
+                nc.createVariable("xi", "f4", ("xi",))
+                nc.createVariable("yi", "f4", ("yi",))
 
-            nc.createVariable("H", "f4", ("y", "x"))
+                nc.createVariable("H", "f4", ("y", "x"))
+        pygetm.parallel.MPI.COMM_WORLD.barrier()
 
     def _check(self, arr, shape: Tuple[int], dtype=float):
         self.assertEqual(type(arr), np.ndarray)
@@ -180,6 +182,9 @@ class TestDomain(unittest.TestCase):
         logger = logging.getLogger()
         logger.setLevel("ERROR")
         domain = pygetm.domain.create_cartesian(x, y, H=10.0, lat=0.0, logger=logger)
+
+        if pygetm.parallel.MPI.COMM_WORLD.size > 1:
+            return
 
         self.assertTrue((domain.H == 10.0).all())
         self.assertTrue((domain.mask == 1).all())

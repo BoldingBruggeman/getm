@@ -643,6 +643,9 @@ class Domain:
             self.infer_UVX_masks2()
             self.open_boundaries.adjust_mask(self._mask)
 
+            # Map river coordinates to global grid indices
+            self._map_rivers()
+
         if tiling is None:
             tiling = self.create_tiling()
         elif tiling.nx_glob is None:
@@ -719,11 +722,10 @@ class Domain:
             if grid is not None:
                 grid.freeze()
 
-        self.open_boundaries.initialize(T, tiling)
+        self.open_boundaries.initialize(T)
         T.z.open_boundaries = open_boundaries.ArrayOpenBoundaries(T.z)
         self.open_boundaries.z = T.z.open_boundaries.values
 
-        self._map_rivers()
         self.rivers.initialize(T)
 
         return T

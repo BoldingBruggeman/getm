@@ -58,13 +58,13 @@ class OpenBoundary:
             f" {self.l_glob}, {self.mstart_glob}, {self.mstop_glob})"
         )
 
-    def to_local_grid(self, grid: core.Grid, tiling: parallel.Tiling):
+    def to_local_grid(self, grid: core.Grid):
         # NB below we convert to indices in the T grid of the current subdomain
         # INCLUDING halos
         # We also limit the indices to the range valid for the current subdomain.
         side = self.side
-        xoffset = tiling.xoffset - grid.halox
-        yoffset = tiling.yoffset - grid.haloy
+        xoffset = grid.tiling.xoffset - grid.halox
+        yoffset = grid.tiling.yoffset - grid.haloy
         if side in (Side.WEST, Side.EAST):
             l_offset, m_offset, l_max, m_max = (xoffset, yoffset, grid.nx_, grid.ny_)
         else:
@@ -512,7 +512,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         umask[:, :-1][(tmask[:, :-1] == 2) & (tmask[:, 1:] == 2)] = 3
         vmask[:-1, :][(tmask[:-1, :] == 2) & (tmask[1:, :] == 2)] = 3
 
-    def initialize(self, grid: core.Grid, tiling: parallel.Tiling):
+    def initialize(self, grid: core.Grid):
         """Freeze the open boundary collection. Drop those outside the current
         subdomain.
         """
@@ -521,7 +521,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         ), "The open boundary collection has already been initialized"
 
         for boundary in self._boundaries:
-            boundary.to_local_grid(grid, tiling)
+            boundary.to_local_grid(grid)
 
         nbdyp = 0
         nbdyp_glob = 0
@@ -584,8 +584,8 @@ class OpenBoundaries(Sequence[OpenBoundary]):
 
         # Global indices of open boundary points within local subdomain
         # (T grid, for arrays that EXclude halos)
-        self.i_glob = self.i - grid.halox + tiling.xoffset
-        self.j_glob = self.j - grid.haloy + tiling.yoffset
+        self.i_glob = self.i - grid.halox + grid.tiling.xoffset
+        self.j_glob = self.j - grid.haloy + grid.tiling.yoffset
 
         self.logger.info(
             f"{sum(side2count.values())} open boundaries"

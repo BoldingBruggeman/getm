@@ -221,7 +221,7 @@ class Rivers(Mapping[str, River]):
         for river in self._rivers:
             river.locate(mask, x, y, lon, lat)
 
-    def broadcast_locations(self, comm: parallel.MPI.Comm):
+    def _broadcast_locations(self, comm: parallel.MPI.Comm):
         """Broadcast global river locations (i,j) to all non-root MPI nodes."""
         for river in self._rivers:
             ind = (river.i_glob, river.j_glob) if comm.rank == 0 else None
@@ -233,6 +233,8 @@ class Rivers(Mapping[str, River]):
         """
         assert not self._frozen, "The river collection has already been initialized"
         self._frozen = True
+
+        self._broadcast_locations(grid.tiling.comm)
 
         # Keep only rivers that fall within the local subdomain
         self._rivers = [
