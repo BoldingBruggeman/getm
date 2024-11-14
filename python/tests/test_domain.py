@@ -221,6 +221,8 @@ class TestDomain(unittest.TestCase):
 
         for grid in (T, T.ugrid, T.vgrid, T.xgrid):
             self.assertTrue((grid._water == ~grid._land).all())
+
+            # NB the land values of H and z0b_min are set to FILL_VALUE by Grid.freeze
             self.assertTrue((grid.H.all_values[grid._water] == 10).all())
             self.assertTrue((grid.H.all_values[grid._land] == FILL_VALUE).all())
             self.assertTrue((grid.H.all_values[grid._land] == FILL_VALUE).all())
@@ -228,6 +230,24 @@ class TestDomain(unittest.TestCase):
             self.assertTrue((grid.z0b_min.all_values[grid._water] == 0).all())
             self.assertTrue((grid.z0b_min.all_values[grid._land] == FILL_VALUE).all())
             self.assertTrue((grid.z0b_min.all_values[grid._land] == FILL_VALUE).all())
+
+        domain = pygetm.domain.create_cartesian(
+            x, y, H=10.0, lat=0.0, logger=logger, periodic_x=True, periodic_y=True
+        )
+        self.assertTrue((domain.H == 10.0).all())
+        self.assertTrue((domain.mask == 1).all())
+        domain.infer_UVX_masks2()
+        self.assertTrue((domain.mask == 1).all())
+
+        T = domain.create_grids(1, halox=HALO, haloy=HALO, velocity_grids=2)
+        self.assertTrue((T.mask.values == 1).all())
+        self.assertTrue((T.ugrid.mask.values == 1).all())
+        self.assertTrue((T.vgrid.mask.values == 1).all())
+        self.assertTrue((T.xgrid.mask.values == 1).all())
+        self.assertTrue((T.ugrid.ugrid.mask.values == 1).all())
+        self.assertTrue((T.ugrid.vgrid.mask.values == 1).all())
+        self.assertTrue((T.vgrid.ugrid.mask.values == 1).all())
+        self.assertTrue((T.vgrid.vgrid.mask.values == 1).all())
 
 
 if __name__ == "__main__":
