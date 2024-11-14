@@ -345,6 +345,10 @@ class Grid(_pygetm.Grid):
         ip = self._interpolators.get(target)
         if ip:
             return ip
+
+        def _assign(x, y, xslice, yslice):
+            y[yslice] = x[xslice]
+
         # assert self.domain is target.domain
         if self.ioffset == target.ioffset + 1 and self.joffset == target.joffset:
             # from U to T
@@ -370,6 +374,22 @@ class Grid(_pygetm.Grid):
         elif self.ioffset == target.ioffset + 1 and self.joffset == target.joffset - 1:
             # from U to V (i=0 and j=-1 undefined)
             ip = functools.partial(_pygetm.interp_xy, ioffset=1, joffset=0)
+        elif self.ioffset == target.ioffset - 2 and self.joffset == target.joffset:
+            # from T to UU (no interpolation, just copy slice)
+            assert self.nx == target.nx and self.ny == target.ny
+            ip = functools.partial(
+                _assign,
+                xslice=(Ellipsis, slice(1, None)),
+                yslice=(Ellipsis, slice(0, -1)),
+            )
+        elif self.ioffset == target.ioffset and self.joffset == target.joffset - 2:
+            # from T to VV (no interpolation, just copy slice)
+            assert self.nx == target.nx and self.ny == target.ny
+            ip = functools.partial(
+                _assign,
+                xslice=(Ellipsis, slice(1, None), slice(None)),
+                yslice=(Ellipsis, slice(0, -1), slice(None)),
+            )
         else:
             raise NotImplementedError(
                 f"Cannot interpolate from grid type {self.postfix} "

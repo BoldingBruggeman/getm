@@ -539,16 +539,10 @@ class Momentum:
                 "Horizontal diffusivity An used for numerical damping ranges between"
                 f" {self.An.ma.min()} and {self.An.ma.max()} m2 s-1"
             )
-            self.An_uu = self.uua.grid.array(fill=np.nan)
-            self.An_uv = self.uva.grid.array(fill=np.nan)
-            self.An_vu = self.vua.grid.array(fill=np.nan)
-            self.An_vv = self.vva.grid.array(fill=np.nan)
-            An_x = self.An.interp(self.ww.grid.xgrid)
-            self.An_uu.all_values[:, :-1] = self.An.all_values[:, 1:]
-            self.An_vv.all_values[:-1, :] = self.An.all_values[1:, :]
-            self.An_uv.all_values[:, :] = self.An_vu.all_values[:, :] = An_x.all_values[
-                1:, 1:
-            ]
+            self.An_uu = self.An.interp(self.uua.grid.array(fill=np.nan))
+            self.An_uv = self.An.interp(self.uva.grid.array(fill=np.nan))
+            self.An_vu = self.An.interp(self.vua.grid.array(fill=np.nan))
+            self.An_vv = self.An.interp(self.vva.grid.array(fill=np.nan))
 
     def advance_depth_integrated(
         self,

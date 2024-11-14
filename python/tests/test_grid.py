@@ -46,6 +46,31 @@ class TestGrid(unittest.TestCase):
                     np.abs(x.all_values[..., 1:-1, 1:-1] - x_control).max(), TOLERANCE
                 )
 
+                # From T to UU
+                uu = t.interp(T.ugrid.ugrid)
+                self.assertTrue(
+                    np.abs(uu.all_values[..., :-1] == t.all_values[..., 1:]).all()
+                )
+
+                # From T to VV
+                vv = t.interp(T.vgrid.vgrid)
+                self.assertTrue(
+                    np.abs(vv.all_values[..., :-1, :] == t.all_values[..., 1:, :]).all()
+                )
+
+                # From T to UV
+                uv = t.interp(T.ugrid.vgrid)
+                uv_control = x_control
+                self.assertLess(
+                    np.abs(uv.all_values[..., :-1, :-1] - uv_control).max(), TOLERANCE
+                )
+
+                # From T to VU
+                vu = t.interp(T.vgrid.ugrid)
+                self.assertTrue(
+                    (uv.all_values[..., :-1, :-1] == vu.all_values[..., :-1, :-1]).all()
+                )
+
                 # Random initialization of X
                 x.all_values[...] = np.random.random(x.all_values.shape)
 
