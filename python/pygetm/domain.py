@@ -456,7 +456,7 @@ class Domain:
         self.ny = ny
         self.periodic_x = periodic_x
         self.periodic_y = periodic_y
-        self.comm = parallel.attach_communicator(self, comm)
+        self.comm = comm or parallel.mpi4py_autofree(parallel.MPI.COMM_WORLD.Dup())
         self.coordinate_type = coordinate_type
         self.root_logger = logger or parallel.get_logger()
         self.logger = self.root_logger.getChild("domain")
@@ -1079,7 +1079,7 @@ class Domain:
 
         if show_rivers and self.rivers:
             self._map_rivers()
-            for river in self.rivers.values():
+            for river in self.rivers.global_rivers:
                 i_sup, j_sup = 1 + river.i_glob * 2, 1 + river.j_glob * 2
                 river_x, river_y = x[j_sup, i_sup], y[j_sup, i_sup]
                 ax.plot([river_x], [river_y], ".r")
@@ -1112,6 +1112,38 @@ class Domain:
                 if j >= 0 and j < x.shape[-2]:
                     ax.plot(x[j, :], y[j, :], "-k", linewidth=2.0)
                     ax.plot(x[j, :], y[j, :], "--w", linewidth=2.0)
+
+            # Rank of each subdomain (cross for subdomains that are not used, e.g. land)
+            for irow in range(tiling.nrow):
+                for icol in range(tiling.ncol):
+                    imin = 2 * (tiling.xoffset_global + icol * tiling.nx_sub)
+                    imax = imin + 2 * tiling.nx_sub
+                    jmin = 2 * (tiling.yoffset_global + irow * tiling.ny_sub)
+                    jmax = jmin + 2 * tiling.ny_sub
+                    imin, imax = max(0, imin), min(x.shape[-1] - 1, imax)
+                    jmin, jmax = max(0, jmin), min(x.shape[-2] - 1, jmax)
+                    imid = (imin + imax) // 2
+                    jmid = (jmin + jmax) // 2
+                    rank = tiling.map[irow, icol]
+                    if rank >= 0:
+                        ax.text(
+                            x[jmid, imid],
+                            y[jmid, imid],
+                            str(rank),
+                            horizontalalignment="center",
+                            verticalalignment="center",
+                        )
+                    else:
+                        ax.plot(
+                            [x[jmin, imin], x[jmax, imax]],
+                            [y[jmin, imin], y[jmax, imax]],
+                            "-k",
+                        )
+                        ax.plot(
+                            [x[jmin, imax], x[jmax, imin]],
+                            [y[jmin, imax], y[jmax, imin]],
+                            "-k",
+                        )
 
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)

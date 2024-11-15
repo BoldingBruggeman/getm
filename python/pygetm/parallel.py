@@ -43,18 +43,26 @@ def get_logger(level=logging.INFO, comm=MPI.COMM_WORLD) -> logging.Logger:
     return logger
 
 
-def attach_communicator(obj: object, comm: Optional[MPI.Comm] = None) -> MPI.Comm:
-    comm = (comm or MPI.COMM_WORLD).Dup()
-    weakref.finalize(obj, comm.Free)
-    return comm
+def mpi4py_autofree(obj):
+    # Ensure underlying MPI memory is freed when obj is garbage-collected
+    # https://github.com/mpi4py/mpi4py/issues/32
+    def callfree(fromhandle, handle):
+        obj = fromhandle(handle)
+        if obj:
+            obj.Free()
+
+    weakref.finalize(obj, callfree, obj.f2py, obj.py2f())
+    return obj
 
 
 class Tiling:
     @staticmethod
     def autodetect(
         mask: ArrayLike,
+        *,
         ncpus: Optional[int] = None,
         logger: Optional[logging.Logger] = None,
+        comm: Optional[MPI.Comm] = None,
         max_protrude: float = 0.5,
         **kwargs,
     ) -> "Tiling":
@@ -71,7 +79,7 @@ class Tiling:
         """
 
         solution = find_optimal_divison(
-            mask, ncpus, max_protrude=max_protrude, logger=logger
+            mask, ncpus=ncpus, comm=comm, max_protrude=max_protrude, logger=logger
         )
         if not solution:
             raise Exception("No suitable subdomain decompositon found")
@@ -82,7 +90,7 @@ class Tiling:
             if count > 0:
                 rank_map[irow, icol] = rank
                 rank += 1
-        tiling = Tiling(map=rank_map, ncpus=solution["ncpus"], **kwargs)
+        tiling = Tiling(map=rank_map, ncpus=solution["ncpus"], comm=comm, **kwargs)
         tiling.set_extent(
             mask.shape[1],
             mask.shape[0],
@@ -131,7 +139,7 @@ class Tiling:
         periodic_y: bool = False,
         ncpus: Optional[int] = None,
     ):
-        self.comm = attach_communicator(self, comm)
+        self.comm = comm or mpi4py_autofree(MPI.COMM_WORLD.Dup())
         self.rank: int = self.comm.rank
         self.n = ncpus if ncpus is not None else self.comm.size
 
@@ -592,8 +600,13 @@ class DistributedArray:
                         np.empty_like(outer),
                     )
                 owncaches.append((inner_cache, outer_cache))
-                send_req = tiling.comm.Send_init(inner_cache, neighbor, sendtag)
-                recv_req = tiling.comm.Recv_init(outer_cache, neighbor, recvtag)
+                send_req = mpi4py_autofree(
+                    tiling.comm.Send_init(inner_cache, neighbor, sendtag)
+                )
+                recv_req = mpi4py_autofree(
+                    tiling.comm.Recv_init(outer_cache, neighbor, recvtag)
+                )
+
                 self.halo2name[id(outer)] = name
                 for group in [Neighbor.ALL, sendtag] + [
                     group for (group, parts) in GROUP2PARTS.items() if sendtag in parts
@@ -832,6 +845,7 @@ class Scatter:
 
 def find_optimal_divison(
     mask: ArrayLike,
+    *,
     ncpus: Optional[int] = None,
     max_aspect_ratio: int = 2,
     weight_unmasked: int = 2,
@@ -842,7 +856,7 @@ def find_optimal_divison(
     comm: Optional[MPI.Comm] = None,
 ) -> Optional[Mapping[str, Any]]:
     if ncpus is None:
-        ncpus = MPI.COMM_WORLD.size
+        ncpus = (comm or MPI.COMM_WORLD).size
 
     # If we only have 1 CPU, just use the full domain
     if ncpus == 1:
@@ -856,9 +870,7 @@ def find_optimal_divison(
             "map": np.ones((1, 1), dtype=np.intc),
         }
 
-    own_comm = comm is None
-    if own_comm:
-        comm = MPI.COMM_WORLD.Dup()
+    comm = comm or mpi4py_autofree(MPI.COMM_WORLD.Dup())
 
     # Determine mask extent excluding any outer fully masked strips
     mask = np.asarray(mask)
@@ -919,8 +931,6 @@ def find_optimal_divison(
     solution = min(filter(None, solutions), key=lambda x: x["cost"], default=None)
     if logger and solution:
         logger.info(f"Optimal subdomain decomposition: {solution}")
-    if own_comm:
-        comm.Free()
     return solution
 
 
@@ -930,7 +940,7 @@ def find_all_optimal_divisons(
     if isinstance(max_ncpus, int):
         max_ncpus = np.arange(1, max_ncpus + 1)
     for ncpus in max_ncpus:
-        solution = find_optimal_divison(mask, ncpus, **kwargs)
+        solution = find_optimal_divison(mask, ncpus=ncpus, **kwargs)
         if solution:
             print(
                 (

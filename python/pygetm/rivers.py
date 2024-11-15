@@ -157,6 +157,7 @@ class Rivers(Mapping[str, River]):
         self.default_coordinate_type = default_coordinate_type
         self.logger = logger
         self._rivers: List[River] = []
+        self.global_rivers = self._rivers
         self._frozen = False
 
     def add_by_index(self, name: str, i: int, j: int, **kwargs):
