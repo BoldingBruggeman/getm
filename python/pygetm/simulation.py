@@ -506,6 +506,7 @@ class Simulation(BaseSimulation):
             tiling=self.tiling,
             input_manager=self.input_manager,
             velocity_grids=2,
+            t_postfix="t",
         )
 
         self.U = self.T.ugrid
