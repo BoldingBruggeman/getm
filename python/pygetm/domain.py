@@ -438,11 +438,14 @@ class Domain:
             raise Exception(f"Number of x points is {nx} but must be > 0")
         if ny <= 0:
             raise Exception(f"Number of y points is {ny} but must be > 0")
-        has_xy = x is not None and y is not None
-        has_lonlat = lon is not None and lat is not None
+
+        self.comm = comm or parallel.mpi4py_autofree(parallel.MPI.COMM_WORLD.Dup())
+        has_xy = self.comm.bcast(x is not None and y is not None)
+        has_lonlat = self.comm.bcast(lon is not None and lat is not None)
         if not (has_xy or has_lonlat):
-            raise Exception(f"Either x and y, or lon and lat, must be provided")
-        if lat is None and f is None:
+            raise Exception("Either x and y, or lon and lat, must be provided")
+        has_f = self.comm.bcast(f is not None or lat is not None)
+        if not has_f:
             raise Exception(
                 "Either lat of f must be provided to determine the Coriolis parameter."
             )
@@ -456,7 +459,6 @@ class Domain:
         self.ny = ny
         self.periodic_x = periodic_x
         self.periodic_y = periodic_y
-        self.comm = comm or parallel.mpi4py_autofree(parallel.MPI.COMM_WORLD.Dup())
         self.coordinate_type = coordinate_type
         self.root_logger = logger or parallel.get_logger()
         self.logger = self.root_logger.getChild("domain")
