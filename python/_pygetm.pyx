@@ -219,10 +219,12 @@ cdef class Advection:
         self.D = self.h[0,...]
 
         # Store references to column height and layer thicknesses
-        self.pDU = <double*>(<Array>self.ugrid.D).p
-        self.pDV = <double*>(<Array>self.vgrid.D).p
-        self.phu = <double*>(<Array>self.ugrid.hn).p
-        self.phv = <double*>(<Array>self.vgrid.hn).p
+        if self.ugrid is not None:
+            self.pDU = <double*>(<Array>self.ugrid.D).p
+            self.phu = <double*>(<Array>self.ugrid.hn).p
+        if self.vgrid is not None:
+            self.pDV = <double*>(<Array>self.vgrid.D).p
+            self.phv = <double*>(<Array>self.vgrid.hn).p
         self.ph = <double*>self.h.data
 
     def __dealloc__(self):
