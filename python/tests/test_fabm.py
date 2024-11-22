@@ -22,21 +22,19 @@ class TestFABM(unittest.TestCase):
         domain = pygetm.domain.create_cartesian(
             np.linspace(0, 100e3, 50),
             np.linspace(0, 100e3, 51),
-            30,
             H=50.0,
-            ddu=2.0,
             interfaces=True,
             f=0.0,
             logger=pygetm.parallel.get_logger(level="ERROR"),
         )
         sim = pygetm.Simulation(
             domain,
-            pygetm.BAROCLINIC,
             airsea=pygetm.airsea.Fluxes(),
             radiation=pygetm.radiation.Radiation(),
             fabm=pygetm.fabm.FABM(
                 fabm_yaml, bioshade_feedback=bioshade_feedback, repair=repair
             ),
+            vertical_coordinates=pygetm.vertical_coordinates.Sigma(30, ddu=2.0),
         )
         sim.start(START, TIMESTEP, SPLIT_FACTOR)
         if not bioshade_feedback:
@@ -97,9 +95,9 @@ class TestFABM(unittest.TestCase):
         }
         domain, sim = self.simulate(fabm_yaml)
         expected_total = (
-            domain.T.area.ma * ((domain.T.hn.ma * initial).sum(axis=0) + flux * DT)
+            sim.T.area.ma * ((sim.T.hn.ma * initial).sum(axis=0) + flux * DT)
         ).sum()
-        total = (domain.T.area.ma * domain.T.hn.ma * sim["tracer_c"].ma).sum()
+        total = (sim.T.area.ma * sim.T.hn.ma * sim["tracer_c"].ma).sum()
         self.assertLess(np.abs(total / expected_total - 1).max(), TOLERANCE)
 
     def test_bottom_flux(self):
@@ -117,9 +115,9 @@ class TestFABM(unittest.TestCase):
         }
         domain, sim = self.simulate(fabm_yaml)
         expected_total = (
-            domain.T.area.ma * ((domain.T.hn.ma * initial).sum(axis=0) + flux * DT)
+            sim.T.area.ma * ((sim.T.hn.ma * initial).sum(axis=0) + flux * DT)
         ).sum()
-        total = (domain.T.area.ma * domain.T.hn.ma * sim["tracer_c"].ma).sum()
+        total = (sim.T.area.ma * sim.T.hn.ma * sim["tracer_c"].ma).sum()
         self.assertLess(np.abs(total / expected_total - 1).max(), TOLERANCE)
 
     def test_bioshade_feedback(self):

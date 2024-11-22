@@ -67,34 +67,36 @@ class TestParallelAdvection(unittest.TestCase):
         scheme: pygetm.AdvectionScheme = pygetm.AdvectionScheme.DEFAULT,
     ):
         Lx, Ly = 100.0, 100.0
-        nx, ny, nlev = 612, 600, 1
+        nx, ny = 612, 600
 
         rank = tiling.rank
 
-        subdomain = pygetm.domain.create_cartesian(
+        domain = pygetm.domain.create_cartesian(
             np.linspace(-Lx / 2, Lx / 2, nx),
             np.linspace(-Ly / 2, Ly / 2, ny),
-            nlev,
             H=1,
             f=0.0,
-            tiling=tiling,
+            comm=tiling.comm,
             logger=pygetm.parallel.get_logger(level="ERROR"),
         )
 
-        if subdomain is None:
+        T = domain.create_grids(1, halox=2, haloy=2, velocity_grids=1, tiling=tiling)
+
+        if T is None:
             # unused rank
             return
 
-        halox = subdomain.halox
-        haloy = subdomain.haloy
-        subdomain.initialize(runtype=pygetm.BAROTROPIC_2D)
-        outman = pygetm.output.OutputManager(subdomain.fields, rank=rank)
+        halox = T.halox
+        haloy = T.haloy
+        outman = pygetm.output.OutputManager(T.fields, rank=rank)
 
-        f_glob = None
-        if subdomain.glob:
+        values_glob = None
+        if rank == 0:
             # Root rank: set up global domain and initial tracer field
-            f_glob = subdomain.glob.T.array(fill=0.0)
-            f_glob[int(0.2 * ny) : int(0.4 * ny), int(0.2 * nx) : int(0.4 * nx)] = 5.0
+            values_glob = np.zeros((ny, nx))
+            values_glob[
+                int(0.2 * ny) : int(0.4 * ny), int(0.2 * nx) : int(0.4 * nx)
+            ] = 5.0
 
         # Set up velocities
         period = 600
@@ -110,10 +112,10 @@ class TestParallelAdvection(unittest.TestCase):
         # Note that this only sets values in the interior of the domain.
         # Therefore, a halo exchange is needed to ensure u and v are also valid
         # in the innermost halo strip (needed for advection scheme)
-        u = -omega * subdomain.U.y
-        v = omega * subdomain.V.x
-        u[(2 * subdomain.U.x / Lx) ** 2 + (2 * subdomain.U.y / Ly) ** 2 >= 1] = 0.0
-        v[(2 * subdomain.V.x / Lx) ** 2 + (2 * subdomain.V.y / Ly) ** 2 >= 1] = 0.0
+        u = -omega * T.ugrid.y
+        v = omega * T.vgrid.x
+        u[(2 * T.ugrid.x / Lx) ** 2 + (2 * T.ugrid.y / Ly) ** 2 >= 1] = 0.0
+        v[(2 * T.vgrid.x / Lx) ** 2 + (2 * T.vgrid.y / Ly) ** 2 >= 1] = 0.0
         u.update_halos()
         v.update_halos()
 
@@ -122,32 +124,31 @@ class TestParallelAdvection(unittest.TestCase):
 
         # Set up tracer field for subdomain, wrap it for halo updates
         # and MPI-scatter it from root node
-        f = subdomain.T.array(fill=0.0, name="tracer")
-        f.scatter(f_glob)
+        f = T.array(fill=0.0, name="tracer")
+        pygetm.parallel.Scatter(tiling, f.all_values, halox=halox, haloy=haloy)(
+            values_glob
+        )
 
         # Gather and plot global velocities
-        u_glob = u.gather()
-        v_glob = v.gather()
-        if u_glob is not None and plot:
-            import matplotlib.pyplot
+        if plot:
+            u_glob = u.interp(T).gather()
+            v_glob = v.interp(T).gather()
+            if u_glob is not None:
+                import matplotlib.pyplot
 
-            fig, ax = matplotlib.pyplot.subplots()
-            u_destag, v_destag = (
-                u_glob.interp(u_glob.grid.domain.T),
-                v_glob.interp(u_glob.grid.domain.T),
-            )
-            ax.quiver(u_destag[::10, ::10], v_destag[::10, ::10], angles="xy")
-            fig.savefig("vel.png")
+                fig, ax = matplotlib.pyplot.subplots()
+                ax.quiver(u_glob[::10, ::10], v_glob[::10, ::10], angles="xy")
+                fig.savefig("vel.png")
 
         if debug:
             # Plot local velocities
             import matplotlib.pyplot
 
             fig, ax = matplotlib.pyplot.subplots()
-            u_destag, v_destag = u.interp(subdomain.T), v.interp(subdomain.T)
+            u_destag, v_destag = u.interp(T), v.interp(T)
             ax.quiver(
-                subdomain.T.x[::10, ::10],
-                subdomain.T.y[::10, ::10],
+                T.x[::10, ::10],
+                T.y[::10, ::10],
                 u_destag[::10, ::10],
                 v_destag[::10, ::10],
                 angles="xy",
@@ -156,13 +157,13 @@ class TestParallelAdvection(unittest.TestCase):
 
             # Set up figure for plotting tracer per subdomain
             fig_sub, ax_sub = matplotlib.pyplot.subplots()
-            pc_sub = ax_sub.pcolormesh(subdomain.T.xi, subdomain.T.yi, f)
+            pc_sub = ax_sub.pcolormesh(T.xgrid.x, T.xgrid.y, f)
             cb_sub = fig_sub.colorbar(pc_sub)
 
         # Set up figure for plotting global tracer field
-        if f_glob is not None and plot:
+        if values_glob is not None and plot:
             fig, ax = matplotlib.pyplot.subplots()
-            pc = ax.pcolormesh(f_glob.grid.domain.T.xi, f_glob.grid.domain.T.yi, f_glob)
+            pc = ax.pcolormesh(T.xgrid.x, T.xgrid.y, values_glob)
             cb = fig.colorbar(pc)
 
         if output:
@@ -170,7 +171,7 @@ class TestParallelAdvection(unittest.TestCase):
             ncf.request("tracer")
         outman.start()
 
-        advect = pygetm.operators.Advection(subdomain.T, scheme=scheme)
+        advect = pygetm.operators.Advection(T, scheme=scheme)
 
         if profile:
             prof = cProfile.Profile()
@@ -181,7 +182,7 @@ class TestParallelAdvection(unittest.TestCase):
         for i in range(Nmax):
             if i % int(0.1 * Nmax) == 0:
                 if rank == 0:
-                    subdomain.logger.info("time step %i of %i" % (i, Nmax))
+                    domain.root_logger.info("time step %i of %i" % (i, Nmax))
 
                 if debug:
                     # Print tracer max along boundaries, inside and outside halo
@@ -213,9 +214,9 @@ class TestParallelAdvection(unittest.TestCase):
 
                 # Gather and plot global tracer field
                 if plot:
-                    f.gather(out=f_glob)
-                    if f_glob is not None:
-                        pc.set_array(f_glob[...].ravel())
+                    f.gather(out=values_glob)
+                    if values_glob is not None:
+                        pc.set_array(values_glob[...].ravel())
                         fig.savefig("adv_%04i.png" % ifig)
 
                 ifig += 1
@@ -226,8 +227,8 @@ class TestParallelAdvection(unittest.TestCase):
             outman.save(i * timestep, i)
 
         duration = timeit.default_timer() - start
-        subdomain.logger.info("Time spent in loop: %.4f s" % duration)
-        subdomain.logger.info("%.4f ms per iteration" % (1000 * duration / Nmax,))
+        domain.root_logger.info("Time spent in loop: %.4f s" % duration)
+        domain.root_logger.info("%.4f ms per iteration" % (1000 * duration / Nmax,))
 
         if profile:
             prof.disable()
@@ -263,4 +264,3 @@ if __name__ == "__main__":
     TestParallelAdvection.args, remaining = parser.parse_known_args()
 
     unittest.main(argv=sys.argv[:1] + remaining)
-

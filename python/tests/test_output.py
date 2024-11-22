@@ -9,29 +9,29 @@ import pygetm
 
 
 class Simulation(pygetm.simulation.BaseSimulation):
-    def __init__(self, domain):
+    def __init__(self, domain: pygetm.domain.Domain):
         super().__init__(domain, log_level="ERROR")
 
-        domain.initialize(pygetm.BAROTROPIC_2D)
+        self.T = domain.create_grids(1, halox=2, haloy=2, fields=self._fields)
 
-        domain.T.array(
+        self.T.array(
             name="month_micro_2d", units="Units", long_name="LongName", fill_value=-2e20
         )
-        domain.T.array(
+        self.T.array(
             name="month_micro_3d",
             units="Units",
             long_name="LongName",
             z=pygetm.CENTERS,
             fill_value=-2e20,
         )
-        domain.T.array(
+        self.T.array(
             name="month_macro_2d",
             units="Units",
             long_name="LongName",
             fill_value=-2e20,
             attrs=dict(_time_varying=pygetm.TimeVarying.MACRO),
         )
-        domain.T.array(
+        self.T.array(
             name="month_macro_3d",
             units="Units",
             long_name="LongName",
@@ -56,7 +56,6 @@ class TestOutput(unittest.TestCase):
         domain = pygetm.domain.create_cartesian(
             np.linspace(0, 100e3, 50),
             np.linspace(0, 100e3, 51),
-            10,
             interfaces=True,
             f=0.0,
             logger=pygetm.parallel.get_logger(level="ERROR"),

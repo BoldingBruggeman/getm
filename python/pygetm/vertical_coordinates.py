@@ -21,8 +21,10 @@ class Base:
             raise Exception("Number of layers nz must be a positive number")
         self.nz = nz
 
-    def initialize(self, ref_grid: "domain.Grid", *other_grids: "domain.Grid"):
-        self.logger = ref_grid.domain.root_logger.getChild("vertical_coordinates")
+    def initialize(
+        self, ref_grid: "core.Grid", *other_grids: "core.Grid", logger: logging.Logger
+    ):
+        self.logger = logger
 
     def update(self, timestep: float):
         """Update layer thicknesses hn for all grids"""
@@ -33,11 +35,11 @@ class PerGrid(Base):
     """Base class for vertical coordinate types that apply the same operation
     to every grid."""
 
-    def initialize(self, *grids: "domain.Grid"):
-        super().initialize(*grids)
+    def initialize(self, *grids: "core.Grid", logger: logging.Logger):
+        super().initialize(*grids, logger=logger)
         self.grid_info = [self.prepare_update_args(grid) for grid in grids]
 
-    def prepare_update_args(self, grid: "domain.Grid"):
+    def prepare_update_args(self, grid: "core.Grid"):
         """Prepare grid-specific information that will be passed as
         arguments to __call__"""
         return (grid.D.all_values, grid.hn.all_values, grid.mask.all_values)
@@ -92,7 +94,7 @@ def calculate_sigma(nz: int, ddl: float = 0.0, ddu: float = 0.0) -> np.ndarray:
 class Sigma(PerGrid):
     """Sigma coordinates with optional zooming towards bottom and surface"""
 
-    def __init__(self, nz: int, ddl: float = 0.0, ddu: float = 0.0):
+    def __init__(self, nz: int, *, ddl: float = 0.0, ddu: float = 0.0):
         """
         Args:
             nz: number of layers
@@ -125,6 +127,7 @@ class GVC(PerGrid):
     def __init__(
         self,
         nz: int,
+        *,
         ddl: float = 0.0,
         ddu: float = 0.0,
         gamma_surf: bool = True,
@@ -169,8 +172,8 @@ class GVC(PerGrid):
         denom = alpha_min * self.dsigma + (1.0 - alpha_min) * self.dbeta[self.k_ref]
         self.D_max = np.inf if abs(denom) < 1e-15 else (Dgamma * self.dsigma) / denom
 
-    def initialize(self, *grids: "domain.Grid"):
-        super().initialize(*grids)
+    def initialize(self, *grids: "core.Grid", logger: logging.Logger):
+        super().initialize(*grids, logger=logger)
         self.logger.info(
             f"This GVC parameterization supports water depths up to {self.D_max:.3f} m"
         )
@@ -301,7 +304,7 @@ class Adaptive(Base):
         if self.cgvc > 0.0:
             self._gvc_dga = GVC(nz).dga
 
-    def initialize(self, tgrid: "domain.Grid", *other_grids: "domain.Grid"):
+    def initialize(self, tgrid: "core.Grid", *other_grids: "core.Grid"):
         super().initialize(tgrid, *other_grids)
 
         self.tgrid = tgrid
@@ -316,92 +319,8 @@ class Adaptive(Base):
         self.dga_t = tgrid.array(z=CENTERS)
         self.dga_other = tuple(grid.array(z=CENTERS) for grid in other_grids)
 
-    #        self._vertical_diffusion = operators.VerticalDiffusion(
-    #                domain.T, cnpar=self.cnpar
-    #                )
-    # Are they necessary
-    # self.ea2 = domain.T.array(fill=0.0, z=CENTERS)
-    # self.ea4 = domain.T.array(fill=0.0, z=CENTERS)
-
-    # Here you can obtain any other model field by name, as tgrid.domain.fields[NAME]
-    # and store it as attribte of self for later use in update
-        #print(self.tgrid.domain.fields)
-
-    def __call__(self, D: np.ndarray, out: np.ndarray = None, where: np.ndarray = None):
-        if out is None:
-            # out = np.empty(self.dbeta.shape + D.shape)
-            out = np.empty(self.nug.shape)
-        if where is None:
-            where = np.full(D.shape, 1)
-
-        # first add contributions to the grid diffusion field that are
-        # handled by python
-
-        if self.csigma > 0:
-            self.nug[...] = self.csigma
-        else:
-            self.nug = 0.0
-
-        # Here we need to have h_gvc - and the scaling has to depend
-        # on the value of gamma_surf
-        # if self.cgvc > 0:
-        #     self.nug(k)=self.nug(k) + cgvc*(hn_gvc(kmax)/h_gvc(k)) !*Hm1
-
-        dt = 3600. # must come from somewhere
-        _pygetm.update_adaptive(
-            self.NN,
-            self.SS,
-            self.nug,
-            self.decay,
-            self.hpow,
-            self.chsurf,
-            self.hsurf,
-            self.chmidd,
-            self.hmidd,
-            self.chbott,
-            self.hbott,
-            self.cneigh,
-            self.rneigh,
-            self.cNN,
-            self.drho,
-            self.cSS,
-            self.dvel,
-            self.chmin,
-            self.hmin,
-            dt,
-        )
-        # all contributions to nug are now added
-
-        # apply vertical filtering from ~/python/src/filters.F90
-        if self.nvfilter > 0 and self.vfilter > 0:
-            print("_pygetm.vertical_filter")
-            _pygetm.vertical_filter(self.nvfilter, self.nug, self.vfilter)
-
-        # apply horizontal filtering from ~/python/src/filters.F90
-        # requires halo updates
-        if self.hfilter > 0:
-            for _ in range(self.nhfilter):
-                print("_pygetm.horizontal_filter")
-                self.nug.update_halos()
-                _pygetm.horizontal_filter(self.nug, self.hfilter)
-
-        # self.nug = self.nug/(2.*self.tgrid)
-
-        # now the grid diffusion field is ready to be applied
-        # self._vertical_diffusion(
-        #            self.nug,
-        #            timestep,
-        #            ho,
-        #            molecular=0.0,
-        #            #ea2=self.ea2,
-        #            #ea4=self.ea4,
-        #            use_ho=True,
-        # )
-
-        # To get a pseudo dga - that can be used to interpolate to
-        # other grids for the calculation of layer heights
-        # self.dga_t = ho/D
-        return out
+        # Here you can obtain any other model field by name, as tgrid.fields[NAME]
+        # and store it as attribte of self for later use in update
 
     def update(self, timestep: float):
         # update sigma thicknesses on tgrid (self.dga_t)

@@ -51,6 +51,7 @@ jobs:
         run: |
           cd python/tests
           python -m unittest -v
+          mpiexec -n 2 python test_domain.py -v
           mpiexec -n 2 python test_parallel_advection.py -v
         env:
           GETM_SETUPS_DIR: ../../getm-setups

@@ -28,12 +28,12 @@ class TestLandMask(unittest.TestCase):
         stop = cftime.datetime(2006, 1, 3)
 
         sim = north_sea.create_simulation(
-            self.domain, pygetm.BAROCLINIC, self.setup_dir
+            self.domain, pygetm.RunType.BAROCLINIC, self.setup_dir
         )
 
         # Set land points (mask==0) of every variable to NaN
-        U, V = self.domain.U, self.domain.V
-        for array in self.domain.fields.values():
+        U, V = sim.U, sim.V
+        for array in sim._fields.values():
             grid = array.grid
             readonly = not array.all_values.flags.writeable
             if readonly:
@@ -78,11 +78,11 @@ class TestLandMask(unittest.TestCase):
         )
         stop = cftime.datetime(2006, 1, 3)
         sim = north_sea.create_simulation(
-            self.domain, pygetm.BAROCLINIC, self.setup_dir
+            self.domain, pygetm.RunType.BAROCLINIC, self.setup_dir
         )
         north_sea.run(sim, stop=stop)
 
-        for array in self.domain.fields.values():
+        for array in sim._fields.values():
             skip_this = array.name in skip
             for s in grid_skip:
                 if array is getattr(array.grid, s):
@@ -102,4 +102,3 @@ class TestLandMask(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

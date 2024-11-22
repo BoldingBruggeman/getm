@@ -20,31 +20,34 @@ class TestCoriolis(unittest.TestCase):
         domain = pygetm.domain.create_cartesian(
             x,
             y,
-            nz,
             interfaces=True,
             lat=lat,
             H=H,
             logger=pygetm.parallel.get_logger(level="ERROR"),
         )
 
-        sim = pygetm.Simulation(domain, pygetm.BAROCLINIC)
+        sim = pygetm.Simulation(
+            domain, vertical_coordinates=pygetm.vertical_coordinates.Sigma(nz)
+        )
         sim.momentum.U.all_values[...] = np.where(
-            domain.U.mask.all_values != 0, u * H, 0.0
+            sim.U.mask.all_values != 0, u * H, 0.0
         )
         sim.momentum.V.all_values[...] = np.where(
-            domain.V.mask.all_values != 0, v * H, 0.0
+            sim.V.mask.all_values != 0, v * H, 0.0
         )
 
-        sim.momentum.coriolis(sim.momentum.U, sim.momentum.fU)
-        sim.momentum.coriolis(sim.momentum.V, sim.momentum.fV)
+        sim.momentum.coriolis(sim.momentum.U, sim.momentum.fU, True)
+        sim.momentum.coriolis(sim.momentum.V, sim.momentum.fV, False)
 
         OMEGA = 2.0 * np.pi / 86164.0  # 86164 is number of seconds in sidereal day
 
         f = 2.0 * OMEGA * np.sin(np.pi * lat / 180.0)
-        self.assertTrue((domain.cor == f).all())
+        self.assertTrue((sim.T.cor.values == f).all())
+        self.assertTrue((sim.U.cor.values == f).all())
+        self.assertTrue((sim.V.cor.values == f).all())
 
-        fu = sim.momentum.fU / domain.V.H
-        fv = sim.momentum.fV / domain.U.H
+        fu = sim.momentum.fU / sim.V.H
+        fv = sim.momentum.fV / sim.U.H
 
         self.assertTrue((fu.values[:-1, 1:-1] == -f * u).all())
         self.assertTrue((fu.values[:-1, 0] == -0.5 * f * u).all())
@@ -61,20 +64,20 @@ class TestCoriolis(unittest.TestCase):
 
         h = H / nz
         sim.momentum.pk.all_values[...] = np.where(
-            domain.U.mask.all_values != 0, u * h, 0.0
+            sim.U.mask.all_values != 0, u * h, 0.0
         )
         sim.momentum.qk.all_values[...] = np.where(
-            domain.V.mask.all_values != 0, v * h, 0.0
+            sim.V.mask.all_values != 0, v * h, 0.0
         )
 
-        self.assertTrue((domain.U.hn.ma == h).all())
-        self.assertTrue((domain.V.hn.ma == h).all())
+        self.assertTrue((sim.U.hn.ma == h).all())
+        self.assertTrue((sim.V.hn.ma == h).all())
 
-        sim.momentum.coriolis(sim.momentum.pk, sim.momentum.fpk)
-        sim.momentum.coriolis(sim.momentum.qk, sim.momentum.fqk)
+        sim.momentum.coriolis(sim.momentum.pk, sim.momentum.fpk, True)
+        sim.momentum.coriolis(sim.momentum.qk, sim.momentum.fqk, False)
 
-        fu = sim.momentum.fpk / domain.V.hn
-        fv = sim.momentum.fqk / domain.U.hn
+        fu = sim.momentum.fpk / sim.V.hn
+        fv = sim.momentum.fqk / sim.U.hn
 
         self.assertTrue((fu.values[:, :-1, 1:-1] == -f * u).all())
         self.assertTrue((fu.values[:, :-1, 0] == 0.5 * -f * u).all())

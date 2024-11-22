@@ -1,26 +1,26 @@
 from typing import Optional
 import itertools
 import os.path
+import logging
 
 import numpy as np
 
 from . import core
-from . import domain
 from .open_boundaries import ArrayOpenBoundaries
 from pygotm import _pygotm
 from .constants import INTERFACES, FILL_VALUE, ZERO_GRADIENT
 
 
-class Turbulence:
+class VerticalMixing:
     """Base class that provides the turbulent viscosity :attr:`num` and diffusivity
     :attr:`nuh`. When using this class directly, viscosity and diffusivity are
     prescribed, not calculated. In this case, both default to zero; assign to
     :attr:`num`/:attr:`nuh` or call ``num.set``/``nuh.set`` to change this.
     """
 
-    def initialize(self, grid: domain.Grid):
+    def initialize(self, grid: core.Grid, logger: logging.Logger):
         self.grid = grid
-        self.logger = grid.domain.root_logger.getChild(self.__class__.__name__)
+        self.logger = logger
         self.nuh = grid.array(
             z=INTERFACES,
             name="nuh",
@@ -57,7 +57,7 @@ class Turbulence:
         pass
 
 
-class GOTM(Turbulence):
+class GOTM(VerticalMixing):
     """Calculate the turbulent viscosity :attr:`num` and diffusivity :attr:`nuh`
     using the `General Ocean Turbulence Model (GOTM) <https://gotm.net>`_.
     """
@@ -68,8 +68,8 @@ class GOTM(Turbulence):
             raise Exception(f"Configuration file {path} does not exist")
         self.path = path
 
-    def initialize(self, grid: domain.Grid):
-        super().initialize(grid)
+    def initialize(self, grid: core.Grid, logger: logging.Logger):
+        super().initialize(grid, logger)
 
         has_yaml = self.path and self.path.endswith(".yaml")
         nml_path = b"" if not self.path or has_yaml else self.path.encode("ascii")

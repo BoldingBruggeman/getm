@@ -16,16 +16,7 @@ from pygetm.input import tpxo
 def create_domain(
     setup_dir: str, use_boundaries: bool = True, use_rivers: bool = True, **kwargs
 ) -> pygetm.domain.Domain:
-    final_kwargs = dict(
-        nlev=30,
-        vertical_coordinate_method=pygetm.VerticalCoordinates.GVC,
-        Dgamma=40.0,
-        ddu=0.75,
-        ddl=0.5,
-        Dcrit=0.2,
-        Dmin=0.05,
-        z0=0.001,
-    )
+    final_kwargs = dict(z0=0.001)
     final_kwargs.update(kwargs)
     domain = pygetm.legacy.domain_from_topo(
         os.path.join(setup_dir, "Topo/NS6nm.v01.nc"), **final_kwargs
@@ -42,7 +33,7 @@ def create_domain(
 
 def create_simulation(
     domain: pygetm.domain.Domain,
-    runtype: int,
+    runtype: pygetm.RunType,
     setup_dir: str,
     meteo_dir: Optional[str] = None,
     tpxo9_dir: Optional[str] = None,
@@ -57,14 +48,19 @@ def create_simulation(
 
     if domain.open_boundaries and tpxo9_dir:
         for boundary in domain.open_boundaries:
-            boundary.type_2d = -4  # flather based on transport instead of velocity
+            boundary.type_2d = pygetm.FLATHER_TRANSPORT
 
     final_kwargs = dict(
         advection_scheme=pygetm.AdvectionScheme.SUPERBEE,
         gotm=os.path.join(setup_dir, "gotmturb.nml"),
         airsea=airsea,
-        internal_pressure_method=pygetm.InternalPressure.SHCHEPETKIN_MCWILLIAMS,
+        internal_pressure=pygetm.internal_pressure.ShchepetkinMcwilliams(),
         delay_slow_ip=True,
+        Dcrit=0.2,
+        Dmin=0.05,
+        vertical_coordinates=pygetm.vertical_coordinates.GVC(
+            30, Dgamma=40.0, ddu=0.75, ddl=0.5
+        ),
     )
     final_kwargs.update(kwargs)
     sim = pygetm.Simulation(domain, runtype=runtype, **final_kwargs)
@@ -88,7 +84,7 @@ def create_simulation(
                 tpxo.get(bdy_lon, bdy_lat, variable="v", root=tpxo9_dir)
             )
 
-        if sim.runtype == pygetm.BAROCLINIC:
+        if sim.runtype == pygetm.RunType.BAROCLINIC:
             bdy_3d_path = os.path.join(setup_dir, "Forcing/3D/bound_3D.CFSR.2006.nc")
             sim.temp.open_boundaries.type = pygetm.SPONGE
             sim.temp.open_boundaries.values.set(
@@ -105,14 +101,14 @@ def create_simulation(
             river.flow.set(
                 pygetm.input.from_nc(river_path, river.original_name) / river.split
             )
-            if sim.runtype == pygetm.BAROCLINIC:
+            if sim.runtype == pygetm.RunType.BAROCLINIC:
                 river["salt"].set(0.5)
 
-    if sim.runtype < pygetm.BAROCLINIC:
+    if sim.runtype < pygetm.RunType.BAROCLINIC:
         sim.sst = sim.airsea.t2m
-        if sim.runtype > pygetm.BAROTROPIC_2D:
-            sim.turbulence.num[...] = 1e-2
-    if sim.runtype == pygetm.BAROCLINIC:
+        if sim.runtype > pygetm.RunType.BAROTROPIC_2D:
+            sim.vertical_mixing.num[...] = 1e-2
+    if sim.runtype == pygetm.RunType.BAROCLINIC:
         sim.radiation.set_jerlov_type(pygetm.Jerlov.Type_II)
         sim.temp.set(11.6)
         sim.salt.set(35.2)
@@ -142,7 +138,7 @@ def create_simulation(
         sim.logger.info("Setting up FABM dependencies that GETM does not provide")
         sim.fabm.get_dependency("absorption_of_silt").set(0.1)
         sim.fabm.get_dependency("mole_fraction_of_carbon_dioxide_in_air").set(400.0)
-        if sim.runtype == pygetm.BAROTROPIC_3D:
+        if sim.runtype == pygetm.RunType.BAROTROPIC_3D:
             sim.fabm.get_dependency("temperature").set(5.0)
             sim.fabm.get_dependency("practical_salinity").set(35.0)
             sim.fabm.get_dependency("density").set(1025.0)
@@ -219,9 +215,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--runtype",
         type=int,
-        choices=(pygetm.BAROTROPIC_2D, pygetm.BAROTROPIC_3D, pygetm.BAROCLINIC),
+        choices=(
+            pygetm.RunType.BAROTROPIC_2D,
+            pygetm.RunType.BAROTROPIC_3D,
+            pygetm.RunType.BAROCLINIC,
+        ),
         help="Run type",
-        default=pygetm.BAROCLINIC,
+        default=pygetm.RunType.BAROCLINIC,
     )
     parser.add_argument("--save_restart", help="File to save restart to")
     parser.add_argument("--load_restart", help="File to load restart from")
@@ -262,7 +262,7 @@ if __name__ == "__main__":
                 "Du", "Dv", "dpdx", "dpdy", "z0bu", "z0bv", "z0bt"
             )  # , 'u_taus'
             output.request("ru", "rru", "rv", "rrv")
-        if sim.runtype > pygetm.BAROTROPIC_2D:
+        if sim.runtype > pygetm.RunType.BAROTROPIC_2D:
             output = sim.output_manager.add_netcdf_file(
                 "north_sea_3d.nc",
                 interval=datetime.timedelta(hours=6),
@@ -271,7 +271,7 @@ if __name__ == "__main__":
             output.request("uk", "vk", "ww", "SS", "num")
             if args.debug_output:
                 output.request("fpk", "fqk", "advpk", "advqk")  # 'diffpk', 'diffqk')
-        if sim.runtype == pygetm.BAROCLINIC:
+        if sim.runtype == pygetm.RunType.BAROCLINIC:
             output.request("temp", "salt", "rho", "NN", "rad", "sst", "hnt", "nuh")
             if args.debug_output:
                 output.request("idpdx", "idpdy")

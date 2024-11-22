@@ -23,11 +23,8 @@ from pygetm.constants import *
 
 cdef extern void c_allocate_array(int n, int dtype, void** ptype, void** pdata) nogil
 cdef extern void c_deallocate_array(void* ptype) nogil
-cdef extern void* domain_create(int imin, int imax, int jmin, int jmax, int kmin, int kmax, int halox, int haloy, int haloz) nogil
-cdef extern void* domain_get_grid(void* domain, int grid_type, int imin, int imax, int jmin, int jmax, int kmin, int kmax, int halox, int haloy, int haloz) nogil
-cdef extern void domain_initialize(void* domain, int runtype, double Dmin, double* maxdt) nogil
+cdef extern void* create_grid(int imin, int imax, int jmin, int jmax, int kmin, int kmax, int halox, int haloy) nogil
 cdef extern void grid_finalize(void* grid) nogil
-cdef extern void domain_finalize(void* domain) nogil
 cdef extern void grid_interp_x(int nx, int ny, int nz, const double* source, double* target, int ioffset) nogil
 cdef extern void grid_interp_y(int nx, int ny, int nz, const double* source, double* target, int joffset) nogil
 cdef extern void grid_interp_z(int nx, int ny, int nz1, int nz2, const double* source, double* target, int koffset) nogil
@@ -45,9 +42,7 @@ cdef extern void* vertical_diffusion_create(void* tgrid) nogil
 cdef extern void vertical_diffusion_finalize(void* diffusion) nogil
 cdef extern void c_vertical_diffusion_prepare(void* diffusion, int nx, int ny, int nz, double molecular, double* pnuh, double timestep, double cnpar, int* pmask, double* pho, double* phn) nogil
 cdef extern void c_vertical_diffusion_apply(void* diffusion, int nx, int ny, int nz, int* pmask, double* pho, double* phn, double* pvar, double* pea2, double* pea4) nogil
-cdef extern void* momentum_create(int runtype, void* pdomain, double Am0, double cnpar, int coriolis_scheme) nogil
-cdef extern void momentum_finalize(void* momentum) nogil
-cdef extern void momentum_diffusion_driver(void* momentum, int nk, double* h, double* hx, double* u, double* v, double* diffu, double* diffv) nogil
+cdef extern void c_momentum_diffusion(void* ugrid, void* vgrid, void* uugrid, void* uvgrid, void* vugrid, void* vvgrid, int nk, const double* huu, const double* huv, const double* hvu, const double* hvv, const double* u, const double* v, double Am0, double* diffu, double* diffv) nogil
 cdef extern void c_exponential_profile_1band_interfaces(int nx, int ny, int nz, int istart, int istop, int jstart, int jstop, int* mask, double* h, double* k, double* initial, int up, double* out) nogil
 cdef extern void c_exponential_profile_1band_centers(int nx, int ny, int nz, int istart, int istop, int jstart, int jstop, int* mask, double* h, double* k, double* top, double* out) nogil
 cdef extern void c_thickness2center_depth(int nx, int ny, int nz, int istart, int istop, int jstart, int jstop, int* mask, double* h, double* out) nogil
@@ -74,16 +69,6 @@ cdef extern void c_update_gvc(int nx, int ny, int nz, double dsigma, const doubl
 cdef extern void c_update_adaptive(int nx, int ny, int nz, int halox, int haloy, const int* mask, const double* H, const double* D, const double* zo, const double* ho, const double* NN, const double* SS, const double* nu, double decay, int hpow, double chsurf, double hsurf, double chmidd, double hmidd, double chbott, double hbott, double cneigh, double rneigh, double cNN, double drho, double cSS, double dvel, double chmin, double hmin, double dt) nogil
 
 
-cpdef enum:
-    TGRID = 1
-    UGRID = 2
-    VGRID = 3
-    XGRID = 4
-    UUGRID = -1
-    VVGRID = -2
-    UVGRID = -3
-    VUGRID = -4
-
 cdef class FortranArrayContainer:
     cdef void* p
     def __dealloc__(self):
@@ -107,7 +92,7 @@ cdef class Array:
     def all_values(self, value):
         assert value is self._array
 
-    cdef wrap_c_array(self, Domain domain, int source, void* obj, bytes name, register=True):
+    cdef wrap_c_array(self, grid, int source, void* obj, bytes name, register=True):
         cdef int grid_type
         cdef int sub_type
         cdef int data_type
@@ -115,7 +100,7 @@ cdef class Array:
         if self.p == NULL:
             return
         self.on_boundary = False
-        self.grid = domain.grids[grid_type]
+        self.grid = grid
         if sub_type == 0:
             # Horizontal-only array on normal grid
             if data_type == 0:
@@ -143,7 +128,7 @@ cdef class Array:
         self.on_boundary = on_boundary
         if self.on_boundary:
             assert data.ndim in (1, 2) and data.flags['C_CONTIGUOUS'], 'Invalid array properties for wrapping: %i dimensions, flags %s' % (data.ndim, data.flags)
-            assert data.shape[0] == self.grid.domain.open_boundaries.np, 'Incorrect shape of first dimension (number of boundary points): expected %i, got %i' % (self.grid.domain.open_boundaries.np, data.shape[0])
+            assert data.shape[0] == self.grid.open_boundaries.np, 'Incorrect shape of first dimension (number of boundary points): expected %i, got %i' % (self.grid.open_boundaries.np, data.shape[0])
             assert data.ndim == 1 or data.shape[1] == self.grid.nz_ or data.shape[1] == self.grid.nz_ + 1, 'Incorrect shape of second dimension (number of layers): expected %i or %i, got %i' % (self.grid.nz_, self.grid.nz_ + 1, data.shape[1])
         elif data.ndim != 0:
             assert data.ndim in (2, 3) and data.flags['C_CONTIGUOUS'], 'Invalid array properties for wrapping: %i dimensions, flags %s' % (data.ndim, data.flags)
@@ -179,26 +164,21 @@ cdef class Grid:
     cdef void* p
     cdef readonly int nx, ny, nz
     cdef readonly int nx_, ny_, nz_
-    cdef readonly Domain domain
-    cdef bint owned
+    cdef readonly int halox, haloy
 
-    def __init__(self, Domain domain, int grid_type):
-        self.domain = domain
-        self.nx, self.ny, self.nz = domain.nx, domain.ny, domain.nz
-        if grid_type == XGRID:
-            self.nx += 1
-            self.ny += 1
-        self.p = domain_get_grid(domain.p, grid_type, 1, self.nx, 1, self.ny, 1, self.nz, domain.halox, domain.haloy, domain.haloz)
-        self.owned = grid_type < 1 or grid_type > 4
-        self.nx_, self.ny_, self.nz_ = self.nx + 2 * domain.halox, self.ny + 2 * domain.haloy, self.nz + 2 * domain.haloz
-        domain.grids[grid_type] = self
+    def __init__(self, int nx, int ny, int nz, int halox, int haloy, int istart, int jstart):
+        self.nx, self.ny, self.nz = nx, ny, nz
+        self.halox, self.haloy = halox, haloy
+        self.nx_, self.ny_, self.nz_ = self.nx + 2 * halox, self.ny + 2 * haloy, self.nz
+        istop = istart + self.nx - 1
+        jstop = jstart + self.ny - 1
+        self.p = create_grid(istart, istop, jstart, jstop, 1, self.nz, halox, haloy)
 
     def __dealloc__(self):
-        if self.owned and self.p != NULL:
-            grid_finalize(self.p)
+        grid_finalize(self.p)
 
     def wrap(self, Array ar, bytes name, register=True):
-        return ar.wrap_c_array(self.domain, 0, self.p, name, register)
+        return ar.wrap_c_array(self, 0, self.p, name, register)
 
 def interp_x(const double[:,:,::1] source not None, double[:,:,::1] target not None, int offset):
     grid_interp_x(<int>source.shape[2], <int>source.shape[1], <int>source.shape[0], &source[0,0,0], &target[0,0,0], offset)
@@ -237,29 +217,6 @@ def gradient_x(const double[:,::1] idx not None, const double[:,:,::1] source no
 
 def gradient_y(const double[:,::1] idy not None, const double[:,:,::1] source not None, double[:,:,::1] target not None, int ioffset=0, int joffset=0):
     c_gradient_y(<int>source.shape[2], <int>source.shape[1], <int>target.shape[2], <int>target.shape[1], <int>source.shape[0], &source[0,0,0], &idy[0,0], &target[0,0,0], ioffset, joffset)
-
-cdef class Domain:
-    cdef void* p
-    cdef readonly int nx, ny, nz
-    cdef readonly int halox, haloy, haloz
-    cdef readonly double maxdt
-
-    def __init__(self, int imin, int imax, int jmin, int jmax, int kmin, int kmax, int halox, int haloy, int haloz=0):
-        self.p = domain_create(imin, imax, jmin, jmax, kmin, kmax, halox, haloy, haloz)
-        self.nx = imax - imin + 1
-        self.ny = jmax - jmin + 1
-        self.nz = kmax - kmin + 1
-        self.halox = halox
-        self.haloy = haloy
-        self.haloz = haloz
-        self.grids = {}
-
-    def __dealloc__(self):
-        if self.p != NULL:
-            domain_finalize(self.p)
-
-    def initialize(self, int runtype, double Dmin, gamma_surf=True):
-        domain_initialize(self.p, runtype, Dmin, &self.maxdt)
 
 cdef class Advection:
     cdef void* p
@@ -379,51 +336,36 @@ cdef class VerticalDiffusion:
         cdef Array ho = var.grid.ho if use_ho else hn
         c_vertical_diffusion_apply(self.p, var.grid.nx_, var.grid.ny_, var.grid.nz_, <int *>mask.p, <double *>ho.p, <double *>hn.p, <double *>var.p, pea2, pea4)
 
-cdef class Momentum:
-    cdef void* p
-    cdef readonly Domain domain
-
-    def __init__(self, Domain domain, int runtype, double Am0, double cnpar, int coriolis_scheme):
-        self.domain = domain
-        self.p = momentum_create(runtype, domain.p, Am0, cnpar, coriolis_scheme)
-
-    def __dealloc__(self):
-        if self.p != NULL:
-            momentum_finalize(self.p)
-
-    def momentum_diffusion_driver(self, Array h not None, Array hx not None, Array u not None, Array v not None, Array diffu not None, Array diffv not None):
-        assert h.grid is self.domain.T
-        assert hx.grid is self.domain.X
-        assert u.grid is self.domain.U
-        assert v.grid is self.domain.V
-        assert diffu.grid is self.domain.U
-        assert diffv.grid is self.domain.V
-        cdef int nk = <int>h._array.shape[0] if h.z else 1
-        momentum_diffusion_driver(self.p, nk, <double*> h.p, <double*> hx.p, <double*> u.p, <double*> v.p, <double*> diffu.p, <double*> diffv.p)
-
-    def wrap(self, Array ar not None, bytes name):
-        return ar.wrap_c_array(self.domain, 1, self.p, name)
+def momentum_diffusion(Array huu not None, Array huv not None, Array hvu not None, Array hvv not None, Array u not None, Array v not None, double Am0, Array diffu not None, Array diffv not None):
+    assert huu.grid is u.grid.ugrid
+    assert huv.grid is u.grid.vgrid
+    assert hvu.grid is v.grid.ugrid
+    assert hvv.grid is v.grid.vgrid
+    assert diffu.grid is u.grid
+    assert diffv.grid is v.grid
+    cdef int nk = <int>u._array.shape[0] if u.z else 1
+    c_momentum_diffusion(u.grid.p, v.grid.p, huu.grid.p, huv.grid.p, hvu.grid.p, hvv.grid.p, nk, <double*> huu.p, <double*> huv.p, <double*> hvu.p, <double*> hvv.p, <double*> u.p, <double*> v.p, Am0, <double*> diffu.p, <double*> diffv.p)
 
 def exponential_profile_1band_interfaces(Array mask not None, Array h not None, Array k not None, Array initial not None, bint up=False, Array out=None):
     assert mask.grid is h.grid and h.z == CENTERS
     assert mask.grid is k.grid and k.z == CENTERS
     assert mask.grid is initial.grid and not initial.z
     assert mask.grid is out.grid and out.z == INTERFACES
-    c_exponential_profile_1band_interfaces(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, 1 + mask.grid.domain.halox, mask.grid.nx_ - mask.grid.domain.halox, 1 + mask.grid.domain.haloy, mask.grid.ny_ - mask.grid.domain.haloy, <int *>mask.p, <double *>h.p, <double *>k.p, <double *>initial.p, up, <double *>out.p)
+    c_exponential_profile_1band_interfaces(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, 1 + mask.grid.halox, mask.grid.nx_ - mask.grid.halox, 1 + mask.grid.haloy, mask.grid.ny_ - mask.grid.haloy, <int *>mask.p, <double *>h.p, <double *>k.p, <double *>initial.p, up, <double *>out.p)
 
 def exponential_profile_1band_centers(Array mask not None, Array h not None, Array k not None, Array top not None, Array out=None):
     assert mask.grid is h.grid and h.z == CENTERS
     assert mask.grid is k.grid and k.z == CENTERS
     assert mask.grid is top.grid and not top.z
     assert mask.grid is out.grid and out.z == CENTERS
-    c_exponential_profile_1band_centers(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, 1 + mask.grid.domain.halox, mask.grid.nx_ - mask.grid.domain.halox, 1 + mask.grid.domain.haloy, mask.grid.ny_ - mask.grid.domain.haloy, <int *>mask.p, <double *>h.p, <double *>k.p, <double *>top.p, <double *>out.p)
+    c_exponential_profile_1band_centers(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, 1 + mask.grid.halox, mask.grid.nx_ - mask.grid.halox, 1 + mask.grid.haloy, mask.grid.ny_ - mask.grid.haloy, <int *>mask.p, <double *>h.p, <double *>k.p, <double *>top.p, <double *>out.p)
 
 def thickness2center_depth(Array mask not None, Array h not None, Array out=None):
     assert mask.grid is h.grid and h.z == CENTERS
     if out is None:
         out = h.grid.array(z=CENTERS)
     assert mask.grid is out.grid and out.z == CENTERS
-    c_thickness2center_depth(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, 1 + mask.grid.domain.halox, mask.grid.nx_ - mask.grid.domain.halox, 1 + mask.grid.domain.haloy, mask.grid.ny_ - mask.grid.domain.haloy, <int *>mask.p, <double *>h.p, <double *>out.p)
+    c_thickness2center_depth(mask.grid.nx_, mask.grid.ny_, mask.grid.nz_, 1 + mask.grid.halox, mask.grid.nx_ - mask.grid.halox, 1 + mask.grid.haloy, mask.grid.ny_ - mask.grid.haloy, <int *>mask.p, <double *>h.p, <double *>out.p)
     return out
 
 def thickness2vertical_coordinates(Array mask not None, Array H not None, Array h not None, Array zc not None, Array zf not None):
@@ -445,8 +387,8 @@ def clip_z(Array z not None, double Dmin):
     c_clip_z(z._array.size, <double*>z.p, <double*>H.p, Dmin, <int*>mask.p)
 
 def horizontal_diffusion(Array f not None, Array Ah_u not None, Array Ah_v not None, double dt, Array out not None):
-    cdef int halox = f.grid.domain.halox
-    cdef int haloy = f.grid.domain.haloy
+    cdef int halox = f.grid.halox
+    cdef int haloy = f.grid.haloy
     cdef int nx = f.grid.nx
     cdef int ny = f.grid.ny
     cdef Grid ugrid = f.grid.ugrid
@@ -494,7 +436,7 @@ def collect_3d_momentum_sources(Array dp, Array cor, Array adv, Array diff, Arra
     assert rr.grid is grid and not rr.z, 'rr'
     assert ea2.z == CENTERS
     assert ea4.z == CENTERS
-    c_collect_3d_momentum_sources(grid.nx_, grid.ny_, grid.nz, grid.domain.halox, grid.domain.haloy,
+    c_collect_3d_momentum_sources(grid.nx_, grid.ny_, grid.nz, grid.halox, grid.haloy,
         <int*>mask.p, <double*>alpha.p, <double*>ho.p, <double*>hn.p,
         <double*>dp.p, <double*>cor.p, <double*>adv.p, <double*>diff.p, <double*>idp.p, <double*>taus.p, <double*>rr.p, dt, <double*>ea2.p, <double*>ea4.p)
 
@@ -514,7 +456,7 @@ def advance_2d_transport(Array U, Array dp, Array taus, Array cor, Array adv, Ar
     assert SD.grid is grid and not SD.z, 'SD'
     assert SF.grid is grid and not SF.z, 'SF'
     assert r.grid is grid and not r.z, 'rr'
-    c_advance_2d_transport(grid.nx_, grid.ny_, grid.domain.halox, grid.domain.haloy, <int*>mask.p, <double*>alpha.p, <double*>D.p,
+    c_advance_2d_transport(grid.nx_, grid.ny_, grid.halox, grid.haloy, <int*>mask.p, <double*>alpha.p, <double*>D.p,
        <double*>dp.p, <double*>taus.p, <double*>cor.p, <double*>adv.p, <double*>diff.p, <double*>damp.p,
        <double*>SA.p, <double*>SB.p, <double*>SD.p, <double*>SF.p, <double*>r.p, dt, <double*>U.p)
 
@@ -529,7 +471,7 @@ def w_momentum_3d(Array pk, Array qk, double dt, Array w):
     cdef Array iarea = grid.iarea
     cdef Array ho = grid.ho
     cdef Array hn = grid.hn
-    c_w_momentum_3d(grid.nx_, grid.ny_, grid.nz, grid.domain.halox + 1, grid.domain.halox + grid.nx + 1, grid.domain.haloy + 1, grid.domain.haloy + grid.ny + 1,
+    c_w_momentum_3d(grid.nx_, grid.ny_, grid.nz, grid.halox + 1, grid.halox + grid.nx + 1, grid.haloy + 1, grid.haloy + grid.ny + 1,
         <int*>mask.p, <double*>dyu.p, <double*>dxv.p, <double*>iarea.p, <double*>ho.p, <double*>hn.p, <double*>pk.p, <double*>qk.p, dt, <double*>w.p)
 
 def shear_frequency(Array uk, Array vk, Array SS):
@@ -540,7 +482,7 @@ def shear_frequency(Array uk, Array vk, Array SS):
     assert vk.grid is grid.vgrid and vk.z == CENTERS, 'vk'
     cdef Array hu = uk.grid.hn
     cdef Array hv = vk.grid.hn
-    c_shear_frequency(grid.nx_, grid.ny_, grid.nz, grid.domain.halox + 1, grid.domain.halox + grid.nx, grid.domain.haloy + 1, grid.domain.haloy + grid.ny,
+    c_shear_frequency(grid.nx_, grid.ny_, grid.nz, grid.halox + 1, grid.halox + grid.nx, grid.haloy + 1, grid.haloy + grid.ny,
         <int*>mask.p, <double*>hu.p, <double*>hv.p, <double*>uk.p, <double*>vk.p, <double*>SS.p)
 
 def shear_frequency2(Array uk, Array vk, Array num, Array SS):
@@ -553,7 +495,7 @@ def shear_frequency2(Array uk, Array vk, Array num, Array SS):
     cdef Array h = grid.hn
     cdef Array hu = uk.grid.hn
     cdef Array hv = vk.grid.hn
-    c_shear_frequency2(grid.nx_, grid.ny_, grid.nz, grid.domain.halox + 1, grid.domain.halox + grid.nx, grid.domain.haloy + 1, grid.domain.haloy + grid.ny,
+    c_shear_frequency2(grid.nx_, grid.ny_, grid.nz, grid.halox + 1, grid.halox + grid.nx, grid.haloy + 1, grid.haloy + grid.ny,
         <int*>mask.p, <double*>h.p, <double*>hu.p, <double*>hv.p, <double*>uk.p, <double*>vk.p, <double*>num.p, <double*>SS.p)
 
 def surface_shear_velocity(Array taux, Array tauy, Array ustar):
@@ -562,7 +504,7 @@ def surface_shear_velocity(Array taux, Array tauy, Array ustar):
     assert taux.grid is grid and not taux.z, 'taux'
     assert tauy.grid is grid and not tauy.z, 'tauy'
     cdef Array mask = grid.mask
-    c_surface_shear_velocity(grid.nx_, grid.ny_, grid.domain.halox + 1, grid.domain.halox + grid.nx, grid.domain.haloy + 1, grid.domain.haloy + grid.ny,
+    c_surface_shear_velocity(grid.nx_, grid.ny_, grid.halox + 1, grid.halox + grid.nx, grid.haloy + 1, grid.haloy + grid.ny,
         <int*>mask.p, <double*>taux.p, <double*>tauy.p, <double*>ustar.p)
 
 def bottom_shear_velocity(Array uk, Array vk, Array rru, Array rrv, Array ustar2_x, Array ustar2_y, Array ustar):
@@ -577,14 +519,14 @@ def bottom_shear_velocity(Array uk, Array vk, Array rru, Array rrv, Array ustar2
     cdef Array mask = grid.mask
     cdef Array umask = grid.ugrid.mask
     cdef Array vmask = grid.vgrid.mask
-    c_bottom_shear_velocity(grid.nx_, grid.ny_, grid.domain.halox + 1, grid.domain.halox + grid.nx, grid.domain.haloy + 1, grid.domain.haloy + grid.ny,
+    c_bottom_shear_velocity(grid.nx_, grid.ny_, grid.halox + 1, grid.halox + grid.nx, grid.haloy + 1, grid.haloy + grid.ny,
         <int*>mask.p, <int*>umask.p, <int*>vmask.p, <double*>uk.p, <double*>vk.p, <double*>rru.p, <double*>rrv.p,
         <double*>ustar2_x.p, <double*>ustar2_y.p, <double*>ustar.p)
 
 def reconstruct_transport_change(Array un, numpy.ndarray hn, Array Uo, double timestep):
     cdef Grid grid = Uo.grid
     nz = 1 if Uo.ndim == 2 else grid.nz_
-    c_reconstruct_transport_change(grid.nx_, grid.ny_, nz, grid.domain.halox + 1, grid.domain.halox + grid.nx, grid.domain.haloy + 1, grid.domain.haloy + grid.ny,
+    c_reconstruct_transport_change(grid.nx_, grid.ny_, nz, grid.halox + 1, grid.halox + grid.nx, grid.haloy + 1, grid.haloy + grid.ny,
         <double*>un.p, <double*>hn.data, <double*>Uo.p, timestep)
 
 def advance_surface_elevation(double timestep, Array z, Array U, Array V, Array fwf):
@@ -597,10 +539,10 @@ def advance_surface_elevation(double timestep, Array z, Array U, Array V, Array 
     assert U.grid is grid.ugrid and not U.z, 'U'
     assert V.grid is grid.vgrid and not V.z, 'V'
     assert fwf.grid is grid and not fwf.z, 'fwf'
-    c_advance_surface_elevation(grid.nx_, grid.ny_, grid.domain.halox, grid.domain.haloy, <int*>mask.p, <double*>dyu.p, <double*>dxv.p, <double*>iarea.p,
+    c_advance_surface_elevation(grid.nx_, grid.ny_, grid.halox, grid.haloy, <int*>mask.p, <double*>dyu.p, <double*>dxv.p, <double*>iarea.p,
         <double*>z.p, <double*>U.p, <double*>V.p, <double*>fwf.p, timestep)
 
-def surface_pressure_gradient(Array z, Array sp, Array dpdx, Array dpdy):
+def surface_pressure_gradient(Array z, Array sp, Array dpdx, Array dpdy, double Dmin):
     cdef Grid grid = z.grid
     assert not z.z, 'z'
     assert sp.grid is grid and not sp.z, 'sp'
@@ -612,8 +554,7 @@ def surface_pressure_gradient(Array z, Array sp, Array dpdx, Array dpdy):
     cdef Array idyv = dpdy.grid.idy
     cdef Array H = grid.H
     cdef Array D = grid.D
-    cdef double Dmin = grid.domain.Dmin
-    c_surface_pressure_gradient(grid.nx_, grid.ny_, grid.domain.halox + 1, grid.domain.halox + grid.nx, grid.domain.haloy + 1, grid.domain.haloy + grid.ny,
+    c_surface_pressure_gradient(grid.nx_, grid.ny_, grid.halox + 1, grid.halox + grid.nx, grid.haloy + 1, grid.haloy + grid.ny,
         <int*>umask.p, <int*>vmask.p, <double*>idxu.p, <double*>idyv.p,
         <double*>z.p, <double*>sp.p, <double*>H.p, <double*>D.p, Dmin, <double*>dpdx.p, <double*>dpdy.p)
 
@@ -629,7 +570,7 @@ def blumberg_mellor(Array buoy, Array idpdx, Array idpdy):
     cdef Array hu = idpdx.grid.hn
     cdef Array hv = idpdy.grid.hn
     cdef Array zf = grid.zf
-    c_blumberg_mellor(grid.nx_, grid.ny_, grid.nz_, grid.domain.halox + 1, grid.domain.halox + grid.nx, grid.domain.haloy + 1, grid.domain.haloy + grid.ny, <int*>umask.p, <int*>vmask.p, <double*>idxu.p, <double*>idyv.p, <double*>hu.p, <double*>hv.p, <double*>zf.p, <double*>buoy.p, <double*>idpdx.p, <double*>idpdy.p)
+    c_blumberg_mellor(grid.nx_, grid.ny_, grid.nz_, grid.halox + 1, grid.halox + grid.nx, grid.haloy + 1, grid.haloy + grid.ny, <int*>umask.p, <int*>vmask.p, <double*>idxu.p, <double*>idyv.p, <double*>hu.p, <double*>hv.p, <double*>zf.p, <double*>buoy.p, <double*>idpdx.p, <double*>idpdy.p)
 
 def shchepetkin_mcwilliams(Array buoy, Array idpdx, Array idpdy):
     cdef Grid grid = buoy.grid
@@ -644,7 +585,7 @@ def shchepetkin_mcwilliams(Array buoy, Array idpdx, Array idpdy):
     cdef Array h = grid.hn
     cdef Array z = grid.zin
     cdef Array zc = grid.zc
-    c_shchepetkin_mcwilliams(grid.nx_, grid.ny_, grid.nz_, grid.domain.halox + 1, grid.domain.halox + grid.nx, grid.domain.haloy + 1, grid.domain.haloy + grid.ny, <int*>mask.p, <int*>umask.p, <int*>vmask.p, <double*>idxu.p, <double*>idyv.p, <double*>h.p, <double*>z.p, <double*>zc.p, <double*>buoy.p, <double*>idpdx.p, <double*>idpdy.p)
+    c_shchepetkin_mcwilliams(grid.nx_, grid.ny_, grid.nz_, grid.halox + 1, grid.halox + grid.nx, grid.haloy + 1, grid.haloy + grid.ny, <int*>mask.p, <int*>umask.p, <int*>vmask.p, <double*>idxu.p, <double*>idyv.p, <double*>h.p, <double*>z.p, <double*>zc.p, <double*>buoy.p, <double*>idpdx.p, <double*>idpdy.p)
 
 def multiply_add(double[::1] tgt, const double[::1] add, double scale_factor):
     if tgt.shape[0] != 0:
@@ -653,7 +594,7 @@ def multiply_add(double[::1] tgt, const double[::1] add, double scale_factor):
 def vertical_advection_to_sources(int halox, int haloy, int[:, :, ::1] mask, double[:, : , ::1] c, double[:, : , ::1] w, double[:, : , ::1] h, double[:, : , ::1] s):
     c_vertical_advection_to_sources(<int>c.shape[2], <int>c.shape[1], <int>c.shape[0], halox, haloy, &mask[0,0,0], &c[0,0,0], &w[0,0,0], &h[0,0,0], &s[0,0,0])
 
-def update_gvc(double dsigma, const double [::1] dbeta, double Dgamma, int kk, const double [:, ::1] D, int[:, ::1] mask, double [:, :, ::1] h):
+def update_gvc(double dsigma, const double [::1] dbeta, double Dgamma, int kk, const double [:, ::1] D, const int[:, ::1] mask, double [:, :, ::1] h):
     cdef int nx = <int>D.shape[1]
     cdef int ny = <int>D.shape[0]
     cdef int nz = <int>dbeta.shape[0]
