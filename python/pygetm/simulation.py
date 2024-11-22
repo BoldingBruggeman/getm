@@ -835,7 +835,7 @@ class Simulation(BaseSimulation):
             grid.hn.all_values[..., edges] = FILL_VALUE
 
         if self.fabm:
-            self.fabm.start(self.time)
+            self.fabm.start(self.macrotimestep, self.time)
 
         # Ensure elevations are valid (not shallower than minimum depth)
         minz = -self.T.H.all_values + self.Dmin

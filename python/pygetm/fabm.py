@@ -31,6 +31,9 @@ class FABM:
         self.squeeze = squeeze
 
         self._variable2array: MutableMapping[pyfabm.Variable, core.Array] = {}
+        self._yearday: Optional[pyfabm.Dependency] = None
+        self._nyear: Optional[pyfabm.Dependency] = None
+        self._yearstart: Optional[cftime.datetime] = None
 
     def initialize(
         self,
@@ -190,7 +193,7 @@ class FABM:
     def state_variables(self) -> Iterable[core.Array]:
         return [self._variable2array[v] for v in self.model.state_variables]
 
-    def start(self, time: Optional[cftime.datetime] = None):
+    def start(self, timestep: float, time: Optional[cftime.datetime] = None):
         """Prepare FABM. This includes flagging which diagnostics need saving based on
         the output manager configuration, offering fields registered with the field
         manager to FABM if they have a standard name assigned, and subsequently
@@ -217,13 +220,29 @@ class FABM:
                     variable.link(field.all_values.reshape(shape))
 
         try:
-            self._yearday = self.model.dependencies.find(
+            self._yearday = self.model.dependencies[
                 "number_of_days_since_start_of_the_year"
-            )
-            timedelta = time - cftime.datetime(time.year, 1, 1, calendar=time.calendar)
-            self._yearday.value = timedelta.total_seconds() / 86400.0
+            ]
         except KeyError:
-            self._yearday = None
+            pass
+
+        try:
+            self._nyear = self.model.dependencies["number_of_days_in_year"]
+        except KeyError:
+            pass
+
+        try:
+            self.model.dependencies["maximum_time_step"].value = timestep
+        except KeyError:
+            pass
+
+        if self._yearday or self._nyear:
+            self._yearstart = cftime.datetime(time.year, 1, 1, calendar=time.calendar)
+        if self._yearday:
+            self._yearday.value = (time - self._yearstart).total_seconds() / 86400.0
+        if self._nyear:
+            yearstop = cftime.datetime(time.year + 1, 1, 1, calendar=time.calendar)
+            self._nyear.value = (yearstop - self._yearstart).total_seconds() / 86400.0
 
         # Start FABM. This verifies whether all dependencies are fulfilled and freezes
         # the set of diagnostics that will be saved.
@@ -318,9 +337,15 @@ class FABM:
         This does not update the state variables themselves; that is done by
         :meth:`advance`
         """
+        if self._yearstart and self._yearstart.year != time.year:
+            # Year has changed
+            self._yearstart = cftime.datetime(time.year, 1, 1, calendar=time.calendar)
+            if self._nyear:
+                yearstop = cftime.datetime(time.year + 1, 1, 1, calendar=time.calendar)
+                timedelta = yearstop - self._yearstart
+                self._nyear.value = timedelta.total_seconds() / 86400.0
         if self._yearday:
-            timedelta = time - cftime.datetime(time.year, 1, 1, calendar=time.calendar)
-            self._yearday.value = timedelta.total_seconds() / 86400.0
+            self._yearday.value = (time - self._yearstart).total_seconds() / 86400.0
         valid = self.model.check_state(self.repair)
         if not (valid or self.repair):
             raise Exception("FABM state contains invalid values.")
