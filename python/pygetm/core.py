@@ -663,7 +663,7 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
         self.compare_halos = dist.compare_halos
         getattr(self, method)(*args, **kwargs)
 
-    def scatter(self, global_data: Optional["Array"]):
+    def scatter(self, global_data: Optional[np.ndarray]):
         if self.grid.tiling.n == 1:
             self.values[...] = global_data
             return
@@ -675,7 +675,7 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
                 haloy=self.grid.haloy,
                 fill_value=self._fill_value,
             )
-        self._scatter(None if global_data is None else global_data.all_values)
+        self._scatter(global_data)
 
     def gather(self, out: Optional["Array"] = None, slice_spec=()):
         if self.grid.tiling.n == 1:
