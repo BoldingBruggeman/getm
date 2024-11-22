@@ -501,7 +501,7 @@ class Tiling:
         dtype: DTypeLike,
         fill_value: Optional[float] = None,
     ) -> np.ndarray:
-        key = (shape, dtype, fill_value)
+        key = (shape, dtype, np.asarray(fill_value).item())
         if key not in self._caches:
             self._caches[key] = np.empty(shape, dtype)
             if fill_value is not None:
