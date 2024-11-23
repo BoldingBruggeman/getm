@@ -219,6 +219,7 @@ class Grid(_pygetm.Grid):
             units="rad",
             long_name="grid rotation with respect to true North",
             fill_value=np.nan,
+            attrs=dict(_time_varying=False),
         )
 
     def freeze(self):
