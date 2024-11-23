@@ -688,7 +688,7 @@ class Domain:
             self._populate_grid(grid)
             grid.input_manager = input_manager
             grid.default_output_transforms = self.default_output_transforms
-            grid.input_grid_mappers = self.input_grid_mappers
+            grid.input_grid_mappers = [m(grid=grid) for m in self.input_grid_mappers]
             return grid
 
         U = V = X = UU = UV = VU = VV = None
