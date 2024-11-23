@@ -481,12 +481,16 @@ class Domain:
             # Interpolate longitude in cos-sin space to handle periodic boundary
             # condition, but skip this if longitude is already provided on supergrid
             # (no interpolation needed) to improve accuracy of rotation tests.
-            lon_rad = DEG2RAD * np.asarray(lon).astype(float, copy=False)
+            lon = np.asarray(lon).astype(float, copy=False)
+            lon_rad = DEG2RAD * lon
             coslon = np.cos(lon_rad)
             sinlon = np.sin(lon_rad)
             coslon = self._map_array(coslon, edges=EdgeTreatment.EXTRAPOLATE)
             sinlon = self._map_array(sinlon, edges=EdgeTreatment.EXTRAPOLATE)
             self._lon = np.arctan2(sinlon, coslon) * RAD2DEG
+            central_lon = 0.5 * (lon.min() + lon.max())
+            wrap_lon = central_lon - 180.0
+            self._lon = (self._lon - wrap_lon) % 360.0 + wrap_lon
         else:
             self._lon = self._map_array(lon)
         self._lat = self._map_array(lat, edges=EdgeTreatment.EXTRAPOLATE)
