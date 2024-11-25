@@ -15,45 +15,7 @@ H = 5.0 + 5 * np.arange(100)
 x = np.linspace(0.0, 100000, 100)
 y = np.linspace(0.0, 200, 2)
 
-domain = pygetm.domain.create_cartesian(x=x, y=y, nz=nz, f=0.0, H=H)
-# domain.initialize(pygetm.BAROCLINIC)
-print(domain.T)
-# print('AAAAA')
-# print(domain._initialized)
-# print('BBBBB')
-
-sim = pygetm.Simulation(domain, runtype=pygetm.BAROTROPIC_3D)
-
-ddl = 0.75
-ddu = 1.0
-
-ddl = 0.0
-ddu = 0.0
-
-# Sigma coordinates
-vc_sigma = vertical_coordinates.Sigma(nz, ddl, ddu)
-# print(vc_sigma.dga)
-# print(vc_sigma(D[np.newaxis, :])[:, 0, :])
-# KBh = vc_sigma(D[np.newaxis, :])[:, 0, :]
-h = vc_sigma(domain.T.H)[:, :, :]
-
-print(np.shape(h))
-z = np.zeros((nz + 1, h.shape[1]))
-# z[1:] = h.cumsum(axis=0)
-
-# General Vertical Coordinates
-ddl = 1.0
-ddu = 1.0
-Dgamma = 50.0
-gamma_surf = True
-vc = vertical_coordinates.GVC(nz, ddl, ddu, Dgamma=Dgamma, gamma_surf=gamma_surf)
-print(vc.dbeta.shape)
-print(D.shape)
-print(vc.dbeta.shape + D.shape)
-
-# h = vc(D[np.newaxis, :int(imax)])[:, 0, :]
-# z = np.zeros((nz + 1, h.shape[1]))
-# z[1:] = h.cumsum(axis=0)
+domain = pygetm.domain.create_cartesian(x=x, y=y, f=0.0, H=H)
 
 # Adaptive Coordinates
 ddl = 1.0
@@ -91,21 +53,29 @@ vc = vertical_coordinates.Adaptive(
     tgrid=14400.0,
     split=1,
 )
+sim = pygetm.Simulation(domain, vertical_coordinates=vc, runtype=pygetm.BAROTROPIC_3D)
 
-# sim = pygetm.Simulation(domain, runtype=pygetm.BAROCLINIC)
+# need an initial layer thickness for vertical coordinates
+if True:
+    # Sigma coordinates
+    ddl = 0.0
+    ddu = 0.0
+    vc_sigma = vertical_coordinates.Sigma(nz, ddl=ddl, ddu=ddu)
+    sim.T.hn[...] = vc_sigma(sim.T.D)
+else:
+    # General Vertical Coordinates
+    ddl = 1.0
+    ddu = 1.0
+    Dgamma = 10.0
+    gamma_surf = True
+    vc = vertical_coordinates.GVC(nz, ddl, ddu, Dgamma=Dgamma, gamma_surf=gamma_surf)
 
-vc.initialize(domain.T, domain.U, domain.V, domain.X)
-#vc.initialize(domain.T)
-
-domain.T.hn[...] = 0.
-domain.U.hn[...] = 0.
-domain.V.hn[...] = 0.
-domain.X.hn[...] = 0.
-print(domain.T.hn[-1,1,55:65])
-print(domain.U.hn[-1,1,55:65])
-vc(D)
-vc.update(10.)
-print(domain.T.hn[-1,1,55:56+1])
-print(domain.U.hn[-1,1,55])
-print(domain.V.hn[-1,0,55])
-print(domain.X.hn[-1,1,55])
+sim.U.hn[...] = 0.
+sim.V.hn[...] = 0.
+sim.X.hn[...] = 0.
+sim.vertical_coordinates(D)
+sim.vertical_coordinates.update(10.)
+print(sim.T.hn[-1,1,55:56+1])
+print(sim.U.hn[-1,1,55])
+print(sim.V.hn[-1,0,55])
+print(sim.X.hn[-1,1,55])

@@ -26,8 +26,8 @@ module c_adaptive
 !! is replaced by a field oriented approach.
 !!
 !! There are 3 main steps involved:
-!!    1. Construct the grid diffusivity - nu (renamed from Dgrid). This will be a sequence of
-!!       individual contributions
+!!    1. Construct the grid diffusivity - nu (renamed from Dgrid). This
+!!       will be a sequence of individual contributions:
 !!       1. Define background value (sigma)
 !!       2. Add GVC tendency
 !!       3. Add "mid-column" zooming (punish relatively big cells)
@@ -41,8 +41,8 @@ module c_adaptive
 contains
 
 subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
-                             mask, H, D, zo, ho, &
-                             NN, SS, nu, &
+                             mask, H, D, zo, &
+                             ho, NN, SS, nu, &
                              decay, hpow,  &
                              chsurf, hsurf,  &
                              chmidd, hmidd, &
@@ -51,24 +51,25 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
                              cNN, drho, &
                              cSS, dvel, &
                              chmin, hmin, &
-                             dt) bind(c)
+                             dt, &
+                             ga) bind(c)
 
 
 !  Subroutine arguments
    integer(c_int), intent(in), value :: nx, ny, nz
    integer(c_int), intent(in), value :: halox, haloy
-#define _D2_  -halox+1:nx+halox,-haloy+1:ny+haloy
-#define _D3_  -halox+1:nx+halox,-haloy+1:ny+haloy,nz
-   integer(c_int), intent(in) :: mask(_D2_)
-   real(c_double), intent(in) :: H(_D2_)
-   real(c_double), intent(in) :: D(_D2_)
-   real(c_double), intent(in) :: zo(_D2_)
-   real(c_double), intent(in) :: ho(_D3_)
-   real(c_double), intent(in) :: NN(_D3_)
-   real(c_double), intent(in) :: SS(_D3_)
-   real(c_double), intent(inout) :: nu(_D3_)
-#undef _D3_
-#undef _D2_
+#define _2D_  -halox+1:nx+halox,-haloy+1:ny+haloy
+   integer(c_int), intent(in) :: mask(_2D_)
+   real(c_double), intent(in) :: H(_2D_)
+   real(c_double), intent(in) :: D(_2D_)
+   real(c_double), intent(in) :: zo(_2D_)
+   real(c_double), intent(in) :: ho(_2D_,nz)
+   real(c_double), intent(in) :: NN(_2D_,nz)
+   real(c_double), intent(in) :: SS(_2D_,nz)
+   real(c_double), intent(inout) :: nu(_2D_,nz)
+   real(c_double), intent(inout) :: ga(_2D_,0:nz)
+!KB   real(c_double), intent(inout) :: ga(nx,ny,0:nz)
+#undef _2D_
    real(c_double), intent(in), value :: decay
    integer(c_int), intent(in), value :: hpow
    real(c_double), intent(in), value :: chsurf, hsurf
@@ -100,15 +101,15 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
 
    if (first) then
 
-#define _PRINT_
+#define N_PRINT_
 #ifdef _PRINT_
    write(100,*) 'c_update_adaptive'
    write(100,*) nx, ny, nz
    write(100,*) halox, haloy
    write(100,*) halox, haloy
-!   write(100,*) H
-!   write(100,*) D
-!   write(100,*) ho
+!   write(100,*) 'H ',H
+!   write(100,*) 'D ',D
+   write(100,*) 'ho ',ho
 !   write(100,*) 'NN ', NN
 !   write(100,*) 'SS ', SS
    write(100,*) 'decay ',decay, hpow
@@ -121,9 +122,13 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    write(100,*) 'min   ',hmin, chmin
 #endif
 
-      allocate(ihmax(nx,ny,3))
-      allocate(sdecay(0:nz))
-      allocate(bdecay(0:nz))
+      if ( chsurf > ceps .or. chmidd > ceps .or. chbott > ceps) then
+         allocate(ihmax(nx,ny,3))
+      end if
+      if ( decay > ceps) then
+         allocate(sdecay(0:nz))
+         allocate(bdecay(0:nz))
+      end if
       allocate(haux(nx,ny,nz))
 
       do j=jmin,jmax
@@ -165,26 +170,29 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
          end do
       end do
 
+      ! surface and bottm wall decay
       if (decay > ceps) then
-         ! sdecay - wcolsurf
-         sdecay(0) = 0
-         sdecay(kmax) = 1
+         sdecay(0) = 0._rk
+         sdecay(kmax) = 1._rk
          do k=kmax-1,1,-1
             sdecay(k) = sdecay(k+1)*decay
          end do
 
-         ! bdecay - wcolbott
-         bdecay(0) = 0
-         bdecay(1) = 1
+         bdecay(0) = 0._rk
+         bdecay(1) = 1._rk
          do k=2,kmax
             bdecay(k) = bdecay(k-1)*decay
          end do
       end if
 
 #ifdef _PRINT_
-   write(100,*) ihmax(50,1,:)
-   !write(100,*) sdecay
-   !write(100,*) bdecay
+   if ( chsurf > ceps .or. chmidd > ceps .or. chbott > ceps) then
+      write(100,*) 'ihmax ',ihmax(50,1,:)
+   end if
+   if (decay > ceps) then
+      write(100,*) 'sdecay ',sdecay
+      write(100,*) 'bdecay ',bdecay
+   end if
    write(100,*) 'c_update_adaptive'
 #endif
 
@@ -210,11 +218,12 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    ! 1.2 - GVC - done in Python
 
    ! 1.3 - chmidd
-   large_cell_limitation: block
-   real(c_double) :: relh(kmax)
-   real(c_double) :: wwh
-
+   !write(*,*) "1.3"
    if (chmidd > ceps) then
+      large_cell_limitation: block
+      real(c_double) :: relh(kmax)
+      real(c_double) :: wwh
+
       do j=imin,jmax
          do i=imin,imax
             if (mask(i,j) < 1) cycle
@@ -230,15 +239,16 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
             end do
          end do
       end do
+      end block large_cell_limitation
    end if
-   end block large_cell_limitation
 
    ! 1.4.1 chsurf
-   surface_cell_limitation: block
-   real(c_double) :: relh
-   real(c_double) :: wwh
-
+   !write(*,*) "1.4.1"
    if (chsurf > ceps) then
+      surface_cell_limitation: block
+      real(c_double) :: relh
+      real(c_double) :: wwh
+
       do j=jmin,jmax
          do i=imin,imax
             if (mask(i,j) < 1) cycle
@@ -253,15 +263,16 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
             nu(i,j,:)=nu(i,j,:)+chsurf*wwh*sdecay(:)
          end do
       end do
+      end block surface_cell_limitation
    end if
-   end block surface_cell_limitation
 
    ! 1.4.2 chbott
-   bottom_cell_limitation: block
-   real(c_double) :: relh
-   real(c_double) :: wwh
-
+   !write(*,*) "1.4.2"
    if (chbott > ceps) then
+      bottom_cell_limitation: block
+      real(c_double) :: relh
+      real(c_double) :: wwh
+
       do j=jmin,jmax
          do i=imin,imax
             if (mask(i,j) < 1) cycle
@@ -276,17 +287,18 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
             nu(i,j,:)=nu(i,j,:)+chbott*wwh*bdecay(:)
          end do
       end do
+      end block bottom_cell_limitation
    end if
-   end block bottom_cell_limitation
 
    ! 1.? Neighbor-cell size-ratio limiter.
-   neighbor_cell_limitation: block
-   real(c_double) :: irneigh
-   real(c_double) :: relh(kmax)
-   real(c_double) :: wwh(kmax)
+   !write(*,*) "1.?"
+   if (cneigh > ceps) then
+      neighbor_cell_limitation: block
+      real(c_double) :: irneigh
+      real(c_double) :: relh(kmax)
+      real(c_double) :: wwh(kmax)
 !KB   real(c_double) :: wwh
 
-   if (cneigh > ceps) then
       irneigh = 1._rk/rneigh
       do j=jmin,jmax
          do i=imin,imax
@@ -309,15 +321,16 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
 #endif
          end do
       end do
+      end block neighbor_cell_limitation
    end if
-   end block neighbor_cell_limitation
 
    ! 1.5.1 bouyancy
-   bouyancy: block
-   real(c_double) :: idNN
-   real(c_double) :: x,y
-
+   !write(*,*) "1.5.1"
    if (cNN > ceps) then
+      bouyancy: block
+      real(c_double) :: idNN
+      real(c_double) :: x,y
+
       idNN = 1025._rk/(9.81_rk*drho)/kmax
       do j=jmin,jmax
          do i=imin,imax
@@ -330,15 +343,16 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
             end do
          end do
       end do
+      end block bouyancy
    end if
-   end block bouyancy
 
    ! 1.5.2 shear
-   shear: block
-   real(c_double) :: idvel
-   real(c_double) :: x,y
-
+   !write(*,*) "1.5.2"
    if (cSS > ceps) then
+      shear: block
+      real(c_double) :: idvel
+      real(c_double) :: x,y
+
       idvel = 1._rk/dvel/kmax
       do j=jmin,jmax
          do i=imin,imax
@@ -351,10 +365,11 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
             end do
          end do
       end do
+      end block shear
    end if
-   end block shear
 
    ! 1.6.1 - small-cell limiter
+   !write(*,*) "1.6.1"
    small_cell_limiter: block
    real(c_double) :: f, ihmin
 
@@ -373,15 +388,16 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end block small_cell_limiter
 
    ! 1.6.2 - shallow-water effect
-   shallow_water_limiter: block
-   real(c_double) :: relh
-
+   !write(*,*) "1.6.2"
    if (chmin > ceps) then
+      shallow_water_limiter: block
+      real(c_double) :: relh
+
       do j=jmin,jmax
          do i=imin,imax
             if (mask(i,j) < 1) cycle
 
-            ! havg=Dmin(i,j)/kmax => hmin/havg = hmin*kmax/D(i,j)
+            ! havg=D(i,j)/kmax => hmin/havg = hmin*kmax/D(i,j)
             relh = 2._rk*(hmin*kmax/D(i,j) - 1._rk)
             if (relh < 0._rk .or. relh > 1._rk) then
                relh=(0.5_rk+sign(0.5_rk,relh))
@@ -390,8 +406,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
             nu(i,j,:)=nu(i,j,:)+chmin*relh
          end do
       end do
+      end block shallow_water_limiter
    end if
-   end block shallow_water_limiter
 #ifdef _PRINT_
    write(100,*) 'nu ',nu(50,1,:)
 #endif
@@ -399,6 +415,31 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    ! 2. Vertical filtering - done in Python
 
    ! 3. Lateral filtering - done in Python
+
+   ! Calculate gamma
+   gamma: block
+   real(c_double) :: iD(imin:imax,jmin:jmax)
+   do j=jmin,jmax
+      do i=imin,imax
+         if (mask(i,j) < 1) cycle
+!KB         iD(i,j) = 1._rk/D(i,j)
+         iD(i,j) = 1._rk/(H(i,j)+zo(i,j))
+      end do
+   end do
+   ga(imin:imax,jmin:jmax,0) = -1._rk
+   do k=1,kmax-1
+      do j=jmin,jmax
+         do i=imin,imax
+            if (mask(i,j) < 1) cycle
+            ga(i,j,k) = ga(i,j,k-1) + ho(i,j,k)*iD(i,j)
+!            write(75,*) i,j,mask(i,j),ho(i,j,k),iD(i,j)
+!            write(75,*) ga(i,j,k-1),ga(i,j,k)
+!            stop 1111
+         end do
+      end do
+   end do
+   ga(imin:imax,jmin:jmax,kmax) = 0._rk
+   end block gamma
 
 end subroutine c_update_adaptive
 

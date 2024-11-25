@@ -66,7 +66,10 @@ cdef extern void c_blumberg_mellor(int nx, int ny, int nz, int imin, int imax, i
 cdef extern void c_shchepetkin_mcwilliams(int nx, int ny, int nz, int imin, int imax, int jmin, int jmax, const int* mask, const int* umask, const int* vmask, const double* idxu, const double* idyv, const double* h, const double* z, const double* zc, const double* buoy, double* idpdx, double* idpdy) nogil
 cdef extern void c_vertical_advection_to_sources(int nx, int ny, int nz, int halox, int haloy, const int* mask, const double* c, const double* w, const double* h, double* s)
 cdef extern void c_update_gvc(int nx, int ny, int nz, double dsigma, const double* dbeta, double Dgamma, int kk, const double* D, const int* mask, double* h)
-cdef extern void c_update_adaptive(int nx, int ny, int nz, int halox, int haloy, const int* mask, const double* H, const double* D, const double* zo, const double* ho, const double* NN, const double* SS, const double* nu, double decay, int hpow, double chsurf, double hsurf, double chmidd, double hmidd, double chbott, double hbott, double cneigh, double rneigh, double cNN, double drho, double cSS, double dvel, double chmin, double hmin, double dt) nogil
+
+cdef extern void c_update_adaptive(int nx, int ny, int nz, int halox, int haloy, const int* mask, const double* H, const double* D, const double* zo, const double* ho, const double* NN, const double* SS, const double* nu, double decay, int hpow, double chsurf, double hsurf, double chmidd, double hmidd, double chbott, double hbott, double cneigh, double rneigh, double cNN, double drho, double cSS, double dvel, double chmin, double hmin, double dt, const double* ga) nogil
+
+#def update_adaptive(Array f not None, const double [:, :, ::1] NN, const double [:, :, ::1] SS, Array ga not None, double decay, int hpow, double chsurf, double hsurf, double chmidd, double hmidd, double chbott, double hbott, double cneigh, double rneigh, double cNN, double drho, double cSS, double dvel, double chmin, double hmin, double dt):
 
 
 cdef class FortranArrayContainer:
@@ -193,8 +196,8 @@ def interp_xy(const double[:,:,::1] source not None, double[:,:,::1] target not 
     grid_interp_xy(<int>source.shape[2], <int>source.shape[1], <int>target.shape[2], <int>target.shape[1], <int>source.shape[0], &source[0,0,0], &target[0,0,0], ioffset, joffset)
 
 def horizontal_filter(Array f not None, double w):
-    cdef int halox = f.grid.domain.halox
-    cdef int haloy = f.grid.domain.haloy
+    cdef int halox = f.grid.halox
+    cdef int haloy = f.grid.haloy
     cdef int nx = f.grid.nx
     cdef int ny = f.grid.ny
     cdef int nz = f.grid.nz
@@ -203,8 +206,8 @@ def horizontal_filter(Array f not None, double w):
     c_horizontal_filter(1, nx, 1, ny, nz, halox, haloy, <int*>mask.p, w, <double*>f.p)
 
 def vertical_filter(int n, Array f not None, double w):
-    cdef int halox = f.grid.domain.halox
-    cdef int haloy = f.grid.domain.haloy
+    cdef int halox = f.grid.halox
+    cdef int haloy = f.grid.haloy
     cdef int nx = f.grid.nx
     cdef int ny = f.grid.ny
     cdef int nz = f.grid.nz
@@ -604,9 +607,9 @@ def update_gvc(double dsigma, const double [::1] dbeta, double Dgamma, int kk, c
         kk = nz + kk
     c_update_gvc(nx, ny, nz, dsigma, &dbeta[0], Dgamma, 1 + kk, &D[0, 0], &mask[0, 0], &h[0, 0, 0])
 
-def update_adaptive(Array f not None, const double [:, :, ::1] NN, const double [:, :, ::1] SS,  double decay, int hpow, double chsurf, double hsurf, double chmidd, double hmidd, double chbott, double hbott, double cneigh, double rneigh, double cNN, double drho, double cSS, double dvel, double chmin, double hmin, double dt):
-    cdef int halox = f.grid.domain.halox
-    cdef int haloy = f.grid.domain.haloy
+def update_adaptive(Array f not None, Array ga not None, const double [:, :, ::1] NN, const double [:, :, ::1] SS, double decay, int hpow, double chsurf, double hsurf, double chmidd, double hmidd, double chbott, double hbott, double cneigh, double rneigh, double cNN, double drho, double cSS, double dvel, double chmin, double hmin, double dt):
+    cdef int halox = f.grid.halox
+    cdef int haloy = f.grid.haloy
     cdef int nx = f.grid.nx
     cdef int ny = f.grid.ny
     cdef int nz = f.grid.nz
@@ -617,7 +620,7 @@ def update_adaptive(Array f not None, const double [:, :, ::1] NN, const double 
     cdef Array ho = f.grid.hn
     #assert mask.shape[0] == ny and mask.shape[1] == nx
     #assert nu.shape[0] == nz and nu.shape[1] == ny and nu.shape[2] == nx
-    c_update_adaptive(nx, ny, nz, halox, haloy, <int*>mask.p, <double*>H.p, <double*>D.p, <double*>zo.p, <double*>ho.p, &NN[0, 0, 0], &SS[0, 0, 0], <double*>f.p, decay, hpow, chsurf, hsurf, chmidd, hmidd, chbott, hbott, cneigh, rneigh, cNN, drho, cSS, dvel, chmin, hmin, dt)
+    c_update_adaptive(nx, ny, nz, halox, haloy, <int*>mask.p, <double*>H.p, <double*>D.p, <double*>zo.p, <double*>ho.p, &NN[0, 0, 0], &SS[0, 0, 0], <double*>f.p, decay, hpow, chsurf, hsurf, chmidd, hmidd, chbott, hbott, cneigh, rneigh, cNN, drho, cSS, dvel, chmin, hmin, dt, <double*>ga.p)
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
