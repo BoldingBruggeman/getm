@@ -858,16 +858,31 @@ def find_optimal_divison(
     if ncpus is None:
         ncpus = (comm or MPI.COMM_WORLD).size
 
+    ny, nx = mask.shape
+
     # If we only have 1 CPU, just use the full domain
     if ncpus == 1:
         return {
             "ncpus": 1,
-            "nx": mask.shape[1],
-            "ny": mask.shape[0],
+            "nx": nx,
+            "ny": ny,
             "xoffset": 0,
             "yoffset": 0,
             "cost": 0,
             "map": np.ones((1, 1), dtype=np.intc),
+        }
+
+    # If we have a 1D grid with only unmasked (water) points,
+    # return simple equal subdomian division
+    if ny == 1 and np.all(mask):
+        return {
+            "ncpus": ncpus,
+            "nx": int(np.ceil(nx / ncpus)),
+            "ny": 1,
+            "xoffset": 0,
+            "yoffset": 0,
+            "cost": 0,
+            "map": np.ones((1, ncpus), dtype=np.intc),
         }
 
     comm = comm or mpi4py_autofree(MPI.COMM_WORLD.Dup())
@@ -884,10 +899,10 @@ def find_optimal_divison(
 
     # Determine potential number of subdomain combinations
     nx_ny_combos = []
-    for ny_sub in range(4, mask.shape[0] + 1):
+    for ny_sub in range(4, ny + 1):
         for nx_sub in range(
             max(4, ny_sub // max_aspect_ratio),
-            min(max_aspect_ratio * ny_sub, mask.shape[1] + 1),
+            min(max_aspect_ratio * ny_sub, nx + 1),
         ):
             nx_ny_combos.append((nx_sub, ny_sub))
     nx_ny_combos = np.array(nx_ny_combos, dtype=int)
@@ -896,7 +911,7 @@ def find_optimal_divison(
         logger.info(
             (
                 "Determining optimal subdomain decomposition of global domain of "
-                f"{mask.shape[1]} x {mask.shape[0]} ({(mask != 0).sum()} active cells)"
+                f"{nx} x {ny} ({(mask != 0).sum()} active cells)"
                 f" for {ncpus} cores"
             )
         )
