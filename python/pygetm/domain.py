@@ -452,7 +452,9 @@ class Domain:
         if coordinate_type is None:
             coordinate_type = CoordinateType.XY if has_xy else CoordinateType.LONLAT
         assert (coordinate_type == CoordinateType.XY and has_xy) or (
-            coordinate_type == CoordinateType.LONLAT and has_lonlat
+            coordinate_type == CoordinateType.LONLAT
+            and has_lonlat
+            or (coordinate_type == CoordinateType.IJ and (has_xy or has_lonlat))
         )
 
         self.nx = nx
