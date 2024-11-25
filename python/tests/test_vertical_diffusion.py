@@ -27,18 +27,18 @@ def for_each_grid(test_func):
                     f=0,
                     H=50.0,
                     logger=pygetm.parallel.get_logger(level="ERROR"),
+                    comm=pygetm.parallel.MPI.COMM_WORLD,
                 )
                 # randomly mask half of the domain
                 domain.mask = rng.random(domain.mask.shape) > 0.5
-                self.sim = pygetm.Simulation(
-                    domain,
-                    runtype=pygetm.RunType.BAROTROPIC_3D,
-                    vertical_coordinates=pygetm.vertical_coordinates.Sigma(
-                        25, **grid_args
-                    ),
+                vc = pygetm.vertical_coordinates.Sigma(25, **grid_args)
+                T = domain.create_grids(vc.nz, halox=2, haloy=2, velocity_grids=0)
+                vc.initialize(
+                    T, logger=domain.root_logger.getChild("vertical_coordinates")
                 )
-                assert (self.sim.T.ho.all_values == self.sim.T.hn.all_values).all()
-                test_func(self, self.sim.T, *args, **kwargs)
+                vc.update(0.0)
+                T.ho.all_values[:, :, :] = T.hn.all_values
+                test_func(self, T, *args, **kwargs)
 
     return wrapper
 
