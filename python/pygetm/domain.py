@@ -633,6 +633,7 @@ class Domain:
             mask,
             periodic_x=self.periodic_x,
             periodic_y=self.periodic_y,
+            comm=self.comm,
             logger=self.logger.getChild("subdomain_decomposition"),
         )
 
