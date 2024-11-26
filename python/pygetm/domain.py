@@ -742,7 +742,6 @@ class Domain:
 
     def _populate_grid(self, grid: core.Grid):
         NAMEMAP = dict(z0="_z0b_min", f="_cor", rotation="rotation")
-        is_root = grid.tiling.rank == 0
 
         edges_x = EdgeTreatment.PERIODIC if self.periodic_x else EdgeTreatment.MISSING
         edges_y = EdgeTreatment.PERIODIC if self.periodic_y else EdgeTreatment.MISSING
@@ -772,7 +771,8 @@ class Domain:
             target = getattr(grid, NAMEMAP.get(name, f"_{name}"), None)
             if available and target is not None:
                 global_values = None
-                if is_root:
+                if grid.tiling.rank == 0:
+                    # We are on the root node that has the global values
                     if grid.joffset > 1 or grid.ioffset > 1:
                         # UU or VV grid that needs one more strip of 1 cell beyond the end
                         # of the supergrid. By default, that is left at missing_value, but
@@ -787,16 +787,21 @@ class Domain:
                     global_values = source[grid.joffset :: 2, grid.ioffset :: 2]
                     global_values = global_values[: global_shape[0], : global_shape[1]]
 
-                    # On the root node, keep a pointer to the full global field
+                    # Keep a pointer to the full global field
                     # This will be used preferentially for full-domain output
                     target.attrs["_global_values"] = global_values
                 target.scatter(global_values)
                 if self.periodic_x or self.periodic_y:
                     target.update_halos()
                 retrieved_from_domain.add(name)
+
+        # If the Coriolis parameter was not set explicitly at domain level,
+        # calculate it from latitude
         if "f" not in retrieved_from_domain:
-            # Calculate Coriolis parameter from latitude
             grid._cor.all_values[...] = coriolis(grid._lat.all_values)
+
+        # Set default horizontal coordinates (e.g., for output and online plotting)
+        # based on the coordinate type set at domain level.
         if self.coordinate_type == CoordinateType.XY:
             grid.horizontal_coordinates += [grid.x, grid.y]
         elif self.coordinate_type == CoordinateType.LONLAT:
