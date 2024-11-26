@@ -674,6 +674,7 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
                 self.all_values,
                 halox=self.grid.halox,
                 haloy=self.grid.haloy,
+                share=self.grid.overlap,
                 fill_value=self._fill_value,
             )
         self._scatter(global_data)

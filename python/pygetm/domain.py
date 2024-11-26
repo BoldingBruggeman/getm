@@ -747,27 +747,6 @@ class Domain:
         edges_x = EdgeTreatment.PERIODIC if self.periodic_x else EdgeTreatment.MISSING
         edges_y = EdgeTreatment.PERIODIC if self.periodic_y else EdgeTreatment.MISSING
 
-        def scatter(source: np.ndarray, target: np.ndarray, fill_value):
-            s = parallel.Scatter(
-                grid.tiling, target, grid.halox, grid.haloy, grid.overlap
-            )
-            all_data = None
-            if is_root:
-                if grid.joffset > 1 or grid.ioffset > 1:
-                    # UU or VV grid that needs one more strip of 1 cell beyond the end
-                    # of the supergrid. Normally that is
-                    source = expand_2d(
-                        source,
-                        edges_x=edges_x,
-                        edges_y=edges_y,
-                        missing_value=fill_value,
-                    )[1:, 1:]
-                data = source[grid.joffset :: 2, grid.ioffset :: 2]
-                all_data = np.full(global_shape, fill_value, dtype=target.dtype)
-                all_data[...] = data[: global_shape[0], : global_shape[1]]
-            s(all_data)
-            return all_data
-
         global_shape = (
             grid.tiling.ny_glob + grid.overlap,
             grid.tiling.nx_glob + grid.overlap,
@@ -792,11 +771,26 @@ class Domain:
             available = grid.tiling.comm.bcast(source is not None)
             target = getattr(grid, NAMEMAP.get(name, f"_{name}"), None)
             if available and target is not None:
-                source = scatter(source, target.all_values, target.fill_value)
+                global_values = None
                 if is_root:
+                    if grid.joffset > 1 or grid.ioffset > 1:
+                        # UU or VV grid that needs one more strip of 1 cell beyond the end
+                        # of the supergrid. By default, that is left at missing_value, but
+                        # that is inappropriate for periodic boudaries that need mirroring.
+                        # Therefore we expand the grid properly, any mirroring included.
+                        source = expand_2d(
+                            source,
+                            edges_x=edges_x,
+                            edges_y=edges_y,
+                            missing_value=target.fill_value,
+                        )[1:, 1:]
+                    global_values = source[grid.joffset :: 2, grid.ioffset :: 2]
+                    global_values = global_values[: global_shape[0], : global_shape[1]]
+
                     # On the root node, keep a pointer to the full global field
                     # This will be used preferentially for full-domain output
-                    target.attrs["_global_values"] = source
+                    target.attrs["_global_values"] = global_values
+                target.scatter(global_values)
                 if self.periodic_x or self.periodic_y:
                     target.update_halos()
                 retrieved_from_domain.add(name)
