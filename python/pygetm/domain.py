@@ -1,18 +1,20 @@
-from typing import Mapping, Optional, Tuple, Union
+from typing import Mapping, Optional, Tuple, Union, TYPE_CHECKING
 import enum
 import functools
 import logging
 
 import numpy as np
 import numpy.typing as npt
-import xarray as xr
-import netCDF4
 
 from . import core
 from . import parallel
 from . import rivers
 from . import open_boundaries
 from .constants import CoordinateType, GRAVITY
+
+if TYPE_CHECKING:
+    import matplotlib.figure
+    import matplotlib.colors
 
 
 class EdgeTreatment(enum.Enum):
@@ -774,10 +776,11 @@ class Domain:
                 if grid.tiling.rank == 0:
                     # We are on the root node that has the global values
                     if grid.joffset > 1 or grid.ioffset > 1:
-                        # UU or VV grid that needs one more strip of 1 cell beyond the end
-                        # of the supergrid. By default, that is left at missing_value, but
-                        # that is inappropriate for periodic boudaries that need mirroring.
-                        # Therefore we expand the grid properly, any mirroring included.
+                        # UU or VV grid that needs one more strip of 1 cell
+                        # beyond the end of the supergrid. By default, that is
+                        # left at missing_value, but that is inappropriate for
+                        # periodic boudaries that need mirroring. Therefore we
+                        # expand the grid properly, any mirroring included.
                         source = expand_2d(
                             source,
                             edges_x=edges_x,
@@ -883,7 +886,8 @@ class Domain:
                 neighbor (T grid) is shallower than this value, the depth of velocity
                 point (U or V grid) is restricted.
         """
-        # NB this is guaranteed to return a writeable H, even if self.H was read-only before
+        # NB this is guaranteed to return a writeable H,
+        # even if self.H was read-only before
         H = self.H
 
         tdepth = H[1::2, 1::2]
