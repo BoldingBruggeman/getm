@@ -811,8 +811,6 @@ class Scatter:
                         icol,
                         halox_sub=halox,
                         haloy_sub=haloy,
-                        halox_glob=0,
-                        haloy_glob=0,
                         share=share,
                         scale=scale,
                         exclude_halos=exclude_halos,
