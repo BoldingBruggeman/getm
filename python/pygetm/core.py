@@ -666,7 +666,8 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
 
     def scatter(self, global_data: Optional[np.ndarray]):
         if self.grid.tiling.n == 1:
-            self.values[...] = global_data
+            if self.grid.tiling.rank == 0:
+                self.values[...] = global_data
             return
         if self._scatter is None:
             self._scatter = parallel.Scatter(
