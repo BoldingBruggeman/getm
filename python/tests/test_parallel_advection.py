@@ -90,14 +90,6 @@ class TestParallelAdvection(unittest.TestCase):
         haloy = T.haloy
         outman = pygetm.output.OutputManager(T.fields, rank=rank)
 
-        values_glob = None
-        if rank == 0:
-            # Root rank: set up global domain and initial tracer field
-            values_glob = np.zeros((ny, nx))
-            values_glob[
-                int(0.2 * ny) : int(0.4 * ny), int(0.2 * nx) : int(0.4 * nx)
-            ] = 5.0
-
         # Set up velocities
         period = 600
         omega = 2 * np.pi / period
@@ -125,9 +117,14 @@ class TestParallelAdvection(unittest.TestCase):
         # Set up tracer field for subdomain, wrap it for halo updates
         # and MPI-scatter it from root node
         f = T.array(fill=0.0, name="tracer")
-        pygetm.parallel.Scatter(tiling, f.all_values, halox=halox, haloy=haloy)(
-            values_glob
-        )
+        values_glob = None
+        if rank == 0:
+            # Root rank: calculate rectangular global initial tracer field
+            values_glob = np.zeros((ny, nx))
+            imin, imax = int(0.2 * nx), int(0.4 * nx)
+            jmin, jmax = int(0.2 * ny), int(0.4 * ny)
+            values_glob[jmin:jmax, imin:imax] = 5.0
+        f.scatter(values_glob)
 
         # Gather and plot global velocities
         if plot:

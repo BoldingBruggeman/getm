@@ -1,18 +1,20 @@
-from typing import Mapping, Optional, Tuple, Union
+from typing import Mapping, Optional, Tuple, Union, TYPE_CHECKING
 import enum
 import functools
 import logging
 
 import numpy as np
 import numpy.typing as npt
-import xarray as xr
-import netCDF4
 
 from . import core
 from . import parallel
 from . import rivers
 from . import open_boundaries
 from .constants import CoordinateType, GRAVITY
+
+if TYPE_CHECKING:
+    import matplotlib.figure
+    import matplotlib.colors
 
 
 class EdgeTreatment(enum.Enum):
@@ -438,25 +440,29 @@ class Domain:
             raise Exception(f"Number of x points is {nx} but must be > 0")
         if ny <= 0:
             raise Exception(f"Number of y points is {ny} but must be > 0")
-        has_xy = x is not None and y is not None
-        has_lonlat = lon is not None and lat is not None
+
+        self.comm = comm or parallel.mpi4py_autofree(parallel.MPI.COMM_WORLD.Dup())
+        has_xy = self.comm.bcast(x is not None and y is not None)
+        has_lonlat = self.comm.bcast(lon is not None and lat is not None)
         if not (has_xy or has_lonlat):
-            raise Exception(f"Either x and y, or lon and lat, must be provided")
-        if lat is None and f is None:
+            raise Exception("Either x and y, or lon and lat, must be provided")
+        has_f = self.comm.bcast(f is not None or lat is not None)
+        if not has_f:
             raise Exception(
                 "Either lat of f must be provided to determine the Coriolis parameter."
             )
         if coordinate_type is None:
             coordinate_type = CoordinateType.XY if has_xy else CoordinateType.LONLAT
         assert (coordinate_type == CoordinateType.XY and has_xy) or (
-            coordinate_type == CoordinateType.LONLAT and has_lonlat
+            coordinate_type == CoordinateType.LONLAT
+            and has_lonlat
+            or (coordinate_type == CoordinateType.IJ and (has_xy or has_lonlat))
         )
 
         self.nx = nx
         self.ny = ny
         self.periodic_x = periodic_x
         self.periodic_y = periodic_y
-        self.comm = comm or parallel.mpi4py_autofree(parallel.MPI.COMM_WORLD.Dup())
         self.coordinate_type = coordinate_type
         self.root_logger = logger or parallel.get_logger()
         self.logger = self.root_logger.getChild("domain")
@@ -479,12 +485,16 @@ class Domain:
             # Interpolate longitude in cos-sin space to handle periodic boundary
             # condition, but skip this if longitude is already provided on supergrid
             # (no interpolation needed) to improve accuracy of rotation tests.
-            lon_rad = DEG2RAD * np.asarray(lon).astype(float, copy=False)
+            lon = np.asarray(lon).astype(float, copy=False)
+            lon_rad = DEG2RAD * lon
             coslon = np.cos(lon_rad)
             sinlon = np.sin(lon_rad)
             coslon = self._map_array(coslon, edges=EdgeTreatment.EXTRAPOLATE)
             sinlon = self._map_array(sinlon, edges=EdgeTreatment.EXTRAPOLATE)
             self._lon = np.arctan2(sinlon, coslon) * RAD2DEG
+            central_lon = 0.5 * (lon.min() + lon.max())
+            wrap_lon = central_lon - 180.0
+            self._lon = (self._lon - wrap_lon) % 360.0 + wrap_lon
         else:
             self._lon = self._map_array(lon)
         self._lat = self._map_array(lat, edges=EdgeTreatment.EXTRAPOLATE)
@@ -625,6 +635,7 @@ class Domain:
             mask,
             periodic_x=self.periodic_x,
             periodic_y=self.periodic_y,
+            comm=self.comm,
             logger=self.logger.getChild("subdomain_decomposition"),
         )
 
@@ -637,6 +648,7 @@ class Domain:
         tiling: Optional[parallel.Tiling] = None,
         input_manager=None,
         velocity_grids: int = 0,
+        t_postfix: str = "",
     ) -> core.Grid:
         if self.comm.rank == 0:
             # We are the root node - update the global mask
@@ -681,7 +693,7 @@ class Domain:
             self._populate_grid(grid)
             grid.input_manager = input_manager
             grid.default_output_transforms = self.default_output_transforms
-            grid.input_grid_mappers = self.input_grid_mappers
+            grid.input_grid_mappers = [m(grid=grid) for m in self.input_grid_mappers]
             return grid
 
         U = V = X = UU = UV = VU = VV = None
@@ -697,7 +709,7 @@ class Domain:
             V = create_grid("v", 1, 2, ugrid=VU, vgrid=VV)
             X = create_grid("x", 0, 0, overlap=1, istart=0, jstart=0)
 
-        T = create_grid("t", 1, 1, ugrid=U, vgrid=V, xgrid=X)
+        T = create_grid(t_postfix, 1, 1, ugrid=U, vgrid=V, xgrid=X)
         T.rivers = self.rivers
 
         if velocity_grids > 0:
@@ -732,31 +744,9 @@ class Domain:
 
     def _populate_grid(self, grid: core.Grid):
         NAMEMAP = dict(z0="_z0b_min", f="_cor", rotation="rotation")
-        is_root = grid.tiling.rank == 0
 
         edges_x = EdgeTreatment.PERIODIC if self.periodic_x else EdgeTreatment.MISSING
         edges_y = EdgeTreatment.PERIODIC if self.periodic_y else EdgeTreatment.MISSING
-
-        def scatter(source: np.ndarray, target: np.ndarray, fill_value):
-            s = parallel.Scatter(
-                grid.tiling, target, grid.halox, grid.haloy, grid.overlap
-            )
-            all_data = None
-            if is_root:
-                if grid.joffset > 1 or grid.ioffset > 1:
-                    # UU or VV grid that needs one more strip of 1 cell beyond the end
-                    # of the supergrid. Normally that is
-                    source = expand_2d(
-                        source,
-                        edges_x=edges_x,
-                        edges_y=edges_y,
-                        missing_value=fill_value,
-                    )[1:, 1:]
-                data = source[grid.joffset :: 2, grid.ioffset :: 2]
-                all_data = np.full(global_shape, fill_value, dtype=target.dtype)
-                all_data[...] = data[: global_shape[0], : global_shape[1]]
-            s(all_data)
-            return all_data
 
         global_shape = (
             grid.tiling.ny_glob + grid.overlap,
@@ -782,17 +772,39 @@ class Domain:
             available = grid.tiling.comm.bcast(source is not None)
             target = getattr(grid, NAMEMAP.get(name, f"_{name}"), None)
             if available and target is not None:
-                source = scatter(source, target.all_values, target.fill_value)
-                if is_root:
-                    # On the root node, keep a pointer to the full global field
+                global_values = None
+                if grid.tiling.rank == 0:
+                    # We are on the root node that has the global values
+                    if grid.joffset > 1 or grid.ioffset > 1:
+                        # UU or VV grid that needs one more strip of 1 cell
+                        # beyond the end of the supergrid. By default, that is
+                        # left at missing_value, but that is inappropriate for
+                        # periodic boudaries that need mirroring. Therefore we
+                        # expand the grid properly, any mirroring included.
+                        source = expand_2d(
+                            source,
+                            edges_x=edges_x,
+                            edges_y=edges_y,
+                            missing_value=target.fill_value,
+                        )[1:, 1:]
+                    global_values = source[grid.joffset :: 2, grid.ioffset :: 2]
+                    global_values = global_values[: global_shape[0], : global_shape[1]]
+
+                    # Keep a pointer to the full global field
                     # This will be used preferentially for full-domain output
-                    target.attrs["_global_values"] = source
+                    target.attrs["_global_values"] = global_values
+                target.scatter(global_values)
                 if self.periodic_x or self.periodic_y:
                     target.update_halos()
                 retrieved_from_domain.add(name)
+
+        # If the Coriolis parameter was not set explicitly at domain level,
+        # calculate it from latitude
         if "f" not in retrieved_from_domain:
-            # Calculate Coriolis parameter from latitude
             grid._cor.all_values[...] = coriolis(grid._lat.all_values)
+
+        # Set default horizontal coordinates (e.g., for output and online plotting)
+        # based on the coordinate type set at domain level.
         if self.coordinate_type == CoordinateType.XY:
             grid.horizontal_coordinates += [grid.x, grid.y]
         elif self.coordinate_type == CoordinateType.LONLAT:
@@ -802,10 +814,10 @@ class Domain:
     def cfl_check(
         self, z: float = 0.0, return_location: bool = False
     ) -> Union[float, Tuple[float, int, int, float]]:
-        """Determine maximum time step for depth-integrated equations
+        """Determine maximum time step (s) for depth-integrated equations
 
         Args:
-            z: surface elevation (m) at rest
+            z: maximum surface elevation (m)
             return_location: whether to also return the location
                 and depth that determined the maximum step
 
@@ -826,6 +838,7 @@ class Domain:
 
     @property
     def maxdt(self) -> float:
+        """Maximum time step (s) for depth-integrated equations"""
         return self.cfl_check()
 
     # @calculate_and_bcast
@@ -874,7 +887,8 @@ class Domain:
                 neighbor (T grid) is shallower than this value, the depth of velocity
                 point (U or V grid) is restricted.
         """
-        # NB this is guaranteed to return a writeable H, even if self.H was read-only before
+        # NB this is guaranteed to return a writeable H,
+        # even if self.H was read-only before
         H = self.H
 
         tdepth = H[1::2, 1::2]
@@ -956,6 +970,8 @@ class Domain:
         self.mask_[jstart_T:jstop_T, istart_T:istop_T] = mask_value
 
     def rotate(self) -> "Domain":
+        """Return a copy of the domain rotated 90° clockwise"""
+
         def tp(array):
             return None if array is None else np.transpose(array)[::-1, :]
 
@@ -978,6 +994,7 @@ class Domain:
         return Domain(self.ny, self.nx, **kwargs)
 
     def _map_rivers(self):
+        assert self.comm.rank == 0
         x_ = None if self._x is None else self._x[1::2, 1::2]
         y_ = None if self._y is None else self._y[1::2, 1::2]
         lon_ = None if self._lon is None else self._lon[1::2, 1::2]
@@ -999,14 +1016,14 @@ class Domain:
         tiling: Optional[parallel.Tiling] = None,
         label: Optional[str] = None,
         cmap: Union[None, "matplotlib.colors.Colormap", str] = None,
-    ):
+    ) -> Optional["matplotlib.figure.Figure"]:
         """Plot the domain, optionally including bathymetric depth, mesh and
         river positions.
 
         Args:
             field: 2D field to plot. it must be defined on the supergrid.
-            fig: :class:`matplotlib.figure.Figure` instance to plot to. If not provided,
-                a new figure is created.
+            fig: :class:`matplotlib.figure.Figure` instance to plot to.
+                If not provided, a new figure is created.
             show_bathymetry: show bathymetry as color map
             show_mask: show mask as color map (this disables ``show_bathymetry``)
             show_mesh: show model grid

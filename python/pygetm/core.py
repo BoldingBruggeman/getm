@@ -219,6 +219,7 @@ class Grid(_pygetm.Grid):
             units="rad",
             long_name="grid rotation with respect to true North",
             fill_value=np.nan,
+            attrs=dict(_time_varying=False),
         )
 
     def freeze(self):
@@ -663,9 +664,10 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
         self.compare_halos = dist.compare_halos
         getattr(self, method)(*args, **kwargs)
 
-    def scatter(self, global_data: Optional["Array"]):
+    def scatter(self, global_data: Optional[np.ndarray]):
         if self.grid.tiling.n == 1:
-            self.values[...] = global_data
+            if self.grid.tiling.rank == 0:
+                self.values[...] = global_data
             return
         if self._scatter is None:
             self._scatter = parallel.Scatter(
@@ -673,9 +675,10 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
                 self.all_values,
                 halox=self.grid.halox,
                 haloy=self.grid.haloy,
+                share=self.grid.overlap,
                 fill_value=self._fill_value,
             )
-        self._scatter(None if global_data is None else global_data.all_values)
+        self._scatter(global_data)
 
     def gather(self, out: Optional["Array"] = None, slice_spec=()):
         if self.grid.tiling.n == 1:

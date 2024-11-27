@@ -245,14 +245,16 @@ class Tiling:
             nx_glob: x extent of the global domain
             ny_glob: y extent of the global domain
             nx_sub: x extent of a subdomain
+                If not set, infer from number of ranks in single row
             ny_sub: y extent of a subdomain
+                If not set, infer from number of ranks in single column
             xoffset_global: x offset of left-most subdomains
             yoffset_global: y offset of bottom-most subdomains
         """
         if nx_sub is None:
-            nx_sub = int(np.ceil(nx_glob / self.ncol))
+            nx_sub = int(np.ceil((nx_glob - xoffset_global) / self.ncol))
         if ny_sub is None:
-            ny_sub = int(np.ceil(ny_glob / self.nrow))
+            ny_sub = int(np.ceil((ny_glob - yoffset_global) / self.nrow))
 
         assert self.nx_glob is None, "Domain extent has already been set."
         assert isinstance(nx_glob, (int, np.integer))
@@ -501,7 +503,7 @@ class Tiling:
         dtype: DTypeLike,
         fill_value: Optional[float] = None,
     ) -> np.ndarray:
-        key = (shape, dtype, fill_value)
+        key = (shape, dtype, np.asarray(fill_value).item())
         if key not in self._caches:
             self._caches[key] = np.empty(shape, dtype)
             if fill_value is not None:
@@ -811,8 +813,6 @@ class Scatter:
                         icol,
                         halox_sub=halox,
                         haloy_sub=haloy,
-                        halox_glob=0,
-                        haloy_glob=0,
                         share=share,
                         scale=scale,
                         exclude_halos=exclude_halos,
@@ -858,16 +858,31 @@ def find_optimal_divison(
     if ncpus is None:
         ncpus = (comm or MPI.COMM_WORLD).size
 
+    ny, nx = mask.shape
+
     # If we only have 1 CPU, just use the full domain
     if ncpus == 1:
         return {
             "ncpus": 1,
-            "nx": mask.shape[1],
-            "ny": mask.shape[0],
+            "nx": nx,
+            "ny": ny,
             "xoffset": 0,
             "yoffset": 0,
             "cost": 0,
             "map": np.ones((1, 1), dtype=np.intc),
+        }
+
+    # If we have a 1D grid with only unmasked (water) points,
+    # return simple equal subdomian division
+    if ny == 1 and np.all(mask):
+        return {
+            "ncpus": ncpus,
+            "nx": int(np.ceil(nx / ncpus)),
+            "ny": 1,
+            "xoffset": 0,
+            "yoffset": 0,
+            "cost": 0,
+            "map": np.ones((1, ncpus), dtype=np.intc),
         }
 
     comm = comm or mpi4py_autofree(MPI.COMM_WORLD.Dup())
@@ -884,10 +899,10 @@ def find_optimal_divison(
 
     # Determine potential number of subdomain combinations
     nx_ny_combos = []
-    for ny_sub in range(4, mask.shape[0] + 1):
+    for ny_sub in range(4, ny + 1):
         for nx_sub in range(
             max(4, ny_sub // max_aspect_ratio),
-            min(max_aspect_ratio * ny_sub, mask.shape[1] + 1),
+            min(max_aspect_ratio * ny_sub, nx + 1),
         ):
             nx_ny_combos.append((nx_sub, ny_sub))
     nx_ny_combos = np.array(nx_ny_combos, dtype=int)
@@ -896,7 +911,7 @@ def find_optimal_divison(
         logger.info(
             (
                 "Determining optimal subdomain decomposition of global domain of "
-                f"{mask.shape[1]} x {mask.shape[0]} ({(mask != 0).sum()} active cells)"
+                f"{nx} x {ny} ({(mask != 0).sum()} active cells)"
                 f" for {ncpus} cores"
             )
         )
