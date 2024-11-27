@@ -1,10 +1,11 @@
 from typing import Mapping, Optional, List, Sequence, NamedTuple
+import logging
 
 import numpy as np
 
 from .constants import ZERO_GRADIENT, CENTERS, INTERFACES, TimeVarying, FILL_VALUE
 from . import core
-from . import domain
+from . import rivers
 from .open_boundaries import ArrayOpenBoundaries
 from . import operators
 
@@ -34,7 +35,7 @@ class Tracer(core.Array):
 
     def __init__(
         self,
-        grid: domain.Grid,
+        grid: core.Grid,
         data: Optional[np.ndarray] = None,
         source: Optional[core.Array] = None,
         surface_flux: Optional[core.Array] = None,
@@ -100,20 +101,21 @@ class Tracer(core.Array):
         self.open_boundaries: ArrayOpenBoundaries = ArrayOpenBoundaries(
             self, ZERO_GRADIENT
         )
-        self.river_values: np.ndarray = np.zeros((len(grid.domain.rivers),))
+        self.river_values: np.ndarray = np.full((len(grid.rivers),), self.fill_value)
         self.river_follow: np.ndarray = np.full(
-            (len(grid.domain.rivers),), rivers_follow_target_cell, dtype=bool
+            (len(grid.rivers),), rivers_follow_target_cell, dtype=bool
         )
         self.precipitation_follows_target_cell: bool = precipitation_follows_target_cell
-        self.rivers: Mapping[str, domain.RiverTracer] = {}
-        for iriver, river in enumerate(grid.domain.rivers.values()):
-            river_tracer = domain.RiverTracer(
+        self.rivers: Mapping[str, rivers.RiverTracer] = {}
+        for iriver, river in enumerate(grid.rivers.values()):
+            river_tracer = rivers.RiverTracer(
                 grid,
                 river.name,
                 self.name,
                 self.river_values[..., iriver],
                 self.river_follow[..., iriver],
                 units=self.units,
+                fill_value=self.fill_value,
                 attrs={"_time_varying": TimeVarying.MACRO},
             )
             river._tracers[self.name] = river_tracer
@@ -123,15 +125,16 @@ class Tracer(core.Array):
 class TracerCollection(Sequence[Tracer]):
     def __init__(
         self,
-        grid: domain.Grid,
+        grid: core.Grid,
+        logger: logging.Logger,
         advection_scheme: operators.AdvectionScheme = operators.AdvectionScheme.DEFAULT,
         cnpar: float = 1.0,
     ):
-        self.logger = grid.domain.root_logger.getChild("tracers")
+        self.logger = logger
         self.logger.info(f"Advection scheme: {advection_scheme.name}")
         self.logger.info(f"Crank-Nicolson parameter: {cnpar}")
 
-        self.grid: domain.Grid = grid
+        self.grid: core.Grid = grid
         self._tracers: List[Tracer] = []
         self._source = grid.array(z=CENTERS)
         self._advection = operators.Advection(grid, scheme=advection_scheme)

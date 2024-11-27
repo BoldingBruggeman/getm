@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 
 import pygetm.domain
@@ -7,8 +9,8 @@ from pygetm.constants import FILL_VALUE
 
 
 class Ice:
-    def initialize(self, grid: pygetm.domain.Grid):
-        self.logger = grid.domain.root_logger.getChild("ice")
+    def initialize(self, grid: pygetm.core.Grid, logger: logging.Logger):
+        self.logger = logger
         self.grid = grid
         self.ice = grid.array(
             name="ice",

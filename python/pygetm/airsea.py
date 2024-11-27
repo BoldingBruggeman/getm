@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import cftime
 
@@ -15,8 +17,8 @@ class Base:
     as well as surface air pressure.
     """
 
-    def initialize(self, grid: pygetm.domain.Grid):
-        self.logger = grid.domain.root_logger.getChild("airsea")
+    def initialize(self, grid: pygetm.core.Grid, logger: logging.Logger):
+        self.logger = logger
 
         self.taux = grid.array(
             name="tausx",
@@ -135,8 +137,8 @@ class Fluxes(Base):
         self._initial_swr = swr
         self._initial_pe = pe
 
-    def initialize(self, grid: pygetm.domain.Grid):
-        super().initialize(grid)
+    def initialize(self, grid: pygetm.core.Grid, logger: logging.Logger):
+        super().initialize(grid, logger)
         self.taux.fill(self._initial_taux)
         self.tauy.fill(self._initial_tauy)
         self.sp.fill(self._initial_sp)
@@ -182,8 +184,8 @@ class FluxesFromMeteo(Fluxes):
         self.calculate_swr = calculate_swr
         self.calculate_evaporation = calculate_evaporation
 
-    def initialize(self, grid: pygetm.domain.Grid):
-        super().initialize(grid)
+    def initialize(self, grid: pygetm.core.Grid, logger: logging.Logger):
+        super().initialize(grid, logger)
         self.taux.attrs["_mask_output"] = True
         self.tauy.attrs["_mask_output"] = True
         self.shf.attrs["_mask_output"] = True

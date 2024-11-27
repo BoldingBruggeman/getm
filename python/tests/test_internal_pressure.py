@@ -27,20 +27,24 @@ class TestInternalPressure(unittest.TestCase):
         domain = pygetm.domain.create_cartesian(
             x,
             y,
-            nz,
             interfaces=True,
             f=0.0,
             H=H,
-            ddu=ddu,
             logger=pygetm.parallel.get_logger(level="ERROR"),
         )
+        vc = pygetm.vertical_coordinates.Sigma(nz, ddu=ddu)
+        T = domain.create_grids(vc.nz, halox=2, haloy=2, velocity_grids=1)
+        U, V = T.ugrid, T.vgrid
+        vc.initialize(
+            T, U, V, logger=domain.root_logger.getChild("vertical_coordinates")
+        )
+        vc.update(None)
+        for g in (T, U, V):
+            pygetm._pygetm.thickness2vertical_coordinates(g.mask, g.H, g.hn, g.zc, g.zf)
 
-        domain.initialize(pygetm.BAROCLINIC)
-        domain.update_depth(_3d=True)
-        domain.update_depth(_3d=True)
-        ip.initialize(domain)
-        rho = domain.T.array(z=pygetm.CENTERS)
-        buoy = domain.T.array(z=pygetm.CENTERS)
+        ip.initialize(U, V)
+        rho = T.array(z=pygetm.CENTERS)
+        buoy = T.array(z=pygetm.CENTERS)
 
         # lock exchange density in x-direction
         rho.values[:, :, :50] = rho_min
@@ -49,19 +53,16 @@ class TestInternalPressure(unittest.TestCase):
         ip(buoy)
         self.assertTrue((ip.idpdy.ma == 0.0).all())
         dP_dx = (
-            -domain.U.zc.values[:, 0, 0]
-            * GRAVITY
-            * (rho_max - rho_min)
-            / domain.U.dx.values[0, 0]
+            -U.zc.values[:, 0, 0] * GRAVITY * (rho_max - rho_min) / U.dx.values[0, 0]
         )
         acceleration = -dP_dx / RHO0
-        dU = acceleration * domain.U.hn.values[:, 0, 0]
+        dU = acceleration * U.hn.values[:, 0, 0]
         tol = 1e-14
         diff = dU - ip.idpdx.values[:, 0, 49]
         self.assertLess(np.abs(diff).max(), tol)
 
         # linearly increasing density in x-direction
-        rho.values[:, :, :] = rho_min + (rho_max - rho_min) * domain.T.x / 100000
+        rho.values[:, :, :] = rho_min + (rho_max - rho_min) * T.x / 100000
         buoy.all_values[...] = (-GRAVITY / RHO0) * (rho.all_values - RHO0)
         ip(buoy)
         self.assertTrue((ip.idpdy.ma == 0.0).all())
@@ -75,18 +76,15 @@ class TestInternalPressure(unittest.TestCase):
         ip(buoy)
         self.assertTrue((ip.idpdx.ma == 0.0).all())
         dP_dy = (
-            -domain.V.zc.values[:, 0, 0]
-            * GRAVITY
-            * (rho_max - rho_min)
-            / domain.V.dy.values[0, 0]
+            -V.zc.values[:, 0, 0] * GRAVITY * (rho_max - rho_min) / V.dy.values[0, 0]
         )
         acceleration = -dP_dy / RHO0
-        dV = acceleration * domain.V.hn.values[:, 0, 0]
+        dV = acceleration * V.hn.values[:, 0, 0]
         tol = 1e-14
         self.assertLess(np.abs(dV - ip.idpdy.values[:, 49, 0]).max(), tol)
 
         # linearly increasing density in y-direction
-        rho.values[:, :, :] = rho_min + (rho_max - rho_min) * domain.T.y / 100000
+        rho.values[:, :, :] = rho_min + (rho_max - rho_min) * T.y / 100000
         buoy.all_values[...] = (-GRAVITY / RHO0) * (rho.all_values - RHO0)
         ip(buoy)
         self.assertTrue((ip.idpdx.ma == 0.0).all())
@@ -110,7 +108,7 @@ class TestInternalPressure(unittest.TestCase):
         # domain.H_[...] = domain.H_ + domain.x_ * dH_dx + domain.y_ * dH_dy
 
         # sim = pygetm.Simulation(
-        #     domain, pygetm.BAROCLINIC, internal_pressure_method=method,
+        #     domain, internal_pressure_method=method,
         # )
         # # ((D2 * g * rho) - (D1 * g * rho))/dx
 

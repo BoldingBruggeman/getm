@@ -31,10 +31,13 @@ class FABM:
         self.squeeze = squeeze
 
         self._variable2array: MutableMapping[pyfabm.Variable, core.Array] = {}
+        self._yearday: Optional[pyfabm.Dependency] = None
+        self._nyear: Optional[pyfabm.Dependency] = None
+        self._yearstart: Optional[cftime.datetime] = None
 
     def initialize(
         self,
-        grid: domain.Grid,
+        grid: core.Grid,
         tracer_collection: tracer.TracerCollection,
         tracer_totals: List[tracer.TracerTotal],
         logger: logging.Logger,
@@ -71,8 +74,8 @@ class FABM:
 
         shape = grid.hn.all_values.shape  # shape including halos
         fabm_shape = shape
-        halox = grid.domain.halox
-        haloy = grid.domain.haloy
+        halox = grid.halox
+        haloy = grid.haloy
         domain_start = (0, haloy, halox)
         domain_stop = (shape[0], shape[1] - haloy, shape[2] - halox)
         if self.squeeze:
@@ -100,7 +103,7 @@ class FABM:
             ar_w = core.Array(grid=grid)
             ar_w.wrap_ndarray(self.vertical_velocity[i, ...].reshape(shape))
             ar = tracer_collection.add(
-                data=variable.data.reshape(shape),
+                data=variable.value.reshape(shape),
                 vertical_velocity=ar_w,
                 name=variable.output_name,
                 units=variable.units,
@@ -111,29 +114,30 @@ class FABM:
             )
             self._variable2array[variable] = ar
         for variable in model.surface_state_variables + model.bottom_state_variables:
-            data = variable.data.reshape(shape[1:])
+            data = variable.value.reshape(shape[1:])
             variable_to_array(variable, data=data, attrs=dict(_part_of_state=True))
 
         # Add diagnostics, initially without associated data
         # Data will be sent later, only if the variable is selected for output,
         # and thus, activated in FABM
-        for variable in model.diagnostic_variables:
-            current_shape = grid.H.shape if variable.horizontal else grid.hn.shape
-            variable_to_array(variable, shape=current_shape)
+        for variable in model.interior_diagnostic_variables:
+            variable_to_array(variable, shape=grid.hn.shape)
+        for variable in model.horizontal_diagnostic_variables:
+            variable_to_array(variable, shape=grid.H.shape)
 
         # Required inputs: mask and cell thickness
         if model.fabm.mask_type != 0:
-            if hasattr(grid.domain, "mask3d"):
+            if hasattr(grid, "mask3d"):
                 model.link_mask(
-                    grid.domain.mask3d.all_values.reshape(model.interior_domain_shape),
+                    grid.mask3d.all_values.reshape(model.interior_domain_shape),
                     grid.mask.all_values.reshape(model.horizontal_domain_shape),
                 )
             else:
                 model.link_mask(
                     grid.mask.all_values.reshape(model.horizontal_domain_shape)
                 )
-        if hasattr(grid.domain, "bottom_indices"):
-            bottom_indices = grid.domain.bottom_indices.all_values
+        if hasattr(grid, "bottom_indices"):
+            bottom_indices = grid.bottom_indices.all_values
             model.link_bottom_index(
                 bottom_indices.reshape(model.horizontal_domain_shape)
             )
@@ -189,7 +193,7 @@ class FABM:
     def state_variables(self) -> Iterable[core.Array]:
         return [self._variable2array[v] for v in self.model.state_variables]
 
-    def start(self, time: Optional[cftime.datetime] = None):
+    def start(self, timestep: float, time: Optional[cftime.datetime] = None):
         """Prepare FABM. This includes flagging which diagnostics need saving based on
         the output manager configuration, offering fields registered with the field
         manager to FABM if they have a standard name assigned, and subsequently
@@ -201,13 +205,13 @@ class FABM:
             variable.save = self._variable2array[variable].saved
 
         # Transfer GETM fields with a standard name to FABM
-        for field in self.grid.domain.fields.values():
+        for field in self.grid.fields.values():
             for standard_name in field.attrs.get("_fabm_standard_names", []):
                 try:
                     variable = self.model.dependencies.find(standard_name)
                 except KeyError:
                     continue
-                if not variable.is_set:
+                if variable.value is None:
                     field.saved = True
                     if field.z:
                         shape = self.model.interior_domain_shape
@@ -216,13 +220,29 @@ class FABM:
                     variable.link(field.all_values.reshape(shape))
 
         try:
-            self._yearday = self.model.dependencies.find(
+            self._yearday = self.model.dependencies[
                 "number_of_days_since_start_of_the_year"
-            )
-            timedelta = time - cftime.datetime(time.year, 1, 1, calendar=time.calendar)
-            self._yearday.value = timedelta.total_seconds() / 86400.0
+            ]
         except KeyError:
-            self._yearday = None
+            pass
+
+        try:
+            self._nyear = self.model.dependencies["number_of_days_in_year"]
+        except KeyError:
+            pass
+
+        try:
+            self.model.dependencies["maximum_time_step"].value = timestep
+        except KeyError:
+            pass
+
+        if self._yearday or self._nyear:
+            self._yearstart = cftime.datetime(time.year, 1, 1, calendar=time.calendar)
+        if self._yearday:
+            self._yearday.value = (time - self._yearstart).total_seconds() / 86400.0
+        if self._nyear:
+            yearstop = cftime.datetime(time.year + 1, 1, 1, calendar=time.calendar)
+            self._nyear.value = (yearstop - self._yearstart).total_seconds() / 86400.0
 
         # Start FABM. This verifies whether all dependencies are fulfilled and freezes
         # the set of diagnostics that will be saved.
@@ -233,17 +253,22 @@ class FABM:
 
         # Fill GETM placeholder arrays for all FABM diagnostics that will be
         # computed/saved.
-        for variable in self.model.diagnostic_variables:
-            array = self._variable2array[variable]
-            if array.saved:
-                # Provide the array with data (NB it has been registered before)
-                current_shape = (
-                    self.grid.H if variable.horizontal else self.grid.hn
-                ).all_values.shape
-                array.wrap_ndarray(variable.data.reshape(current_shape), register=False)
-            else:
-                # Remove the array from the list of available fields
-                del self.grid.domain.fields[array.name]
+        def get_diagnostic_values(diagnostic_variables, shape):
+            for variable in diagnostic_variables:
+                array = self._variable2array[variable]
+                if array.saved:
+                    # Provide the array with data (NB it has been registered before)
+                    array.wrap_ndarray(variable.value.reshape(shape), register=False)
+                else:
+                    # Remove the array from the list of available fields
+                    del self.grid.fields[array.name]
+
+        get_diagnostic_values(
+            self.model.interior_diagnostic_variables, self.grid.hn.all_values.shape
+        )
+        get_diagnostic_values(
+            self.model.horizontal_diagnostic_variables, self.grid.H.all_values.shape
+        )
 
         # Apply mask to all state variables (interior, bottom, surface)
         for variable in self.model.interior_state_variables:
@@ -312,9 +337,15 @@ class FABM:
         This does not update the state variables themselves; that is done by
         :meth:`advance`
         """
+        if self._yearstart and self._yearstart.year != time.year:
+            # Year has changed
+            self._yearstart = cftime.datetime(time.year, 1, 1, calendar=time.calendar)
+            if self._nyear:
+                yearstop = cftime.datetime(time.year + 1, 1, 1, calendar=time.calendar)
+                timedelta = yearstop - self._yearstart
+                self._nyear.value = timedelta.total_seconds() / 86400.0
         if self._yearday:
-            timedelta = time - cftime.datetime(time.year, 1, 1, calendar=time.calendar)
-            self._yearday.value = timedelta.total_seconds() / 86400.0
+            self._yearday.value = (time - self._yearstart).total_seconds() / 86400.0
         valid = self.model.check_state(self.repair)
         if not (valid or self.repair):
             raise Exception("FABM state contains invalid values.")
@@ -328,9 +359,9 @@ class FABM:
         if self.grid.nz == 1:
             return
         h = self.grid.hn.all_values
-        halox = self.grid.domain.halox
-        haloy = self.grid.domain.haloy
-        mask = self.grid.domain.mask3d.all_values
+        halox = self.grid.halox
+        haloy = self.grid.haloy
+        mask = self.grid.mask3d.all_values
         for itracer in range(self.model.interior_state.shape[0]):
             w = self.vertical_velocity[itracer, ...].reshape(mask.shape)
             c = self.model.interior_state[itracer, ...].reshape(mask.shape)

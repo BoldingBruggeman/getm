@@ -30,7 +30,7 @@ class Advection(_pygetm.Advection):
 
     def __init__(
         self,
-        grid: domain.Grid,
+        grid: core.Grid,
         scheme: AdvectionScheme = AdvectionScheme.DEFAULT,
         split_2d: AdvectionSplit = AdvectionSplit.HALF,
     ):
@@ -198,7 +198,7 @@ class VerticalAdvection(_pygetm.VerticalAdvection):
     __slots__ = ()
 
     def __init__(
-        self, grid: domain.Grid, scheme: AdvectionScheme = AdvectionScheme.DEFAULT
+        self, grid: core.Grid, scheme: AdvectionScheme = AdvectionScheme.DEFAULT
     ):
         super().__init__(grid, scheme)
 

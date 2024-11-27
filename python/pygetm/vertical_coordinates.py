@@ -21,8 +21,10 @@ class Base:
             raise Exception("Number of layers nz must be a positive number")
         self.nz = nz
 
-    def initialize(self, ref_grid: "domain.Grid", *other_grids: "domain.Grid"):
-        self.logger = ref_grid.domain.root_logger.getChild("vertical_coordinates")
+    def initialize(
+        self, ref_grid: "core.Grid", *other_grids: "core.Grid", logger: logging.Logger
+    ):
+        self.logger = logger
 
     def update(self, timestep: float):
         """Update layer thicknesses hn for all grids"""
@@ -33,11 +35,11 @@ class PerGrid(Base):
     """Base class for vertical coordinate types that apply the same operation
     to every grid."""
 
-    def initialize(self, *grids: "domain.Grid"):
-        super().initialize(*grids)
+    def initialize(self, *grids: "core.Grid", logger: logging.Logger):
+        super().initialize(*grids, logger=logger)
         self.grid_info = [self.prepare_update_args(grid) for grid in grids]
 
-    def prepare_update_args(self, grid: "domain.Grid"):
+    def prepare_update_args(self, grid: "core.Grid"):
         """Prepare grid-specific information that will be passed as
         arguments to __call__"""
         return (grid.D.all_values, grid.hn.all_values, grid.mask.all_values)
@@ -92,7 +94,7 @@ def calculate_sigma(nz: int, ddl: float = 0.0, ddu: float = 0.0) -> np.ndarray:
 class Sigma(PerGrid):
     """Sigma coordinates with optional zooming towards bottom and surface"""
 
-    def __init__(self, nz: int, ddl: float = 0.0, ddu: float = 0.0):
+    def __init__(self, nz: int, *, ddl: float = 0.0, ddu: float = 0.0):
         """
         Args:
             nz: number of layers
@@ -125,6 +127,7 @@ class GVC(PerGrid):
     def __init__(
         self,
         nz: int,
+        *,
         ddl: float = 0.0,
         ddu: float = 0.0,
         gamma_surf: bool = True,
@@ -169,8 +172,8 @@ class GVC(PerGrid):
         denom = alpha_min * self.dsigma + (1.0 - alpha_min) * self.dbeta[self.k_ref]
         self.D_max = np.inf if abs(denom) < 1e-15 else (Dgamma * self.dsigma) / denom
 
-    def initialize(self, *grids: "domain.Grid"):
-        super().initialize(*grids)
+    def initialize(self, *grids: "core.Grid", logger: logging.Logger):
+        super().initialize(*grids, logger=logger)
         self.logger.info(
             f"This GVC parameterization supports water depths up to {self.D_max:.3f} m"
         )
@@ -198,7 +201,7 @@ class Adaptive(Base):
     def __init__(self, nz: int):
         super().__init__(nz)
 
-    def initialize(self, tgrid: "domain.Grid", *other_grids: "domain.Grid"):
+    def initialize(self, tgrid: "core.Grid", *other_grids: "core.Grid"):
         super().initialize(tgrid, *other_grids)
 
         self.tgrid = tgrid
@@ -206,7 +209,7 @@ class Adaptive(Base):
         self.dga_t = tgrid.array(z=CENTERS)
         self.dga_other = tuple(grid.array(z=CENTERS) for grid in other_grids)
 
-        # Here you can obtain any other model field by name, as tgrid.domain.fields[NAME]
+        # Here you can obtain any other model field by name, as tgrid.fields[NAME]
         # and store it as attribte of self for later use in update
 
     def update(self, timestep: float):
