@@ -245,14 +245,16 @@ class Tiling:
             nx_glob: x extent of the global domain
             ny_glob: y extent of the global domain
             nx_sub: x extent of a subdomain
+                If not set, infer from number of ranks in single row
             ny_sub: y extent of a subdomain
+                If not set, infer from number of ranks in single column
             xoffset_global: x offset of left-most subdomains
             yoffset_global: y offset of bottom-most subdomains
         """
         if nx_sub is None:
-            nx_sub = int(np.ceil(nx_glob / self.ncol))
+            nx_sub = int(np.ceil((nx_glob - xoffset_global) / self.ncol))
         if ny_sub is None:
-            ny_sub = int(np.ceil(ny_glob / self.nrow))
+            ny_sub = int(np.ceil((ny_glob - yoffset_global) / self.nrow))
 
         assert self.nx_glob is None, "Domain extent has already been set."
         assert isinstance(nx_glob, (int, np.integer))

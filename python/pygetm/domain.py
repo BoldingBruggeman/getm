@@ -814,10 +814,10 @@ class Domain:
     def cfl_check(
         self, z: float = 0.0, return_location: bool = False
     ) -> Union[float, Tuple[float, int, int, float]]:
-        """Determine maximum time step for depth-integrated equations
+        """Determine maximum time step (s) for depth-integrated equations
 
         Args:
-            z: surface elevation (m) at rest
+            z: maximum surface elevation (m)
             return_location: whether to also return the location
                 and depth that determined the maximum step
 
@@ -838,6 +838,7 @@ class Domain:
 
     @property
     def maxdt(self) -> float:
+        """Maximum time step (s) for depth-integrated equations"""
         return self.cfl_check()
 
     # @calculate_and_bcast
@@ -969,6 +970,8 @@ class Domain:
         self.mask_[jstart_T:jstop_T, istart_T:istop_T] = mask_value
 
     def rotate(self) -> "Domain":
+        """Return a copy of the domain rotated 90° clockwise"""
+
         def tp(array):
             return None if array is None else np.transpose(array)[::-1, :]
 
@@ -991,6 +994,7 @@ class Domain:
         return Domain(self.ny, self.nx, **kwargs)
 
     def _map_rivers(self):
+        assert self.comm.rank == 0
         x_ = None if self._x is None else self._x[1::2, 1::2]
         y_ = None if self._y is None else self._y[1::2, 1::2]
         lon_ = None if self._lon is None else self._lon[1::2, 1::2]
@@ -1012,14 +1016,14 @@ class Domain:
         tiling: Optional[parallel.Tiling] = None,
         label: Optional[str] = None,
         cmap: Union[None, "matplotlib.colors.Colormap", str] = None,
-    ):
+    ) -> Optional["matplotlib.figure.Figure"]:
         """Plot the domain, optionally including bathymetric depth, mesh and
         river positions.
 
         Args:
             field: 2D field to plot. it must be defined on the supergrid.
-            fig: :class:`matplotlib.figure.Figure` instance to plot to. If not provided,
-                a new figure is created.
+            fig: :class:`matplotlib.figure.Figure` instance to plot to.
+                If not provided, a new figure is created.
             show_bathymetry: show bathymetry as color map
             show_mask: show mask as color map (this disables ``show_bathymetry``)
             show_mesh: show model grid
