@@ -471,6 +471,10 @@ class OpenBoundaries(Sequence[OpenBoundary]):
             OpenBoundary(name, side, l, mstart, mstop, type_2d, type_3d)
         )
 
+    def clear(self):
+        """Delete all open boundaries."""
+        self._boundaries.clear()
+
     def adjust_mask(self, mask: np.ndarray):
         """Adjust the global mask for open boundaries
 
