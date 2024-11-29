@@ -7,7 +7,7 @@ jobs:
         RDMAV_FORK_SAFE: 1
       defaults:
         run:
-          shell: bash -el {0}
+          shell: ${{ matrix.os == 'Windows' && 'cmd /C call {0}' || 'bash -el {0}' }}
       strategy:
         fail-fast: false
         matrix:
