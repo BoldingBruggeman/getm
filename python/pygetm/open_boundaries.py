@@ -479,8 +479,8 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         outside the open boundary)
         """
         assert mask.shape == (1 + 2 * self.ny, 1 + 2 * self.nx)
-        umask = mask[1::2, 2::2]
-        vmask = mask[2::2, 1::2]
+        umask = mask[1::2, 0::2]
+        vmask = mask[0::2, 1::2]
         tmask = mask[1::2, 1::2]
         for boundary in self._boundaries:
             l = boundary.l_glob
@@ -504,13 +504,13 @@ class OpenBoundaries(Sequence[OpenBoundary]):
 
             # Velocity points that lie just outside the T points of the open boundary
             if boundary.side in (Side.WEST, Side.EAST):
-                umask[mslice, l - 1 if boundary.side == Side.WEST else l] = 4
+                umask[mslice, l if boundary.side == Side.WEST else l + 1] = 4
             else:
-                vmask[l - 1 if boundary.side == Side.SOUTH else l, mslice] = 4
+                vmask[l if boundary.side == Side.SOUTH else l + 1, mslice] = 4
 
         # Velocity points that lie in between open boundary T points
-        umask[:, :-1][(tmask[:, :-1] == 2) & (tmask[:, 1:] == 2)] = 3
-        vmask[:-1, :][(tmask[:-1, :] == 2) & (tmask[1:, :] == 2)] = 3
+        umask[:, 1:-1][(tmask[:, :-1] == 2) & (tmask[:, 1:] == 2)] = 3
+        vmask[1:-1, :][(tmask[:-1, :] == 2) & (tmask[1:, :] == 2)] = 3
 
     def initialize(self, grid: core.Grid):
         """Freeze the open boundary collection. Drop those outside the current
