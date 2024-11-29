@@ -1008,8 +1008,9 @@ class Domain:
         fig: Optional["matplotlib.figure.Figure"] = None,
         show_bathymetry: bool = True,
         show_mask: bool = False,
-        show_mesh: bool = True,
+        show_mesh: bool = False,
         show_rivers: bool = True,
+        show_open_boundaries: bool = True,
         show_subdomains: bool = False,
         editable: bool = False,
         coordinate_type: Optional[CoordinateType] = None,
@@ -1101,6 +1102,26 @@ class Domain:
                 river_x, river_y = x[j_sup, i_sup], y[j_sup, i_sup]
                 ax.plot([river_x], [river_y], ".r")
                 ax.text(river_x, river_y, river.name, color="r")
+
+        if show_open_boundaries:
+            x_X, y_X = x[::2, ::2], y[::2, ::2]
+            for b in self.open_boundaries:
+                if b.side in (open_boundaries.Side.WEST, open_boundaries.Side.EAST):
+                    imin = b.l_glob
+                    imax = imin + 1
+                    jmin, jmax = b.mstart_glob, b.mstop_glob
+                else:
+                    jmin = b.l_glob
+                    jmax = jmin + 1
+                    imin, imax = b.mstart_glob, b.mstop_glob
+                x_b = x_X[jmin : jmax + 1, imin : imax + 1]
+                y_b = y_X[jmin : jmax + 1, imin : imax + 1]
+                if x_b.shape[1] == 2:
+                    x_b, y_b = x_b.T, y_b.T
+                x_b = np.hstack((x_b[0, :], x_b[1, ::-1]))
+                y_b = np.hstack((y_b[0, :], y_b[1, ::-1]))
+                ax.fill(x_b, y_b, alpha=0.3, fc="r", ec="None")
+                ax.fill(x_b, y_b, fc="None", ec="r")
 
         def plot_mesh(ax, x, y, **kwargs):
             segs1 = np.stack((x, y), axis=2)
