@@ -6,30 +6,23 @@ implemented in Fortran.
 
 ## Installing
 
-You will need [Anaconda](https://docs.anaconda.com/free/anaconda/). On many systems
-that is already installed: try running `conda --version`. If that fails, you may need
-to load an anaconda module first: try `module load anaconda` or `module load anaconda3`.
-If that still does not give you a working `conda` command, you may want to install
-[Miniconda](https://docs.anaconda.com/free/miniconda/miniconda-install/).
+First, ensure you have [Anaconda](https://docs.anaconda.com/free/anaconda/):
+   - Linux/Mac: execute `conda --version` in a terminal
+   - Windows: look for "Anaconda prompt" in the start menu
 
-Before using conda for the very first time, you will need to initialize its environment:
+On some systems (notably, HPC clusters), you may need to load an anaconda module first:
+try `module load anaconda` or `module load anaconda3`
 
-```
-conda init bash
-```
+If you do *not* have Anaconda, install [Miniconda](https://docs.anaconda.com/miniconda/).
 
-If you are using a different shell than bash, replace `bash` with the name of your shell
-(see `conda init -h` for supported ones), or use `conda init --all`.
+From here on, we will be working in a terminal window. On Windows, open a terminal by choosing "Anaconda prompt" in the start menu.
 
-This needs to be done just once, as it modifies your `.bashrc` that is sourced every time
-you login. After this, restart your shell by logging out and back in.
-
-### Installation with conda (currently Linux/Windows only)
+### Install a prebuilt pygetm version from conda-forge
 
 To install or update pygetm:
 
 ```
-conda install pygetm -c bolding-bruggeman -c conda-forge
+conda install -c conda-forge pygetm
 ```
 
 ### Manual build and install
@@ -39,23 +32,36 @@ options, or with specific biogeochemical models that are not part of the standar
 [FABM](https://fabm.net) distribution, you can manually obtain the pygetm source code,
 build it, and then install it.
 
-#### Linux/Mac
-
-To obtain the repository with setups and scripts, set up your conda environment, and
-build and install pygetm:
+To obtain the repository with setups and scripts, first set up and activate a conda
+environment with all necessary build tools:
 
 ```
 git clone --recursive https://github.com/BoldingBruggeman/getm-rewrite.git
 cd getm-rewrite
 conda env create -f environment.yml
 conda activate pygetm
+```
+
+If you are installing on an system that already has a Fortran
+compiler and MPI libraries that you would like to use, replace `environment.yml` with
+`environment-min.yml` in the above.
+
+The above requires that you already have Git installed. If you do not, you can install this
+with `conda install -c conda-forge git`.
+
+Finally, to build on Linux/Mac, execute
+
+```
 source ./install
 ```
 
-If you are using a different shell than bash, you may need to replace `source` in the
-last line  by `bash`. If you are installing on an HPC system that already has a Fortran
-compiler and MPI libraries that you would like to use, replace `environment.yml` with
-`environment-min.yml` in the above.
+If you are using a different shell than bash, you may need to replace `source` by `bash`.
+
+On Windows, you build pygetm with
+
+```
+install.bat
+```
 
 You can customize the build step as follows:
 * To set the Fortran compiler, set environment variable `FC` to your desired Fortran
@@ -69,29 +75,6 @@ You can customize the build step as follows:
 * To set cmake options used to compile FABM, such as `-DFABM_EXTRA_INSTITUTES` or
   `-DFABM_<INSTITUTE>_BASE`, add `cmake_opts=<CMAKE_OPTIONS>` to [`python/setup.cfg`](https://github.com/BoldingBruggeman/getm-rewrite/blob/devel/python/setup.cfg)
 
-#### Windows
-
-As on other platforms, you need [Anaconda](https://docs.anaconda.com/free/anaconda/)
-or [Miniconda](https://docs.anaconda.com/free/miniconda/miniconda-install/). In addition,
-you need to ensure that software to obtain and build Fortran code is available.
-Therefore, install:
-
-* [Git for Windows](https://git-scm.com/download/win)
-* [Visual Studio Community 2019](https://my.visualstudio.com/Downloads?q=visual%20studio%202019&wt.mc_id=o~msft~vscom~older-downloads)
-* [Intel Fortran Compiler](https://www.intel.com/content/www/us/en/developer/articles/tool/oneapi-standalone-components.html#fortran)
-* [Microsoft MPI](https://github.com/microsoft/Microsoft-MPI/releases) - you need both the runtime library and the Software Development Kit
-
-Now obtain the repository with setups and scripts, set up your conda environment,
-and build and install pygetm:
-
-```
-git clone --recursive https://github.com/BoldingBruggeman/getm-rewrite.git
-cd getm-rewrite
-conda env create -f environment-min.yml
-conda activate pygetm
-install.bat
-```
-
 #### Staying up to date
 
 To update this repository including its submodules (GOTM, FABM, etc.), make sure you are
@@ -102,12 +85,13 @@ git pull
 git submodule update --init --recursive
 conda env update -f <ENVIRONMENT_YML>
 conda activate pygetm
-source ./install
 ```
 
 In the above, replace `<ENVIRONMENT_YML>` with the name of the environment file you used
 previously: `environment.yml` for stand-alone conda environments, or `environment-min.yml`
 for a setup that uses the local MPI implementation and Fortran compiler.
+
+Finally, rebuild by executing `source ./install` on Linux/Mac, or `install.bat` on Windows.
 
 ## Using pygetm
 
