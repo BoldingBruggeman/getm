@@ -290,74 +290,42 @@ class TestDomain(unittest.TestCase):
         t3d = pygetm.open_boundaries.ZERO_GRADIENT
 
         # Entire outer edge of domain
-        domain.open_boundaries.add_by_index(
-            pygetm.open_boundaries.Side.WEST, 0, 0, ny, t2d, t3d
-        )
-        domain.open_boundaries.add_by_index(
-            pygetm.open_boundaries.Side.NORTH, ny - 1, 1, nx, t2d, t3d
-        )
-        domain.open_boundaries.add_by_index(
-            pygetm.open_boundaries.Side.EAST, nx - 1, 0, ny - 1, t2d, t3d
-        )
-        domain.open_boundaries.add_by_index(
-            pygetm.open_boundaries.Side.SOUTH, 0, 1, nx - 1, t2d, t3d
-        )
+        domain.open_boundaries.add_left_boundary("W", 0, 0, ny, t2d, t3d)
+        domain.open_boundaries.add_top_boundary("N", ny - 1, 1, nx, t2d, t3d)
+        domain.open_boundaries.add_right_boundary("E", nx - 1, 0, ny - 1, t2d, t3d)
+        domain.open_boundaries.add_bottom_boundary("S", 0, 1, nx - 1, t2d, t3d)
         domain.create_grids(10, halox=2, haloy=2)
 
         domain = pygetm.domain.create_spherical(lon, lat, H=10.0, logger=logger)
 
         # Out of bounds l, mstart or mstop
         with self.assertRaises(AssertionError):
-            domain.open_boundaries.add_by_index(
-                pygetm.open_boundaries.Side.WEST, -1, 0, 10, t2d, t3d
-            )
+            domain.open_boundaries.add_left_boundary("W", -1, 0, 10, t2d, t3d)
         with self.assertRaises(AssertionError):
-            domain.open_boundaries.add_by_index(
-                pygetm.open_boundaries.Side.WEST, nx, 0, 10, t2d, t3d
-            )
+            domain.open_boundaries.add_left_boundary("W", nx, 0, 10, t2d, t3d)
         with self.assertRaises(AssertionError):
-            domain.open_boundaries.add_by_index(
-                pygetm.open_boundaries.Side.WEST, 0, 10, 0, t2d, t3d
-            )
+            domain.open_boundaries.add_left_boundary("W", 0, 10, 0, t2d, t3d)
         with self.assertRaises(AssertionError):
-            domain.open_boundaries.add_by_index(
-                pygetm.open_boundaries.Side.WEST, 0, -1, 10, t2d, t3d
-            )
+            domain.open_boundaries.add_left_boundary("W", 0, -1, 10, t2d, t3d)
         with self.assertRaises(AssertionError):
-            domain.open_boundaries.add_by_index(
-                pygetm.open_boundaries.Side.WEST, 0, 0, ny + 1, t2d, t3d
-            )
+            domain.open_boundaries.add_left_boundary("W", 0, 0, ny + 1, t2d, t3d)
 
         # Single point
-        domain.open_boundaries.add_by_index(
-            pygetm.open_boundaries.Side.EAST, 10, 10, 11, t2d, t3d
-        )
+        domain.open_boundaries.add_right_boundary("E", 10, 10, 11, t2d, t3d)
 
-        domain.open_boundaries.add_by_index(
-            pygetm.open_boundaries.Side.WEST, 0, 0, 10, t2d, t3d
-        )
+        domain.open_boundaries.add_left_boundary("W1", 0, 0, 10, t2d, t3d)
         # Overlap
         with self.assertRaises(Exception):
-            domain.open_boundaries.add_by_index(
-                pygetm.open_boundaries.Side.WEST, 0, 9, ny, t2d, t3d
-            )
+            domain.open_boundaries.add_left_boundary("W2", 0, 9, ny, t2d, t3d)
         # Continuation (directly adjacent)
-        domain.open_boundaries.add_by_index(
-            pygetm.open_boundaries.Side.WEST, 0, 10, ny, t2d, t3d
-        )
+        domain.open_boundaries.add_left_boundary("W2", 0, 10, ny, t2d, t3d)
 
         # Cross
         with self.assertRaises(Exception):
-            domain.open_boundaries.add_by_index(
-                pygetm.open_boundaries.Side.NORTH, 10, 0, 10, t2d, t3d
-            )
+            domain.open_boundaries.add_top_boundary("N1", 10, 0, 10, t2d, t3d)
 
-        domain.open_boundaries.add_by_index(
-            pygetm.open_boundaries.Side.NORTH, ny - 1, 1, 10, t2d, t3d
-        )
-        domain.open_boundaries.add_by_index(
-            pygetm.open_boundaries.Side.NORTH, ny - 1, 10, nx, t2d, t3d
-        )
+        domain.open_boundaries.add_top_boundary("N2", ny - 1, 1, 10, t2d, t3d)
+        domain.open_boundaries.add_top_boundary("N2", ny - 1, 10, nx, t2d, t3d)
 
         domain.create_grids(10, halox=2, haloy=2)
 
