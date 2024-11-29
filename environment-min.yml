@@ -9,6 +9,7 @@ channels:
 dependencies:
   - python>=3.8
   - cmake
+  - ninja  
   - pip
   - cython
   - python-build
