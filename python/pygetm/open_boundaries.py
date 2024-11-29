@@ -508,7 +508,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
     def add_bottom_boundary(
         self, name: str, j: int, istart: int, istop: int, type_2d: int, type_3d: int
     ):
-        """Add an open boundary with the model exteri or below and the model
+        """Add an open boundary with the model exterior below and the model
         interior above. This is a Southern open boundary in a spherical domain.
         """
         self.add_by_index(Side.SOUTH, j, istart, istop, type_2d, type_3d, name=name)
