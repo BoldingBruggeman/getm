@@ -279,6 +279,88 @@ class TestDomain(unittest.TestCase):
         domain.rivers.add_by_location("foo", 25000.0, 34000.0)
         domain.create_grids(10, halox=2, haloy=2)
 
+    def test_open_boundaries(self):
+        nx, ny = 100, 52
+        lon = np.linspace(0.0, 10.0, nx)
+        lat = np.linspace(0.0, 5.0, ny)
+        logger = logging.getLogger()
+        logger.setLevel("ERROR")
+        domain = pygetm.domain.create_spherical(lon, lat, H=10.0, logger=logger)
+        t2d = pygetm.open_boundaries.FLATHER_ELEV
+        t3d = pygetm.open_boundaries.ZERO_GRADIENT
+
+        # Entire outer edge of domain
+        domain.open_boundaries.add_by_index(
+            pygetm.open_boundaries.Side.WEST, 0, 0, ny, t2d, t3d
+        )
+        domain.open_boundaries.add_by_index(
+            pygetm.open_boundaries.Side.NORTH, ny - 1, 1, nx, t2d, t3d
+        )
+        domain.open_boundaries.add_by_index(
+            pygetm.open_boundaries.Side.EAST, nx - 1, 0, ny - 1, t2d, t3d
+        )
+        domain.open_boundaries.add_by_index(
+            pygetm.open_boundaries.Side.SOUTH, 0, 1, nx - 1, t2d, t3d
+        )
+        domain.create_grids(10, halox=2, haloy=2)
+
+        domain = pygetm.domain.create_spherical(lon, lat, H=10.0, logger=logger)
+
+        # Out of bounds l, mstart or mstop
+        with self.assertRaises(AssertionError):
+            domain.open_boundaries.add_by_index(
+                pygetm.open_boundaries.Side.WEST, -1, 0, 10, t2d, t3d
+            )
+        with self.assertRaises(AssertionError):
+            domain.open_boundaries.add_by_index(
+                pygetm.open_boundaries.Side.WEST, nx, 0, 10, t2d, t3d
+            )
+        with self.assertRaises(AssertionError):
+            domain.open_boundaries.add_by_index(
+                pygetm.open_boundaries.Side.WEST, 0, 10, 0, t2d, t3d
+            )
+        with self.assertRaises(AssertionError):
+            domain.open_boundaries.add_by_index(
+                pygetm.open_boundaries.Side.WEST, 0, -1, 10, t2d, t3d
+            )
+        with self.assertRaises(AssertionError):
+            domain.open_boundaries.add_by_index(
+                pygetm.open_boundaries.Side.WEST, 0, 0, ny + 1, t2d, t3d
+            )
+
+        # Single point
+        domain.open_boundaries.add_by_index(
+            pygetm.open_boundaries.Side.EAST, 10, 10, 11, t2d, t3d
+        )
+
+        domain.open_boundaries.add_by_index(
+            pygetm.open_boundaries.Side.WEST, 0, 0, 10, t2d, t3d
+        )
+        # Overlap
+        with self.assertRaises(Exception):
+            domain.open_boundaries.add_by_index(
+                pygetm.open_boundaries.Side.WEST, 0, 9, ny, t2d, t3d
+            )
+        # Continuation (directly adjacent)
+        domain.open_boundaries.add_by_index(
+            pygetm.open_boundaries.Side.WEST, 0, 10, ny, t2d, t3d
+        )
+
+        # Cross
+        with self.assertRaises(Exception):
+            domain.open_boundaries.add_by_index(
+                pygetm.open_boundaries.Side.NORTH, 10, 0, 10, t2d, t3d
+            )
+
+        domain.open_boundaries.add_by_index(
+            pygetm.open_boundaries.Side.NORTH, ny - 1, 1, 10, t2d, t3d
+        )
+        domain.open_boundaries.add_by_index(
+            pygetm.open_boundaries.Side.NORTH, ny - 1, 10, nx, t2d, t3d
+        )
+
+        domain.create_grids(10, halox=2, haloy=2)
+
 
 if __name__ == "__main__":
     unittest.main()

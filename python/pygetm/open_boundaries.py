@@ -457,16 +457,42 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         assert (
             not self._frozen
         ), "The open boundary collection has already been initialized"
-        if side in (Side.WEST, Side.EAST):
+        along_y = side in (Side.WEST, Side.EAST)
+        if along_y:
             l_max, m_max = (self.nx, self.ny)
         else:
             l_max, m_max = (self.ny, self.nx)
 
-        assert mstop > mstart and mstop <= m_max
-        assert l >= 0 and l <= l_max
+        assert mstop > mstart and mstart >= 0 and mstop <= m_max
+        assert l >= 0 and l < l_max
 
         if name is None:
             name = str(len(self._boundaries))
+
+        for b in self._boundaries:
+            current_along_y = b.side in (Side.WEST, Side.EAST)
+            if along_y == current_along_y:
+                if l == b.l_glob:
+                    overlap = min(mstop, b.mstop_glob) - max(mstart, b.mstart_glob)
+                    if overlap > 0:
+                        raise Exception(
+                            f"New boundary {name} overlaps in {overlap} points"
+                            f" with existing boundary {b.name}"
+                        )
+            else:
+                cross = (
+                    l >= b.mstart_glob
+                    and l < b.mstop_glob
+                    and b.l_glob >= mstart
+                    and b.l_glob < mstop
+                )
+                if cross:
+                    i, j = (l, b.l_glob) if along_y else (b.l_glob, l)
+                    raise Exception(
+                        f"New boundary {name} crosses existing boundary {b.name}"
+                        f" at i={i}, j={j}"
+                    )
+
         self._boundaries.append(
             OpenBoundary(name, side, l, mstart, mstop, type_2d, type_3d)
         )
