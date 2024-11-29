@@ -11,13 +11,9 @@ jobs:
       strategy:
         fail-fast: false
         matrix:
-          os: ["ubuntu-latest"] #, "macos-latest", "windows-latest"]
+          os: ["ubuntu-latest", "macos-latest", "windows-latest"]
           python-version: ["3.9", "3.10", "3.11", "3.12"]
       steps:
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install mpich
       - name: Clone
         uses: actions/checkout@v4
         with:
@@ -32,11 +28,14 @@ jobs:
         with:
           auto-update-conda: true
           python-version: ${{ matrix.python-version }}
-          environment-file: environment-min.yml
+          environment-file: environment.yml
           activate-environment: pygetm
-      - name: Compile
-        run: |
-          source ./install
+      - name: Compile (Linux/Mac)
+        if: matrix.os != 'windows-latest'
+        run: source ./install
+      - name: Compile (Windows)
+        if: matrix.os == 'windows-latest'
+        run: install.bat
       - name: Verify source directory is clean
         run: |
           git status --porcelain
