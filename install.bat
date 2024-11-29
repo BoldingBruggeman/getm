@@ -1,6 +1,10 @@
 set REPO_DIR=%~dp0
 set WORK_DIR=%TEMP%\build-pygetm-%RANDOM%
 
+set CMAKE_GENERATOR=Ninja
+set FC=gfortran
+set CC=gcc
+
 pip install -v -e "%REPO_DIR%\python"
 if errorlevel 1 exit /b 1
 
