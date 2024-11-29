@@ -17,7 +17,7 @@ If you do *not* have Anaconda, install [Miniconda](https://docs.anaconda.com/min
 
 From here on, we will be working in a terminal window. On Windows, open a terminal by choosing "Anaconda prompt" in the start menu.
 
-### Install a prebuilt pygetm version from conda-forge
+### Install a prebuilt version from conda-forge
 
 To install or update pygetm:
 
@@ -46,8 +46,8 @@ If you are installing on an system that already has a Fortran
 compiler and MPI libraries that you would like to use, replace `environment.yml` with
 `environment-min.yml` in the above.
 
-The above requires that you already have Git installed. If you do not, you can install this
-with `conda install -c conda-forge git`.
+The above requires that you already have [Git](https://git-scm.com/) installed.
+If you do not, you can install this with `conda install -c conda-forge git`.
 
 Finally, to build on Linux/Mac, execute
 
