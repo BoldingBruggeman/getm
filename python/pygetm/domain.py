@@ -881,9 +881,9 @@ class Domain:
         mask = self._mask[1::2, 1::2] > 0
         dx = self._dx[1::2, 1::2]
         dy = self._dy[1::2, 1::2]
-        H = self._H[1::2, 1::2]
-        denom2 = (2.0 * GRAVITY) * (H + z) * (dx**2 + dy**2)
-        maxdts = dx * dy / np.sqrt(denom2, where=mask, out=np.ones_like(H))
+        D = np.maximum(self._H[1::2, 1::2] + z, 1e-14)
+        denom2 = (2.0 * GRAVITY) * D * (dx**2 + dy**2)
+        maxdts = dx * dy / np.sqrt(denom2, where=mask, out=np.ones_like(D))
         maxdts[~mask] = np.inf
         maxdt = maxdts.min()
         if return_location:
