@@ -100,9 +100,9 @@ jobs:
         run: |
           conda install -c conda-forge ipython jupyterlab ipympl cmocean matplotlib
           cd python/examples
-          ipython --gui tk -c "%run grids.ipynb"
-          ipython --gui tk -c "%run test_advection.ipynb"
-          ipython --gui tk -c "%run test_gotm_and_gsw.ipynb"
-          ipython --gui tk -c "%run test_2d_periodic.ipynb"
-          ipython --gui tk -c "%run test_lock_exchange.ipynb"
-          ipython --gui tk -c "%run Kelvin_wave_in_a_channel.ipynb"
+          ipython --matplotlib tk -c "%run grids.ipynb"
+          ipython --matplotlib tk -c "%run test_advection.ipynb"
+          ipython --matplotlib tk -c "%run test_gotm_and_gsw.ipynb"
+          ipython --matplotlib tk -c "%run test_2d_periodic.ipynb"
+          ipython --matplotlib tk -c "%run test_lock_exchange.ipynb"
+          ipython --matplotlib tk -c "%run Kelvin_wave_in_a_channel.ipynb"
