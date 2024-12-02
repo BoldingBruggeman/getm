@@ -210,7 +210,10 @@ class Grid(_pygetm.Grid):
         self.horizontal_coordinates: List["Array"] = []
         self.extra_output_coordinates = []
         for name in self._fortran_arrays:
-            self._setup_array(name)
+            kwargs = dict(fill_value=FILL_VALUE)
+            kwargs.update(self._array_args[name])
+            array = Array(name=name + self.postfix, **kwargs)
+            setattr(self, f"_{name}", self.wrap(array, name.encode("ascii")))
 
         self.rotation = Array.create(
             grid=self,
@@ -294,53 +297,6 @@ class Grid(_pygetm.Grid):
         self.vgrid._water_contact = vmask.all_values != 0
         umask.all_values[:, :] = umask_backup
         vmask.all_values[:, :] = vmask_backup
-
-    def _setup_array(
-        self, name: str, array: Optional["Array"] = None, from_supergrid: bool = True
-    ) -> "Array":
-        if array is None:
-            # No array provided, so it must live in Fortran; retrieve it
-            kwargs = dict(fill_value=FILL_VALUE)
-            kwargs.update(self._array_args[name])
-            array = Array(name=name + self.postfix, **kwargs)
-            setattr(self, f"_{name}", self.wrap(array, name.encode("ascii")))
-
-        # # Obtain corresponding array on the supergrid.
-        # # If this does not exist, we are done
-        # source = getattr(self.domain, name + "_", None)
-        # if source is None or not from_supergrid:
-        #     return array
-
-        # imax, jmax = self.ioffset + 2 * self.nx_, self.joffset + 2 * self.ny_
-        # values = source[(slice(self.joffset, jmax, 2), slice(self.ioffset, imax, 2))]
-        # slc = (Ellipsis,)
-        # if name in ("z0b_min",):
-        #     slc = self.mask.all_values[: values.shape[0], : values.shape[1]] > 0
-        # array.all_values[: values.shape[0], : values.shape[1]][slc] = values[slc]
-        # if values.shape != array.all_values.shape:
-        #     # supergrid does not span entire grid; fill remainder by exchanging halos
-        #     array.update_halos()
-
-        # has_bounds = (
-        #     self.ioffset > 0
-        #     and self.joffset > 0
-        #     and source.shape[-1] >= imax
-        #     and source.shape[-2] >= jmax
-        # )
-        # if has_bounds and name in self._coordinate_arrays:
-        #     # Generate interface coordinates. These are not represented in Fortran as
-        #     # they are only needed for plotting. The interface coordinates are slices
-        #     # that point to the supergrid data; they thus do not consume additional
-        #     # memory.
-        #     values_i = source[self.joffset - 1 : jmax : 2, self.ioffset - 1 : imax : 2]
-        #     setattr(self, f"_{name}i_", values_i)
-        #     setattr(
-        #         self,
-        #         f"_{name}i",
-        #         values_i[self.haloy : -self.haloy, self.halox : -self.halox],
-        #     )
-
-        return array
 
     def interpolator(self, target: "Grid") -> Callable[[np.ndarray, np.ndarray], None]:
         ip = self._interpolators.get(target)
