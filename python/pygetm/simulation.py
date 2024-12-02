@@ -490,7 +490,7 @@ class Simulation(BaseSimulation):
 
         maxdt, i, j, depth = domain.cfl_check(return_location=True)
         self.logger.info(
-            f"Maximum dt = {maxdt:.3f} s "
+            f"Maximum timestep for 2D barotropic processes: {maxdt:.3f} s "
             f"(i={i}, j={j}, bathymetric depth={depth:.3f} m)"
         )
 
