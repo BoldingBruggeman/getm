@@ -470,8 +470,8 @@ class Simulation(BaseSimulation):
             runtype: simulation run type
             Dmin: minimum depth (m) for wet points. At this depth, all hydrodynamic
                 terms except the pressure gradient and bottom friction are switched off.
-            Dcrit: depth (m) at which tapering of processes (all except pressure
-                gradient and bottom friction) begins.
+            Dcrit: depth (m) at which tapering off of hydrodynamic processes
+                (all except pressure gradient and bottom friction) begins.
             delay_slow_ip: let slow internal pressure terms lag one macrotimestep
                 behind the 3d internal pressure terms. This can help stabilize
                 density-driven flows in deep water
