@@ -672,7 +672,7 @@ def limit_region(
 
 
 def concatenate_slices(
-    source: xr.DataArray, idim: int, slices: Tuple[slice, ...], verbose=False
+    source: xr.DataArray, idim: int, slices: Iterable[slice], verbose=False
 ) -> xr.DataArray:
     assert idim < source.ndim
     assert all([isinstance(s, slice) for s in slices])
