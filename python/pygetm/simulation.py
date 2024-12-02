@@ -1488,9 +1488,13 @@ class Simulation(BaseSimulation):
                 # Elsewhere this can be used as approximate pressure in dbar
                 _pygetm.thickness2center_depth(self.T.mask, self.T.hn, self.depth)
 
+            # Update vertical coordinate at open boundary, used to interpolate
+            # inputs on z grid to dynamic model depths
             if self.open_boundaries.zc.saved:
-                # Update vertical coordinate at open boundary, used to interpolate
-                # inputs on z grid to dynamic model depths
                 self.open_boundaries.zc.all_values[...] = self.T.zc.all_values[
+                    :, self.open_boundaries.j, self.open_boundaries.i
+                ].T
+            if self.open_boundaries.zf.saved:
+                self.open_boundaries.zf.all_values[...] = self.T.zf.all_values[
                     :, self.open_boundaries.j, self.open_boundaries.i
                 ].T

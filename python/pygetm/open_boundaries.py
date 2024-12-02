@@ -671,9 +671,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         if grid.ugrid:
             self._configure_mirroring(grid)
 
-        # Coordinates of open boundary points
-        self.zc = grid.array(z=CENTERS, on_boundary=True)
-        self.zf = grid.array(z=INTERFACES, on_boundary=True)
+        # Horizontal coordinates of open boundary points
         if grid.lon is not None:
             self.lon = grid.array(
                 on_boundary=True, fill=grid.lon.all_values[self.j, self.i]
@@ -683,8 +681,13 @@ class OpenBoundaries(Sequence[OpenBoundary]):
                 on_boundary=True, fill=grid.lat.all_values[self.j, self.i]
             )
 
-        # The arrays below are placeholders that will be assigned data
-        # (from momentum/sealevel Fortran modules) when linked to the Simulation
+        # Vertical coordinates of open boundary points.
+        # These will be updated by indexing into the full zc and zf
+        # after every update of surface elevation/water depth/cell thickness
+        self.zc = grid.array(name="zc_bdy", z=CENTERS, on_boundary=True)
+        self.zf = grid.array(name="zf_bdy", z=INTERFACES, on_boundary=True)
+
+        # Prescribed depth-averaged or depth-integrated velocity at the open boundaries
         self.u = grid.array(name="u_bdy", on_boundary=True)
         self.v = grid.array(name="v_bdy", on_boundary=True)
 

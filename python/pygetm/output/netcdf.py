@@ -79,13 +79,14 @@ class NetCDFFile(File):
             cmdline = " ".join(sys.argv)
             self.nc.history = f"{now:%Y-%m-%d %H:%M:%S} {cmdline}"
             self.nc.source = f"pygetm {pygetm._pygetm.get_version()}"
-            for field in self.fields.values():
+            for output_name, field in self.fields.items():
                 for dim, length in zip(field.dims, field.shape):
                     if dim not in self.nc.dimensions:
                         self.nc.createDimension(dim, length)
                     elif length != self.nc.dimensions[dim].size:
                         raise Exception(
-                            f"Existing dimension {dim} has incompatible length"
+                            f"Error adding {output_name} with shape {field.shape}:"
+                            f" existing dimension {dim} has incompatible length"
                             f" {self.nc.dimensions[dim].size} (need {length})"
                         )
             self.nc.createDimension("time", None)
