@@ -1491,11 +1491,7 @@ class InputManager:
                 # that fall within the current subdomain
                 local_to_global = grid.open_boundaries.local_to_global
                 if local_to_global:
-                    value = concatenate_slices(
-                        value,
-                        idim,
-                        [slice(start, stop) for (start, stop) in local_to_global],
-                    )
+                    value = concatenate_slices(value, idim, local_to_global)
             elif value.shape[idim] != grid.open_boundaries.np:
                 raise Exception(
                     f"Extent of dimension {idim} of {value.name} is not compatible with"

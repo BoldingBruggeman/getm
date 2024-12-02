@@ -294,7 +294,7 @@ class TestDomain(unittest.TestCase):
         domain.open_boundaries.add_top_boundary("N", ny - 1, 1, nx, t2d, t3d)
         domain.open_boundaries.add_right_boundary("E", nx - 1, 0, ny - 1, t2d, t3d)
         domain.open_boundaries.add_bottom_boundary("S", 0, 1, nx - 1, t2d, t3d)
-        domain.create_grids(10, halox=2, haloy=2)
+        domain.create_grids(10, halox=2, haloy=2, velocity_grids=2)
 
         domain = pygetm.domain.create_spherical(lon, lat, H=10.0, logger=logger)
 
@@ -327,7 +327,7 @@ class TestDomain(unittest.TestCase):
         domain.open_boundaries.add_top_boundary("N2", ny - 1, 1, 10, t2d, t3d)
         domain.open_boundaries.add_top_boundary("N2", ny - 1, 10, nx, t2d, t3d)
 
-        domain.create_grids(10, halox=2, haloy=2)
+        domain.create_grids(10, halox=2, haloy=2, velocity_grids=2)
 
 
 if __name__ == "__main__":

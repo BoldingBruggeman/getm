@@ -25,13 +25,27 @@ class EdgeTreatment(enum.Enum):
     EXTRAPOLATE_PERIODIC = enum.auto()
 
 
-def find_interfaces(c: npt.ArrayLike) -> np.ndarray:
-    c_if = np.empty((c.size + 1))
-    d = np.diff(c)
-    c_if[1:-1] = c[:-1] + 0.5 * d
-    c_if[0] = c[0] - 0.5 * d[0]
-    c_if[-1] = c[-1] + 0.5 * d[-1]
-    return c_if
+def _get_rectangle_overlap(
+    istart1: int,
+    istop1: int,
+    jstart1: int,
+    jstop1: int,
+    istart2: int,
+    istop2: int,
+    jstart2: int,
+    jstop2: int,
+):
+    istart = max(istart1, istart2)
+    ni = min(istop1, istop2) - istart
+    jstart = max(jstart1, jstart2)
+    nj = min(jstop1, jstop2) - jstart
+    iskip = istart - istart1
+    jskip = jstart - jstart1
+    slice1 = (slice(jskip, jskip + nj), slice(iskip, iskip + ni))
+    iskip = istart - istart2
+    jskip = jstart - jstart2
+    slice2 = (slice(jskip, jskip + nj), slice(iskip, iskip + ni))
+    return slice1, slice2
 
 
 DEG2RAD = np.pi / 180  # degree to radian conversion
@@ -653,7 +667,7 @@ class Domain:
         if self.comm.rank == 0:
             # We are the root node - update the global mask
             self.infer_UVX_masks2()
-            self.open_boundaries.adjust_mask(self._mask)
+            self.open_boundaries.adjust_mask(self.mask)
 
             # Map river coordinates to global grid indices
             self._map_rivers()
@@ -748,10 +762,14 @@ class Domain:
         edges_x = EdgeTreatment.PERIODIC if self.periodic_x else EdgeTreatment.MISSING
         edges_y = EdgeTreatment.PERIODIC if self.periodic_y else EdgeTreatment.MISSING
 
-        global_shape = (
-            grid.tiling.ny_glob + grid.overlap,
-            grid.tiling.nx_glob + grid.overlap,
-        )
+        ioffset = grid.ioffset % 2
+        joffset = grid.joffset % 2
+        istart_glob = (ioffset - grid.ioffset) // 2
+        jstart_glob = (joffset - grid.joffset) // 2
+        assert istart_glob <= 0, "Supergrid starts after first x"
+        assert jstart_glob <= 0, "Supergrid starts after first y"
+        nx_glob = self.nx + grid.overlap
+        ny_glob = self.ny + grid.overlap
 
         retrieved_from_domain = set()
         for name in (
@@ -772,14 +790,14 @@ class Domain:
             available = grid.tiling.comm.bcast(source is not None)
             target = getattr(grid, NAMEMAP.get(name, f"_{name}"), None)
             if available and target is not None:
-                global_values = None
+                sendbuf = None
                 if grid.tiling.rank == 0:
                     # We are on the root node that has the global values
                     if grid.joffset > 1 or grid.ioffset > 1:
                         # UU or VV grid that needs one more strip of 1 cell
                         # beyond the end of the supergrid. By default, that is
                         # left at missing_value, but that is inappropriate for
-                        # periodic boudaries that need mirroring. Therefore we
+                        # periodic boundaries that need mirroring. Therefore we
                         # expand the grid properly, any mirroring included.
                         source = expand_2d(
                             source,
@@ -787,15 +805,52 @@ class Domain:
                             edges_y=edges_y,
                             missing_value=target.fill_value,
                         )[1:, 1:]
-                    global_values = source[grid.joffset :: 2, grid.ioffset :: 2]
-                    global_values = global_values[: global_shape[0], : global_shape[1]]
+                    global_values = source[joffset::2, ioffset::2]
+                    istop_glob = istart_glob + global_values.shape[-1]
+                    jstop_glob = jstart_glob + global_values.shape[-2]
+                    assert istop_glob >= nx_glob, "Supergrid stops before last x"
+                    assert jstop_glob >= ny_glob, "Supergrid stops before last y"
+
+                    sendbuf = grid.tiling._get_work_array(
+                        (grid.tiling.comm.size,) + target.all_values.shape,
+                        target.dtype,
+                        target.fill_value,
+                    )
+                    for irow, icol, rank in parallel._iterate_rankmap(grid.tiling.map):
+                        if rank < 0:
+                            continue
+
+                        jslice, islice = grid.tiling.subdomain2rawslices(
+                            irow,
+                            icol,
+                            halox_sub=grid.halox,
+                            haloy_sub=grid.haloy,
+                            share=grid.overlap,
+                        )
+                        slice_glob, slice_loc = _get_rectangle_overlap(
+                            istart_glob,
+                            istop_glob,
+                            jstart_glob,
+                            jstop_glob,
+                            islice.start,
+                            islice.stop,
+                            jslice.start,
+                            jslice.stop,
+                        )
+                        sendbuf[(rank,) + slice_loc] = global_values[slice_glob]
 
                     # Keep a pointer to the full global field
                     # This will be used preferentially for full-domain output
-                    target.attrs["_global_values"] = global_values
-                target.scatter(global_values)
+                    target.attrs["_global_values"] = global_values[
+                        -jstart_glob : ny_glob - jstart_glob,
+                        -istart_glob : nx_glob - istart_glob,
+                    ]
+                    assert target.attrs["_global_values"].shape == (ny_glob, nx_glob)
+
+                grid.tiling.comm.Scatter(sendbuf, target.all_values)
                 if self.periodic_x or self.periodic_y:
                     target.update_halos()
+
                 retrieved_from_domain.add(name)
 
         # If the Coriolis parameter was not set explicitly at domain level,

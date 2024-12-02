@@ -302,10 +302,49 @@ class Tiling:
     def wrap(self, *args, **kwargs) -> "DistributedArray":
         return DistributedArray(self, *args, **kwargs)
 
+    def subdomain2rawslices(
+        self,
+        irow: Optional[int] = None,
+        icol: Optional[int] = None,
+        *,
+        halox_sub: int = 0,
+        haloy_sub: int = 0,
+        scale: int = 1,
+        share: int = 0,
+    ) -> Tuple[Optional[slice], Optional[slice]]:
+        if irow is None:
+            irow = self.irow
+        if icol is None:
+            icol = self.icol
+
+        assert isinstance(share, int)
+        assert isinstance(scale, int)
+        assert isinstance(halox_sub, int)
+        assert isinstance(haloy_sub, int)
+
+        if irow is None:
+            return None, None
+
+        assert self.map[irow, icol] >= 0, f"{self.map} {irow} {icol}"
+
+        # Global start and stop of local subdomain (no halos yet)
+        xstart_glob = scale * (icol * self.nx_sub + self.xoffset_global)
+        xstop_glob = scale * ((icol + 1) * self.nx_sub + self.xoffset_global)
+        ystart_glob = scale * (irow * self.ny_sub + self.yoffset_global)
+        ystop_glob = scale * ((irow + 1) * self.ny_sub + self.yoffset_global)
+
+        # Adjust for halos and any overlap ("share")
+        xstart_glob -= halox_sub
+        xstop_glob += halox_sub + share
+        ystart_glob -= haloy_sub
+        ystop_glob += haloy_sub + share
+        return (slice(ystart_glob, ystop_glob), slice(xstart_glob, xstop_glob))
+
     def subdomain2slices(
         self,
         irow: Optional[int] = None,
         icol: Optional[int] = None,
+        *,
         halox_sub: int = 0,
         haloy_sub: int = 0,
         halox_glob: int = 0,
@@ -340,15 +379,15 @@ class Tiling:
             Tuple with the local slices, global slices, extent of a subdomain array, and
             extent of a global array. The extents always include halos and shared points
         """
-        if irow is None:
-            irow = self.irow
-        if icol is None:
-            icol = self.icol
+        yslice_glob, xslice_glob = self.subdomain2rawslices(
+            irow,
+            icol,
+            halox_sub=halox_sub,
+            haloy_sub=haloy_sub,
+            scale=scale,
+            share=share,
+        )
 
-        assert isinstance(share, int)
-        assert isinstance(scale, int)
-        assert isinstance(halox_sub, int)
-        assert isinstance(haloy_sub, int)
         assert isinstance(halox_glob, int)
         assert isinstance(haloy_glob, int)
 
@@ -362,23 +401,14 @@ class Tiling:
             scale * self.nx_glob + 2 * halox_glob + share,
         )
 
-        if irow is None:
+        if xslice_glob is None:
             local_slice = global_slice = (Ellipsis, slice(0, 0), slice(0, 0))
             return local_slice, global_slice, local_shape, global_shape
 
-        assert self.map[irow, icol] >= 0
-
-        # Global start and stop of local subdomain (no halos yet)
-        xstart_glob = scale * (icol * self.nx_sub + self.xoffset_global)
-        xstop_glob = scale * ((icol + 1) * self.nx_sub + self.xoffset_global)
-        ystart_glob = scale * (irow * self.ny_sub + self.yoffset_global)
-        ystop_glob = scale * ((irow + 1) * self.ny_sub + self.yoffset_global)
-
-        # Adjust for halos and any overlap ("share")
-        xstart_glob += -halox_sub + halox_glob
-        xstop_glob += halox_sub + halox_glob + share
-        ystart_glob += -haloy_sub + haloy_glob
-        ystop_glob += haloy_sub + haloy_glob + share
+        xstart_glob = xslice_glob.start + halox_glob
+        xstop_glob = xslice_glob.stop + halox_glob
+        ystart_glob = yslice_glob.start + haloy_glob
+        ystop_glob = yslice_glob.stop + haloy_glob
 
         # Local start and stop
         xstart_loc = 0
