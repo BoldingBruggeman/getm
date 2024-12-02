@@ -878,10 +878,10 @@ class Domain:
 
         Note: this returns global indices for the T grid, not the supergrid
         """
-        mask = self._mask[1::2, 1::2] > 0
         dx = self._dx[1::2, 1::2]
         dy = self._dy[1::2, 1::2]
-        D = np.maximum(self._H[1::2, 1::2] + z, 1e-14)
+        D = self._H[1::2, 1::2] + z
+        mask = (self._mask[1::2, 1::2] > 0) & (D > 0.0)
         denom2 = (2.0 * GRAVITY) * D * (dx**2 + dy**2)
         maxdts = dx * dy / np.sqrt(denom2, where=mask, out=np.ones_like(D))
         maxdts[~mask] = np.inf
