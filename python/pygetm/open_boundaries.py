@@ -501,7 +501,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         self, name: str, j: int, istart: int, istop: int, type_2d: int, type_3d: int
     ):
         """Add an open boundary with the model exterior above and the model
-        interior below. This is a Northern open boundary in a spherical domain.
+        interior below. This is a northern open boundary in a spherical domain.
         """
         self.add_by_index(Side.NORTH, j, istart, istop, type_2d, type_3d, name=name)
 
@@ -509,7 +509,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         self, name: str, j: int, istart: int, istop: int, type_2d: int, type_3d: int
     ):
         """Add an open boundary with the model exterior below and the model
-        interior above. This is a Southern open boundary in a spherical domain.
+        interior above. This is a southern open boundary in a spherical domain.
         """
         self.add_by_index(Side.SOUTH, j, istart, istop, type_2d, type_3d, name=name)
 
@@ -517,7 +517,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         self, name: str, i: int, jstart: int, jstop: int, type_2d: int, type_3d: int
     ):
         """Add an open boundary with the model exterior to the left and the
-        model interior to the right. This is a Western open boundary in a
+        model interior to the right. This is a western open boundary in a
         spherical domain.
         """
         self.add_by_index(Side.WEST, i, jstart, jstop, type_2d, type_3d, name=name)
@@ -526,7 +526,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         self, name: str, i: int, jstart: int, jstop: int, type_2d: int, type_3d: int
     ):
         """Add an open boundary with the model exterior to the right and the
-        model interior to the left. This is an Eastern open boundary in a
+        model interior to the left. This is an eastern open boundary in a
         spherical domain.
         """
         self.add_by_index(Side.EAST, i, jstart, jstop, type_2d, type_3d, name=name)

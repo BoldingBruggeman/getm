@@ -30,7 +30,7 @@ class Density:
 
         Args:
             SA: absolute salinity (g kg-1)
-            ct: conservative temperature (degrees Celsius)
+            ct: conservative temperature (°C)
             p: pressure (dbar). If not provided, the water depth in m will be used as
                 approximate pressure.
             out: array to store buoyancy frequency result in. If not provided,
@@ -70,7 +70,7 @@ class Density:
 
         Args:
             SA: absolute salinity (g kg-1)
-            ct: conservative temperature (degrees Celsius)
+            ct: conservative temperature (°C)
             p: pressure (dbar). If not provided, the water depth in m will be used as
                 approximate pressure.
             out: array to store density result in. If not provided,
@@ -103,12 +103,12 @@ class Density:
 
         Args:
             SA: absolute salinity (g kg-1)
-            ct: conservative temperature (degrees Celsius)
+            ct: conservative temperature (°C)
             out: array to store potential temperature result in. If not provided, a new
                 array will be created.
 
         Returns:
-            array with potential temperature values (degrees Celsius)
+            array with potential temperature values (°C)
         """
         assert SA.grid is ct.grid
         if out is None:
@@ -129,12 +129,12 @@ class Density:
         """Convert practical salinity and potential temperature to absolute salinity
         and conservative temperature. The conversion happens in-place: absolute
         salinity (g kg-1) will replace practical salinity, conservative temperature
-        (degrees Celsius) will replace potential temperature.
+        (°C) will replace potential temperature.
 
         Args:
             salt: practical salinity (PSU)
             temp: potential temperature or, if ``in_situ=True``, in-situ temperature
-                (degrees Celsius)
+                (°C)
             p: pressure (dbar). If not provided, the water depth in m will be used as
                 approximate pressure.
             in_situ: ``temp`` is in-situ temperature rather than potential temperature
@@ -190,18 +190,18 @@ class Density:
         Args:
             salt: practical salinity (PSU)
             temp: potential temperature or, if ``in_situ=True``, in-situ temperature
-                (degrees Celsius)
+                (°C)
             p: pressure (dbar). If not provided, it will be inferred from the depth
                 coordinate of ``salt`` or ``temp``.
-            lon: longitude (degrees East). If not provided, it will be inferred from
+            lon: longitude (°East). If not provided, it will be inferred from
                 the coordinates of ``salt`` or ``temp``.
-            lat: latitude (degrees North). If not provided, it will be inferred from
+            lat: latitude (°North). If not provided, it will be inferred from
                 the coordinates of ``salt`` or ``temp``.
             in_situ: input is in-situ temperature rather than potential temperature
 
         Returns:
             a tuple with lazy arrays for absolute salinity (g kg-1) and conservative
-            temperature (degrees Celsius)
+            temperature (°C)
         """
         gridsrc = salt if isinstance(salt, xr.DataArray) else temp
 

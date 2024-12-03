@@ -12,8 +12,8 @@ import xarray as xr
 
 
 ERA5_LONG_NAMES = dict(
-    u10="Eastward wind speed",
-    v10="Northward wind speed",
+    u10="eastward wind speed",
+    v10="northward wind speed",
     sp="surface pressure",
     t2m="air temperature @ 2 m",
     d2m="dew point temperature @ 2 m",

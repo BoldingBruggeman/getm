@@ -60,7 +60,7 @@ def coriolis(lat: npt.ArrayLike) -> np.ndarray:
     """Calculate Coriolis parameter f for the given latitude.
 
     Args:
-        lat: latitude in degrees North
+        lat: latitude (°North)
 
     Returns:
         Coriolis parameter f
@@ -301,10 +301,10 @@ def create_spherical_at_resolution(
     range and desired resolution in m.
 
     Args:
-        minlon: minimum longitude
-        maxlon: maximum longitude
-        minlat: minimum latitude
-        maxlat: maximum latitude
+        minlon: minimum longitude (°East)
+        maxlon: maximum longitude (°East)
+        minlat: minimum latitude (°North)
+        maxlat: maximum latitude (°North)
         resolution: maximum grid cell length and width (m)
         **kwargs: additional arguments passed to :class:`Domain`
     """

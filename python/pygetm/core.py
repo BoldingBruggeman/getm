@@ -227,8 +227,8 @@ class Grid(_pygetm.Grid):
 
     def freeze(self):
         """Freeze all grid attributes. This will calculate derived metrics
-        such as the inverse of cell height/width/area and inialize elevation
-        and water depth. It subsequently makes most attributes read-only"""
+        such as the inverse of cell height/width/area and initialize elevation
+        and water depth. It subsequently makes most attributes read-only."""
         with np.errstate(divide="ignore"):
             self._iarea.all_values[...] = 1.0 / self._area.all_values
             self._idx.all_values[...] = 1.0 / self._dx.all_values
@@ -396,9 +396,9 @@ class Grid(_pygetm.Grid):
 
         Args:
             u: velocity in x-direction in source coordinate system
-                (Eastward velocity if the source is a geocentric velocity field)
+                (eastward velocity if the source is a geocentric velocity field)
             v: velocity in y-direction in source coordinate system
-                (Northward velocity if the source is a geocentric velocity field)
+                (northward velocity if the source is a geocentric velocity field)
             to_grid: rotate from geocentric to model coordinate system, not vice versa
         """
         if not self.rotated:
