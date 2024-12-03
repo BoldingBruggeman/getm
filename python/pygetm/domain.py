@@ -350,7 +350,7 @@ class DomainArray:
                 setattr(domain, self.private_name, values)
         return values
 
-    def __set__(self, domain: "Domain", values):
+    def __set__(self, domain: "Domain", values: Optional[npt.ArrayLike]):
         assert self.writable
         if domain.comm.rank == 0:
             values = domain._map_array(values, **self.kwargs)
