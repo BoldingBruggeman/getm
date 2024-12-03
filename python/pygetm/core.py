@@ -226,6 +226,9 @@ class Grid(_pygetm.Grid):
         )
 
     def freeze(self):
+        """Freeze all grid attributes. This will calculate derived metrics
+        such as the inverse of cell height/width/area and inialize elevation
+        and water depth. It subsequently makes most attributes read-only"""
         with np.errstate(divide="ignore"):
             self._iarea.all_values[...] = 1.0 / self._area.all_values
             self._idx.all_values[...] = 1.0 / self._dx.all_values
@@ -266,10 +269,14 @@ class Grid(_pygetm.Grid):
         D = self.H.all_values + self.z.all_values
         self.D.all_values[self._water] = D[self._water]
 
-        # Determine whether any grid points are reotated with respect to true North
+        # Determine whether any grid points are rotated with respect to true North
         # If that flag is False, it will allow us to skip potentially expensive
         # rotation operations (`rotate` method)
         self.rotated = self.rotation.all_values[self._water].any()
+
+        for child in (self.ugrid, self.vgrid, self.xgrid):
+            if child:
+                child.freeze()
 
     def close_flux_interfaces(self):
         """Mask U and V points that do not have two bordering wet T points"""

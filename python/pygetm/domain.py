@@ -744,9 +744,7 @@ class Domain:
                 (V.mask.all_values[:, :-1] == 4) & (V.mask.all_values[:, 1:] == 4)
             ] = 0
 
-        for grid in (T, U, V, X, UU, UV, VU, VV):
-            if grid is not None:
-                grid.freeze()
+        T.freeze()
 
         self.open_boundaries.initialize(T)
         T.z.open_boundaries = open_boundaries.ArrayOpenBoundaries(T.z)
