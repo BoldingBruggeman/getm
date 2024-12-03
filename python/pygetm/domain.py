@@ -514,7 +514,7 @@ class Domain:
         self._lat = self._map_array(lat, edges=EdgeTreatment.EXTRAPOLATE)
         self._f = self._map_array(f)
         self._mask = self._map_array(mask, missing_value=0, dtype=int)
-        self._H = self._map_array(H)
+        self._H = self._map_array(H, edges=EdgeTreatment.CLAMP)
         self._z0 = self._map_array(z0)
 
         kwargs_expand = {}
@@ -594,9 +594,9 @@ class Domain:
         elif can_cast(self.ny, self.nx):
             # values provided at cell centers
             edges_x = edges_y = edges
-            if self.periodic_x and edges_x == EdgeTreatment.MISSING:
+            if self.periodic_x and edges_x != EdgeTreatment.EXTRAPOLATE:
                 edges_x = EdgeTreatment.PERIODIC
-            if self.periodic_y and edges_y == EdgeTreatment.MISSING:
+            if self.periodic_y and edges_y != EdgeTreatment.EXTRAPOLATE:
                 edges_y = EdgeTreatment.PERIODIC
             if source_shape[0] == 1:
                 values_sup = centers_to_supergrid_1d(
