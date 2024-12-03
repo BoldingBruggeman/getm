@@ -814,6 +814,7 @@ class Domain:
                         target.dtype,
                         target.fill_value,
                     )
+                    sendbuf.fill(target.fill_value)
                     for irow, icol, rank in parallel._iterate_rankmap(grid.tiling.map):
                         if rank < 0:
                             continue
