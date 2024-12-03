@@ -372,7 +372,10 @@ class BaseSimulation:
                     f" (out of {unmasked_count} unmasked values)."
                 )
         if nbad:
-            raise Exception(f"Non-finite values found in {nbad} fields")
+            raise Exception(
+                f"Non-finite values found in {nbad} fields"
+                f" at istep={self.istep}, time={self.time}"
+            )
 
     def _summarize_profiling_result(self, ps: pstats.Stats):
         pass
