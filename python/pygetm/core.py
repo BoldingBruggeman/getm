@@ -252,6 +252,7 @@ class Grid(_pygetm.Grid):
         self.zf.all_values[...] = -self.H.all_values
 
         self.H.all_values[self._land] = FILL_VALUE
+        assert np.isfinite(self.H.all_values[self._water]).all()
         self.z0b_min.all_values[self._land] = FILL_VALUE
         self.H.all_values.flags.writeable = False
         self.z0b_min.all_values.flags.writeable = False
