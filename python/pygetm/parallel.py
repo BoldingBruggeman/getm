@@ -1,4 +1,4 @@
-from typing import Iterable, Mapping, Optional, Tuple, Union, Any, List
+from typing import Iterable, Mapping, Optional, Tuple, Union, Any, List, Dict
 import logging
 import functools
 import pickle
@@ -144,18 +144,17 @@ class Tiling:
         self.n = ncpus if ncpus is not None else self.comm.size
 
         if nrow is None and ncol is not None:
-            nrow = self.n // ncol
+            nrow = int(np.ceil(self.n / ncol))
         if ncol is None and nrow is not None:
-            ncol = self.n // nrow
+            ncol = int(np.ceil(self.n / nrow))
 
-        if nrow is None and ncol is None:
-            assert map is not None, (
-                "If the number of rows and columns in the subdomain decomposition is"
-                " not provided, the rank map must be provided instead."
-            )
-            self.map = map
+        if map is None:
+            assert nrow is not None and ncol is not None
+            map = np.arange(nrow * ncol).reshape(nrow, ncol)
         else:
-            self.map = np.arange(nrow * ncol).reshape(nrow, ncol)
+            assert nrow is None or nrow == map.shape[0]
+            assert ncol is None or ncol == map.shape[1]
+        self.map = map
         self.nrow, self.ncol = self.map.shape
 
         self.n_neigbors = 0
@@ -199,7 +198,7 @@ class Tiling:
         self.bottomleft = find_neighbor(-1, -1)
         self.bottomright = find_neighbor(-1, +1)
 
-        self._caches = {}
+        self._caches: Dict[Tuple[Tuple[int, ...], DTypeLike, Any], np.ndarray] = {}
         self.nx_glob = None
 
     @property
@@ -311,7 +310,7 @@ class Tiling:
         haloy_sub: int = 0,
         scale: int = 1,
         share: int = 0,
-    ) -> Tuple[Optional[slice], Optional[slice]]:
+    ) -> Union[Tuple[slice, slice], Tuple[None, None]]:
         if irow is None:
             irow = self.irow
         if icol is None:
@@ -806,6 +805,7 @@ class Gather:
             for source, global_slice in self.buffers:
                 out[slice_spec + global_slice] = source
             return out
+        return None
 
 
 class Scatter:
@@ -862,6 +862,7 @@ class Scatter:
     def __call__(self, global_data: Optional[np.ndarray]):
         if self.sendbuf is not None:
             # we are root and have to send the global field
+            assert global_data is not None
             assert global_data.shape[-2:] == self.global_shape, (
                 f"Global shape {global_data.shape[-2:]} differs"
                 f" from expected {self.global_shape}"
@@ -888,6 +889,7 @@ def find_optimal_divison(
     if ncpus is None:
         ncpus = (comm or MPI.COMM_WORLD).size
 
+    mask = np.asarray(mask)
     ny, nx = mask.shape
 
     # If we only have 1 CPU, just use the full domain
@@ -904,7 +906,7 @@ def find_optimal_divison(
 
     # If we have a 1D grid with only unmasked (water) points,
     # return simple equal subdomian division
-    if ny == 1 and np.all(mask):
+    if ny == 1 and mask.all():
         return {
             "ncpus": ncpus,
             "nx": int(np.ceil(nx / ncpus)),
@@ -918,7 +920,6 @@ def find_optimal_divison(
     comm = comm or mpi4py_autofree(MPI.COMM_WORLD.Dup())
 
     # Determine mask extent excluding any outer fully masked strips
-    mask = np.asarray(mask)
     (mask_x,) = mask.any(axis=0).nonzero()
     (mask_y,) = mask.any(axis=1).nonzero()
     imin, imax = mask_x[0], mask_x[-1]

@@ -92,16 +92,22 @@ class Base:
 
     @property
     def mask(self) -> np.ndarray:
+        if self.grid is None:
+            raise NotImplementedError()
         if self.ndim > 2 and hasattr(self.grid, "_land3d"):
             return self.grid._land3d
         return self.grid._land
 
     @property
     def halox(self) -> int:
+        if self.grid is None:
+            raise NotImplementedError()
         return self.grid.halox
 
     @property
     def haloy(self) -> int:
+        if self.grid is None:
+            raise NotImplementedError()
         return self.grid.haloy
 
 
@@ -127,7 +133,7 @@ class WrappedArray(Base):
         return ()
 
     def get(
-        self, out: Optional[ArrayLike] = None, slice_spec: Tuple[int] = ()
+        self, out: Optional[ArrayLike] = None, slice_spec: Tuple[int, ...] = ()
     ) -> ArrayLike:
         if out is None:
             return self.values
@@ -149,7 +155,7 @@ class FieldCollection:
         sub: bool = False,
     ):
         self.fields: MutableMapping[str, Base] = collections.OrderedDict()
-        self.expression2name = {}
+        self.expression2name: MutableMapping[str, str] = {}
         self.available_fields = available_fields
         self.default_dtype = default_dtype
         self.sub = sub
@@ -485,7 +491,7 @@ class Gather(UnivariateTransform):
 class Slice(UnivariateTransform):
     __slots__ = "_slice"
 
-    def __init__(self, source: Field):
+    def __init__(self, source: Base):
         xstart = source.halox
         ystart = source.haloy
         xstop = source.shape[-1] - source.halox

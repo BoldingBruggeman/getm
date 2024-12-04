@@ -413,15 +413,15 @@ class Domain:
         nx: int,
         ny: int,
         *,
-        lon: Optional[np.ndarray] = None,
-        lat: Optional[np.ndarray] = None,
-        x: Optional[np.ndarray] = None,
-        y: Optional[np.ndarray] = None,
+        lon: Optional[npt.ArrayLike] = None,
+        lat: Optional[npt.ArrayLike] = None,
+        x: Optional[npt.ArrayLike] = None,
+        y: Optional[npt.ArrayLike] = None,
         coordinate_type: Optional[CoordinateType] = None,
-        mask: Optional[np.ndarray] = 1,
-        H: Optional[np.ndarray] = None,
-        z0: Optional[np.ndarray] = 0.0,
-        f: Optional[np.ndarray] = None,
+        mask: Optional[npt.ArrayLike] = 1,
+        H: Optional[npt.ArrayLike] = None,
+        z0: Optional[npt.ArrayLike] = 0.0,
+        f: Optional[npt.ArrayLike] = None,
         periodic_x: bool = False,
         periodic_y: bool = False,
         comm: Optional[parallel.MPI.Comm] = None,
@@ -574,11 +574,8 @@ class Domain:
         edges: EdgeTreatment = EdgeTreatment.MISSING,
         missing_value=np.nan,
     ) -> Optional[np.ndarray]:
-        if self.comm.rank != 0:
-            return
-
-        if values is None:
-            return
+        if self.comm.rank != 0 or values is None:
+            return None
 
         source_shape = np.shape(values)
         source_shape = (1,) * (2 - len(source_shape)) + source_shape  # broadcast

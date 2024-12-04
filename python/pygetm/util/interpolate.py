@@ -107,7 +107,7 @@ class Linear2DGridInterpolator:
         self.idim1 = -2 - ndim_trailing
         self.idim2 = -1 - ndim_trailing
 
-    def __call__(self, fp: ArrayLike) -> np.ndarray:
+    def __call__(self, fp: np.ndarray) -> np.ndarray:
         assert fp.shape[self.idim1] == self.nxp
         assert fp.shape[self.idim2] == self.nyp
         result = self.w11 * fp[self.slice11]
@@ -187,9 +187,8 @@ def interp_1d(x, xp, fp, axis: int = 0):
     invalid = np.isnan(fp)
     if invalid.any():
         valid = ~invalid
-        ind = np.arange(fp.shape[axis])
-        ind.shape = [1 if i != axis else -1 for i in range(fp.ndim)]
-        ind = np.broadcast_to(ind, fp.shape)
+        s = tuple(np.newaxis if i != axis else slice(None) for i in range(fp.ndim))
+        ind = np.broadcast_to(np.arange(fp.shape[axis])[s], fp.shape)
         first = ind.min(axis=axis, where=valid, initial=fp.shape[axis], keepdims=True)
         last = ind.max(axis=axis, where=valid, initial=0, keepdims=True)
         first = np.minimum(first, last)  # if no valid elements at all, first=last=0

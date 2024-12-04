@@ -95,6 +95,7 @@ class File(operators.FieldCollection):
         elif self.interval_units == TimeUnit.YEARS:
             next_time = time.replace(year=time.year + self.interval)
             return seconds_passed + (next_time - time).total_seconds()
+        raise Exception(f"Unknown value for interval_units: {self.interval_units}")
 
     def start(
         self,
