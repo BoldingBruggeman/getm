@@ -1,13 +1,12 @@
-from typing import TYPE_CHECKING, Optional, Union
+from typing import Optional, Union
 import logging
 
 import numpy as np
 import numpy.typing as npt
 
-if TYPE_CHECKING:
-    from . import domain
 from .constants import CENTERS
 from . import _pygetm
+from . import core
 
 
 class Base:
@@ -22,7 +21,7 @@ class Base:
         self.nz = nz
 
     def initialize(
-        self, ref_grid: "core.Grid", *other_grids: "core.Grid", logger: logging.Logger
+        self, ref_grid: core.Grid, *other_grids: core.Grid, logger: logging.Logger
     ):
         self.logger = logger
 
@@ -35,11 +34,11 @@ class PerGrid(Base):
     """Base class for vertical coordinate types that apply the same operation
     to every grid."""
 
-    def initialize(self, *grids: "core.Grid", logger: logging.Logger):
+    def initialize(self, *grids: core.Grid, logger: logging.Logger):
         super().initialize(*grids, logger=logger)
         self.grid_info = [self.prepare_update_args(grid) for grid in grids]
 
-    def prepare_update_args(self, grid: "core.Grid"):
+    def prepare_update_args(self, grid: core.Grid):
         """Prepare grid-specific information that will be passed as
         arguments to __call__"""
         return (grid.D.all_values, grid.hn.all_values, grid.mask.all_values)
@@ -172,7 +171,7 @@ class GVC(PerGrid):
         denom = alpha_min * self.dsigma + (1.0 - alpha_min) * self.dbeta[self.k_ref]
         self.D_max = np.inf if abs(denom) < 1e-15 else (Dgamma * self.dsigma) / denom
 
-    def initialize(self, *grids: "core.Grid", logger: logging.Logger):
+    def initialize(self, *grids: core.Grid, logger: logging.Logger):
         super().initialize(*grids, logger=logger)
         self.logger.info(
             f"This GVC parameterization supports water depths up to {self.D_max:.3f} m"
@@ -201,7 +200,7 @@ class Adaptive(Base):
     def __init__(self, nz: int):
         super().__init__(nz)
 
-    def initialize(self, tgrid: "core.Grid", *other_grids: "core.Grid"):
+    def initialize(self, tgrid: core.Grid, *other_grids: core.Grid):
         super().initialize(tgrid, *other_grids)
 
         self.tgrid = tgrid
