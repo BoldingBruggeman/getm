@@ -484,6 +484,13 @@ class Simulation(BaseSimulation):
         """
         super().__init__(domain, log_level=log_level, tiling=tiling)
 
+        if Dmin <= 0.0:
+            self.logger.error(f"Dmin ({Dmin} m) must exceed zero")
+            raise Exception("Dmin<=0")
+        if Dcrit < Dmin:
+            self.logger.error(f"Dcrit ({Dcrit} m) must exceed Dmin ({Dmin} m)")
+            raise Exception("Dcrit<Dmin")
+
         self.rivers = domain.rivers
         self.open_boundaries = domain.open_boundaries
 
