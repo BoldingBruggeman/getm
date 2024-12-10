@@ -19,3 +19,5 @@ cmake --build "${WORK_DIR}" --target otps2_wheel --config Release --parallel 4
 cp -rv "${WORK_DIR}/otps2" "${PYGETM_DIR}/otps2"
 
 rm -rf "${WORK_DIR}"
+
+set +e
