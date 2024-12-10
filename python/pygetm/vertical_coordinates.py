@@ -186,7 +186,7 @@ class GVC(PerGrid):
         if out is None:
             out = np.empty(self.dbeta.shape + D.shape)
         if where is None:
-            where = np.full(D.shape, 1)
+            where = np.full(D.shape, 1, dtype=np.intc)
         _pygetm.update_gvc(
             self.dsigma, self.dbeta, self.Dgamma, self.k_ref, D, where, out
         )
