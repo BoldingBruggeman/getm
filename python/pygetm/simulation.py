@@ -823,6 +823,8 @@ class Simulation(BaseSimulation):
                 self.momentum.SxB.attrs["_part_of_state"] = True
                 self.momentum.SyB.attrs["_part_of_state"] = True
         else:
+            self.internal_pressure = pygetm.internal_pressure.Base()
+            self.internal_pressure.initialize(self.U, self.V)
             self.temp_sf = None
             self.salt_sf = None
 
