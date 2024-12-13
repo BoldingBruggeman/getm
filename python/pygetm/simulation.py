@@ -487,9 +487,12 @@ class Simulation(BaseSimulation):
         if Dmin <= 0.0:
             self.logger.error(f"Dmin ({Dmin} m) must exceed zero")
             raise Exception("Dmin<=0")
-        if Dcrit < Dmin:
-            self.logger.error(f"Dcrit ({Dcrit} m) must exceed Dmin ({Dmin} m)")
-            raise Exception("Dcrit<Dmin")
+        if Dcrit < 2.5 * Dmin:
+            self.logger.error(
+                f"Dcrit ({Dcrit} m) must equal or exceed 2.5 * Dmin ({Dmin} m)"
+                f" = {2.5 * Dmin} m"
+            )
+            raise Exception("Dcrit < 2.5*Dmin")
 
         self.rivers = domain.rivers
         self.open_boundaries = domain.open_boundaries
