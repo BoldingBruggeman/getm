@@ -1456,8 +1456,8 @@ class Simulation(BaseSimulation):
         )
 
         # Update dampening factor (0-1) for shallow water
-        _pygetm.alpha(self.U.D, self.Dmin, self.Dcrit, self.U.alpha)
-        _pygetm.alpha(self.V.D, self.Dmin, self.Dcrit, self.V.alpha)
+        _pygetm.alpha(self.U.D, 2 * self.Dmin, self.Dcrit, self.U.alpha)
+        _pygetm.alpha(self.V.D, 2 * self.Dmin, self.Dcrit, self.V.alpha)
 
         # Update total water depth on advection grids. These must be 1/2 timestep
         # behind the T grid. That's already the case for the X grid, but for the T grid
