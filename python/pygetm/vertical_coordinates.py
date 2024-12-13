@@ -41,7 +41,7 @@ class PerGrid(Base):
     def prepare_update_args(self, grid: core.Grid):
         """Prepare grid-specific information that will be passed as
         arguments to __call__"""
-        return (grid.D.all_values, grid.hn.all_values, grid.mask.all_values)
+        return (grid.Dclip.all_values, grid.hn.all_values, grid.mask.all_values)
 
     def update(self, timestep: float):
         """Update all grids"""

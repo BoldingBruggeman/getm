@@ -529,6 +529,12 @@ class Simulation(BaseSimulation):
                 f" excluding halos: {(grid.mask.values > 0).sum()}"
             )
 
+        # Water depths clipped to Dmin (already the default for U,V,X grids)
+        self.T.Dclip = self.T.array()
+        self.U.Dclip = self.U.D
+        self.V.Dclip = self.V.D
+        self.X.Dclip = self.X.D
+
         # Water depth and thicknesses on UU/VV grids will be taken from T grid,
         # which near land has valid values where UU/VV are masked
         self.U.ugrid.D.attrs["_mask_output"] = True
@@ -1426,6 +1432,7 @@ class Simulation(BaseSimulation):
             where=self.T._water,
             out=self.T.D.all_values,
         )
+        np.maximum(self.T.D.all_values, self.Dmin, out=self.T.Dclip.all_values)
         np.add(
             self.U.H.all_values,
             z_U.all_values,
