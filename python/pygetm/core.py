@@ -271,6 +271,8 @@ class Grid(_pygetm.Grid):
         D = self.H.all_values + self.z.all_values
         self.D.all_values[self._water] = D[self._water]
 
+        self.Dclip = self.D
+
         # Determine whether any grid points are rotated with respect to true North
         # If that flag is False, it will allow us to skip potentially expensive
         # rotation operations (`rotate` method)
