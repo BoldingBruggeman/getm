@@ -21,33 +21,35 @@ def domain_from_topo(path: str, **kwargs) -> pygetm.domain.Domain:
     If ``z0`` is present in the argument list as well as the topo file, the
     argument takes priority.
     """
+
+    def _get_metrics(nc: netCDF4.Dataset):
+        H = nc.variables["bathymetry"]
+        yname, xname = H.dimensions
+        if hasattr(H, "missing_value"):
+            H = np.ma.masked_equal(H, H.missing_value)
+        mask = np.where(np.ma.getmaskarray(H), 0, 1)
+
+        # Follow legacy GETM in inferring regularly spaced grids from
+        # first and last value. This could improve accuracy if values in the topo
+        # file are not stored in double precision.
+        ncx = nc.variables[xname]
+        ncy = nc.variables[yname]
+        x = np.linspace(ncx[0], ncx[-1], ncx.size, dtype=float)
+        y = np.linspace(ncy[0], ncy[-1], ncy.size, dtype=float)
+
+        return x, y, H, mask
+
     with netCDF4.Dataset(path) as nc:
         grid_type = int(np.reshape(nc["grid_type"], ()))
         if grid_type == 1:
             # Cartesian
-            raise NotImplementedError("No support yet for Cartesian coordinates")
+            x, y, H, mask = _get_metrics(nc)
+            kwargs.setdefault("lon", nc.variables.get("lonc", None))
+            kwargs.setdefault("lat", nc.variables.get("latc", None))
+            domain = pygetm.domain.create_cartesian(x, y, H=H, mask=mask, **kwargs)
         elif grid_type == 2:
             # spherical
-            H = nc["bathymetry"]
-            latname, lonname = H.dimensions
-            if hasattr(H, "missing_value"):
-                H = np.ma.masked_equal(H, H.missing_value)
-            mask = np.where(np.ma.getmaskarray(H), 0, 1)
-
-            # Follow legacy GETM in inferring regularly spaced lon/lat grids from
-            # first and last value. This could improve accuacy if values in the topo
-            # file are not stored in double precision.
-            nclon, nclat = nc[lonname], nc[latname]
-            lon = np.linspace(nclon[0], nclon[-1], nclon.size, dtype=float)
-            lat = np.linspace(nclat[0], nclat[-1], nclat.size, dtype=float)
-
-            if "z0" in nc.variables:
-                kwargs.setdefault("z0", nc["z0"])
-            if "z0" not in kwargs:
-                raise Exception(
-                    f"Bottom roughness z0 is not present in {path}; you need to provide"
-                    " it as keyword argument to domain_from_topo instead."
-                )
+            lon, lat, H, mask = _get_metrics(nc)
             domain = pygetm.domain.create_spherical(lon, lat, H=H, mask=mask, **kwargs)
         elif grid_type == 3:
             # planar curvilinear
@@ -61,6 +63,15 @@ def domain_from_topo(path: str, **kwargs) -> pygetm.domain.Domain:
             )
         else:
             raise NotImplementedError(f"Unknown grid_type {grid_type} found")
+
+        if "z0" not in kwargs:
+            if "z0" not in nc.variables:
+                raise Exception(
+                    f"Bottom roughness z0 is not present in {path}; you need to"
+                    " provide it as keyword argument to domain_from_topo instead."
+                )
+            domain.z0 = nc["z0"]
+
     return domain
 
 
