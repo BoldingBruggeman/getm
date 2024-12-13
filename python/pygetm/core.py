@@ -76,6 +76,7 @@ class Grid(_pygetm.Grid):
         "_sin_rot",
         "_cos_rot",
         "rotation",
+        "Dclip",
         "open_boundaries",
         "input_manager",
         "default_output_transforms",
