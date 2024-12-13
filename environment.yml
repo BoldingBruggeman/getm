@@ -12,7 +12,8 @@ channels:
 dependencies:
   - python>=3.8
   - cmake
-  - fortran-compiler
+  - ninja
+  - gfortran
   - cython
   - python-build
   - pip

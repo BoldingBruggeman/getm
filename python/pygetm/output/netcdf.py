@@ -1,4 +1,4 @@
-from typing import Optional, Mapping
+from typing import Optional, Mapping, Dict, List
 import os.path
 import logging
 import datetime
@@ -8,6 +8,7 @@ import cftime
 import netCDF4
 
 from . import File
+from . import operators
 import pygetm.core
 import pygetm._pygetm
 
@@ -50,7 +51,7 @@ class NetCDFFile(File):
         if self.sub:
             name += f"_{rank:05}"
         self.path = name + ext
-        self.nc = None
+        self.nc: Optional[netCDF4.Dataset] = None
         self.itime = 0
         self.is_root = rank == 0
         self.time_offset = 0.0
@@ -58,8 +59,8 @@ class NetCDFFile(File):
         self.sync_interval = sync_interval
         self.format = format
         self.compression = compression
-        self._field2nc = {}
-        self._varying_fields = []
+        self._field2nc: Dict[operators.Base, netCDF4.Variable] = {}
+        self._varying_fields: List[operators.Base] = []
         self.nctime_bnds = None
 
     def __repr__(self) -> str:
@@ -79,13 +80,14 @@ class NetCDFFile(File):
             cmdline = " ".join(sys.argv)
             self.nc.history = f"{now:%Y-%m-%d %H:%M:%S} {cmdline}"
             self.nc.source = f"pygetm {pygetm._pygetm.get_version()}"
-            for field in self.fields.values():
+            for output_name, field in self.fields.items():
                 for dim, length in zip(field.dims, field.shape):
                     if dim not in self.nc.dimensions:
                         self.nc.createDimension(dim, length)
                     elif length != self.nc.dimensions[dim].size:
                         raise Exception(
-                            f"Existing dimension {dim} has incompatible length"
+                            f"Error adding {output_name} with shape {field.shape}:"
+                            f" existing dimension {dim} has incompatible length"
                             f" {self.nc.dimensions[dim].size} (need {length})"
                         )
             self.nc.createDimension("time", None)
@@ -101,7 +103,6 @@ class NetCDFFile(File):
             else:
                 self.nctime.units = "s"
                 self.nctime.standard_name = "time"
-            self.ncvars = []
             needs_time_bounds = False
             for output_name, field in self.fields.items():
                 dims = field.dims

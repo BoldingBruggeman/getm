@@ -29,8 +29,8 @@ cdef extern void grid_interp_x(int nx, int ny, int nz, const double* source, dou
 cdef extern void grid_interp_y(int nx, int ny, int nz, const double* source, double* target, int joffset) nogil
 cdef extern void grid_interp_z(int nx, int ny, int nz1, int nz2, const double* source, double* target, int koffset) nogil
 cdef extern void grid_interp_xy(int nx1, int ny1, int nx2, int ny2, int nz, const double* source, double* target, int ioffset, int joffset) nogil
-cdef extern void c_horizontal_filter(int imin, int imax, int jmin, int jmax, int halox, int haloy, int kmax, int* mask, double w, const double* var) nogil
-cdef extern void c_vertical_filter(int n, int imin, int imax, int jmin, int jmax, int halox, int haloy, int kmax, int* mask, double w, const double* var) nogil
+cdef extern void c_horizontal_filter(int nx, int ny, int nz, int halox, int haloy, int* mask, double w, const double* var) nogil
+cdef extern void c_vertical_filter(int nx, int ny, int nz, int halox, int haloy, int n, int* mask, double w, const double* var) nogil
 cdef extern void c_gradient_x(int nx1, int ny1, int nx2, int ny2, int nz, const double* source, const double* idx, double* target, int ioffset, int joffset) nogil
 cdef extern void c_gradient_y(int nx1, int ny1, int nx2, int ny2, int nz, const double* source, const double* idy, double* target, int ioffset, int joffset) nogil
 cdef extern void get_array(int source_type, void* grid, const char* name, int* grid_type, int* sub_type, int* data_type, void** p) nogil
@@ -67,10 +67,8 @@ cdef extern void c_shchepetkin_mcwilliams(int nx, int ny, int nz, int imin, int 
 cdef extern void c_vertical_advection_to_sources(int nx, int ny, int nz, int halox, int haloy, const int* mask, const double* c, const double* w, const double* h, double* s)
 cdef extern void c_update_gvc(int nx, int ny, int nz, double dsigma, const double* dbeta, double Dgamma, int kk, const double* D, const int* mask, double* h)
 
-cdef extern void c_update_adaptive(int nx, int ny, int nz, int halox, int haloy, const int* mask, const double* H, const double* D, const double* zo, const double* ho, const double* NN, const double* SS, const double* nu, double decay, int hpow, double chsurf, double hsurf, double chmidd, double hmidd, double chbott, double hbott, double cneigh, double rneigh, double cNN, double drho, double cSS, double dvel, double chmin, double hmin, double dt, const double* ga) nogil
-
-#def update_adaptive(Array f not None, const double [:, :, ::1] NN, const double [:, :, ::1] SS, Array ga not None, double decay, int hpow, double chsurf, double hsurf, double chmidd, double hmidd, double chbott, double hbott, double cneigh, double rneigh, double cNN, double drho, double cSS, double dvel, double chmin, double hmin, double dt):
-
+cdef extern void c_update_adaptive(int nx, int ny, int nz, int halox, int haloy, const int* mask, const double* H, const double* D, const double* zo, const double* ho, const double* NN, const double* SS, const double* nu, double decay, int hpow, double chsurf, double hsurf, double chmidd, double hmidd, double chbott, double hbott, double cneigh, double rneigh, double cNN, double drho, double cSS, double dvel, double chmin, double hmin, const double* ga) nogil
+cdef extern void c_tridiagonal(int nx, int ny, int nz, int halox,  int haloy, double cnpar, double dt, const int* mask, const double* nu, const double* var ) nogil
 
 cdef class FortranArrayContainer:
     cdef void* p
@@ -203,7 +201,7 @@ def horizontal_filter(Array f not None, double w):
     cdef int nz = f.grid.nz
     cdef Array mask = f.grid.mask
 
-    c_horizontal_filter(1, nx, 1, ny, nz, halox, haloy, <int*>mask.p, w, <double*>f.p)
+    c_horizontal_filter(nx, ny, nz, halox, haloy, <int*>mask.p, w, <double*>f.p)
 
 def vertical_filter(int n, Array f not None, double w):
     cdef int halox = f.grid.halox
@@ -213,7 +211,7 @@ def vertical_filter(int n, Array f not None, double w):
     cdef int nz = f.grid.nz
     cdef Array mask = f.grid.mask
 
-    c_vertical_filter(n, 1, nx, 1, ny, nz, halox, haloy, <int*>mask.p, w, <double*>f.p)
+    c_vertical_filter(nx, ny, nz, halox, haloy, n, <int*>mask.p, w, <double*>f.p)
 
 def gradient_x(const double[:,::1] idx not None, const double[:,:,::1] source not None, double[:,:,::1] target not None, int ioffset=0, int joffset=0):
     c_gradient_x(<int>source.shape[2], <int>source.shape[1], <int>target.shape[2], <int>target.shape[1], <int>source.shape[0], &source[0,0,0], &idx[0,0], &target[0,0,0], ioffset, joffset)
@@ -609,7 +607,7 @@ def update_gvc(double dsigma, const double [::1] dbeta, double Dgamma, int kk, c
         kk = nz + kk
     c_update_gvc(nx, ny, nz, dsigma, &dbeta[0], Dgamma, 1 + kk, &D[0, 0], &mask[0, 0], &h[0, 0, 0])
 
-def update_adaptive(Array f not None, Array ga not None, const double [:, :, ::1] NN, const double [:, :, ::1] SS, double decay, int hpow, double chsurf, double hsurf, double chmidd, double hmidd, double chbott, double hbott, double cneigh, double rneigh, double cNN, double drho, double cSS, double dvel, double chmin, double hmin, double dt):
+def update_adaptive(Array f not None, Array ga not None, const double [:, :, ::1] NN, const double [:, :, ::1] SS, double decay, int hpow, double chsurf, double hsurf, double chmidd, double hmidd, double chbott, double hbott, double cneigh, double rneigh, double cNN, double drho, double cSS, double dvel, double chmin, double hmin):
     cdef int halox = f.grid.halox
     cdef int haloy = f.grid.haloy
     cdef int nx = f.grid.nx
@@ -622,7 +620,16 @@ def update_adaptive(Array f not None, Array ga not None, const double [:, :, ::1
     cdef Array ho = f.grid.hn
     #assert mask.shape[0] == ny and mask.shape[1] == nx
     #assert nu.shape[0] == nz and nu.shape[1] == ny and nu.shape[2] == nx
-    c_update_adaptive(nx, ny, nz, halox, haloy, <int*>mask.p, <double*>H.p, <double*>D.p, <double*>zo.p, <double*>ho.p, &NN[0, 0, 0], &SS[0, 0, 0], <double*>f.p, decay, hpow, chsurf, hsurf, chmidd, hmidd, chbott, hbott, cneigh, rneigh, cNN, drho, cSS, dvel, chmin, hmin, dt, <double*>ga.p)
+    c_update_adaptive(nx, ny, nz, halox, haloy, <int*>mask.p, <double*>H.p, <double*>D.p, <double*>zo.p, <double*>ho.p, &NN[0, 0, 0], &SS[0, 0, 0], <double*>f.p, decay, hpow, chsurf, hsurf, chmidd, hmidd, chbott, hbott, cneigh, rneigh, cNN, drho, cSS, dvel, chmin, hmin, <double*>ga.p)
+
+def tridiagonal(Array nu not None, Array var not None, double cnpar, double dt):
+    cdef int nx = nu.grid.nx
+    cdef int ny = nu.grid.ny
+    cdef int nz = nu.grid.nz
+    cdef int halox = nu.grid.halox
+    cdef int haloy = nu.grid.haloy
+    cdef Array mask = nu.grid.mask
+    c_tridiagonal(nx, ny, nz, halox, haloy, cnpar, dt, <int*> mask.p, <double*>nu.p, <double*>var.p)
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function

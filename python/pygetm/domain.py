@@ -25,13 +25,27 @@ class EdgeTreatment(enum.Enum):
     EXTRAPOLATE_PERIODIC = enum.auto()
 
 
-def find_interfaces(c: npt.ArrayLike) -> np.ndarray:
-    c_if = np.empty((c.size + 1))
-    d = np.diff(c)
-    c_if[1:-1] = c[:-1] + 0.5 * d
-    c_if[0] = c[0] - 0.5 * d[0]
-    c_if[-1] = c[-1] + 0.5 * d[-1]
-    return c_if
+def _get_rectangle_overlap(
+    istart1: int,
+    istop1: int,
+    jstart1: int,
+    jstop1: int,
+    istart2: int,
+    istop2: int,
+    jstart2: int,
+    jstop2: int,
+):
+    istart = max(istart1, istart2)
+    ni = min(istop1, istop2) - istart
+    jstart = max(jstart1, jstart2)
+    nj = min(jstop1, jstop2) - jstart
+    iskip = istart - istart1
+    jskip = jstart - jstart1
+    slice1 = (slice(jskip, jskip + nj), slice(iskip, iskip + ni))
+    iskip = istart - istart2
+    jskip = jstart - jstart2
+    slice2 = (slice(jskip, jskip + nj), slice(iskip, iskip + ni))
+    return slice1, slice2
 
 
 DEG2RAD = np.pi / 180  # degree to radian conversion
@@ -46,7 +60,7 @@ def coriolis(lat: npt.ArrayLike) -> np.ndarray:
     """Calculate Coriolis parameter f for the given latitude.
 
     Args:
-        lat: latitude in degrees North
+        lat: latitude (°North)
 
     Returns:
         Coriolis parameter f
@@ -287,10 +301,10 @@ def create_spherical_at_resolution(
     range and desired resolution in m.
 
     Args:
-        minlon: minimum longitude
-        maxlon: maximum longitude
-        minlat: minimum latitude
-        maxlat: maximum latitude
+        minlon: minimum longitude (°East)
+        maxlon: maximum longitude (°East)
+        minlat: minimum latitude (°North)
+        maxlat: maximum latitude (°North)
         resolution: maximum grid cell length and width (m)
         **kwargs: additional arguments passed to :class:`Domain`
     """
@@ -336,7 +350,7 @@ class DomainArray:
                 setattr(domain, self.private_name, values)
         return values
 
-    def __set__(self, domain: "Domain", values):
+    def __set__(self, domain: "Domain", values: Optional[npt.ArrayLike]):
         assert self.writable
         if domain.comm.rank == 0:
             values = domain._map_array(values, **self.kwargs)
@@ -399,15 +413,15 @@ class Domain:
         nx: int,
         ny: int,
         *,
-        lon: Optional[np.ndarray] = None,
-        lat: Optional[np.ndarray] = None,
-        x: Optional[np.ndarray] = None,
-        y: Optional[np.ndarray] = None,
+        lon: Optional[npt.ArrayLike] = None,
+        lat: Optional[npt.ArrayLike] = None,
+        x: Optional[npt.ArrayLike] = None,
+        y: Optional[npt.ArrayLike] = None,
         coordinate_type: Optional[CoordinateType] = None,
-        mask: Optional[np.ndarray] = 1,
-        H: Optional[np.ndarray] = None,
-        z0: Optional[np.ndarray] = 0.0,
-        f: Optional[np.ndarray] = None,
+        mask: Optional[npt.ArrayLike] = 1,
+        H: Optional[npt.ArrayLike] = None,
+        z0: Optional[npt.ArrayLike] = 0.0,
+        f: Optional[npt.ArrayLike] = None,
         periodic_x: bool = False,
         periodic_y: bool = False,
         comm: Optional[parallel.MPI.Comm] = None,
@@ -500,7 +514,7 @@ class Domain:
         self._lat = self._map_array(lat, edges=EdgeTreatment.EXTRAPOLATE)
         self._f = self._map_array(f)
         self._mask = self._map_array(mask, missing_value=0, dtype=int)
-        self._H = self._map_array(H)
+        self._H = self._map_array(H, edges=EdgeTreatment.CLAMP)
         self._z0 = self._map_array(z0)
 
         kwargs_expand = {}
@@ -560,11 +574,8 @@ class Domain:
         edges: EdgeTreatment = EdgeTreatment.MISSING,
         missing_value=np.nan,
     ) -> Optional[np.ndarray]:
-        if self.comm.rank != 0:
-            return
-
-        if values is None:
-            return
+        if self.comm.rank != 0 or values is None:
+            return None
 
         source_shape = np.shape(values)
         source_shape = (1,) * (2 - len(source_shape)) + source_shape  # broadcast
@@ -580,9 +591,9 @@ class Domain:
         elif can_cast(self.ny, self.nx):
             # values provided at cell centers
             edges_x = edges_y = edges
-            if self.periodic_x and edges_x == EdgeTreatment.MISSING:
+            if self.periodic_x and edges_x != EdgeTreatment.EXTRAPOLATE:
                 edges_x = EdgeTreatment.PERIODIC
-            if self.periodic_y and edges_y == EdgeTreatment.MISSING:
+            if self.periodic_y and edges_y != EdgeTreatment.EXTRAPOLATE:
                 edges_y = EdgeTreatment.PERIODIC
             if source_shape[0] == 1:
                 values_sup = centers_to_supergrid_1d(
@@ -653,7 +664,7 @@ class Domain:
         if self.comm.rank == 0:
             # We are the root node - update the global mask
             self.infer_UVX_masks2()
-            self.open_boundaries.adjust_mask(self._mask)
+            self.open_boundaries.adjust_mask(self.mask)
 
             # Map river coordinates to global grid indices
             self._map_rivers()
@@ -730,9 +741,7 @@ class Domain:
                 (V.mask.all_values[:, :-1] == 4) & (V.mask.all_values[:, 1:] == 4)
             ] = 0
 
-        for grid in (T, U, V, X, UU, UV, VU, VV):
-            if grid is not None:
-                grid.freeze()
+        T.freeze()
 
         self.open_boundaries.initialize(T)
         T.z.open_boundaries = open_boundaries.ArrayOpenBoundaries(T.z)
@@ -748,10 +757,14 @@ class Domain:
         edges_x = EdgeTreatment.PERIODIC if self.periodic_x else EdgeTreatment.MISSING
         edges_y = EdgeTreatment.PERIODIC if self.periodic_y else EdgeTreatment.MISSING
 
-        global_shape = (
-            grid.tiling.ny_glob + grid.overlap,
-            grid.tiling.nx_glob + grid.overlap,
-        )
+        ioffset = grid.ioffset % 2
+        joffset = grid.joffset % 2
+        istart_glob = (ioffset - grid.ioffset) // 2
+        jstart_glob = (joffset - grid.joffset) // 2
+        assert istart_glob <= 0, "Supergrid starts after first x"
+        assert jstart_glob <= 0, "Supergrid starts after first y"
+        nx_glob = self.nx + grid.overlap
+        ny_glob = self.ny + grid.overlap
 
         retrieved_from_domain = set()
         for name in (
@@ -772,14 +785,14 @@ class Domain:
             available = grid.tiling.comm.bcast(source is not None)
             target = getattr(grid, NAMEMAP.get(name, f"_{name}"), None)
             if available and target is not None:
-                global_values = None
+                sendbuf = None
                 if grid.tiling.rank == 0:
                     # We are on the root node that has the global values
                     if grid.joffset > 1 or grid.ioffset > 1:
                         # UU or VV grid that needs one more strip of 1 cell
                         # beyond the end of the supergrid. By default, that is
                         # left at missing_value, but that is inappropriate for
-                        # periodic boudaries that need mirroring. Therefore we
+                        # periodic boundaries that need mirroring. Therefore we
                         # expand the grid properly, any mirroring included.
                         source = expand_2d(
                             source,
@@ -787,15 +800,53 @@ class Domain:
                             edges_y=edges_y,
                             missing_value=target.fill_value,
                         )[1:, 1:]
-                    global_values = source[grid.joffset :: 2, grid.ioffset :: 2]
-                    global_values = global_values[: global_shape[0], : global_shape[1]]
+                    global_values = source[joffset::2, ioffset::2]
+                    istop_glob = istart_glob + global_values.shape[-1]
+                    jstop_glob = jstart_glob + global_values.shape[-2]
+                    assert istop_glob >= nx_glob, "Supergrid stops before last x"
+                    assert jstop_glob >= ny_glob, "Supergrid stops before last y"
+
+                    sendbuf = grid.tiling._get_work_array(
+                        (grid.tiling.comm.size,) + target.all_values.shape,
+                        target.dtype,
+                        target.fill_value,
+                    )
+                    sendbuf.fill(target.fill_value)
+                    for irow, icol, rank in parallel._iterate_rankmap(grid.tiling.map):
+                        if rank < 0:
+                            continue
+
+                        jslice, islice = grid.tiling.subdomain2rawslices(
+                            irow,
+                            icol,
+                            halox_sub=grid.halox,
+                            haloy_sub=grid.haloy,
+                            share=grid.overlap,
+                        )
+                        slice_glob, slice_loc = _get_rectangle_overlap(
+                            istart_glob,
+                            istop_glob,
+                            jstart_glob,
+                            jstop_glob,
+                            islice.start,
+                            islice.stop,
+                            jslice.start,
+                            jslice.stop,
+                        )
+                        sendbuf[(rank,) + slice_loc] = global_values[slice_glob]
 
                     # Keep a pointer to the full global field
                     # This will be used preferentially for full-domain output
-                    target.attrs["_global_values"] = global_values
-                target.scatter(global_values)
+                    target.attrs["_global_values"] = global_values[
+                        -jstart_glob : ny_glob - jstart_glob,
+                        -istart_glob : nx_glob - istart_glob,
+                    ]
+                    assert target.attrs["_global_values"].shape == (ny_glob, nx_glob)
+
+                grid.tiling.comm.Scatter(sendbuf, target.all_values)
                 if self.periodic_x or self.periodic_y:
                     target.update_halos()
+
                 retrieved_from_domain.add(name)
 
         # If the Coriolis parameter was not set explicitly at domain level,
@@ -823,12 +874,12 @@ class Domain:
 
         Note: this returns global indices for the T grid, not the supergrid
         """
-        mask = self._mask[1::2, 1::2] > 0
         dx = self._dx[1::2, 1::2]
         dy = self._dy[1::2, 1::2]
-        H = self._H[1::2, 1::2]
-        denom2 = (2.0 * GRAVITY) * (H + z) * (dx**2 + dy**2)
-        maxdts = dx * dy / np.sqrt(denom2, where=mask, out=np.ones_like(H))
+        D = self._H[1::2, 1::2] + z
+        mask = (self._mask[1::2, 1::2] > 0) & (D > 0.0)
+        denom2 = (2.0 * GRAVITY) * D * (dx**2 + dy**2)
+        maxdts = dx * dy / np.sqrt(denom2, where=mask, out=np.ones_like(D))
         maxdts[~mask] = np.inf
         maxdt = maxdts.min()
         if return_location:
@@ -1008,8 +1059,9 @@ class Domain:
         fig: Optional["matplotlib.figure.Figure"] = None,
         show_bathymetry: bool = True,
         show_mask: bool = False,
-        show_mesh: bool = True,
+        show_mesh: bool = False,
         show_rivers: bool = True,
+        show_open_boundaries: bool = True,
         show_subdomains: bool = False,
         editable: bool = False,
         coordinate_type: Optional[CoordinateType] = None,
@@ -1101,6 +1153,26 @@ class Domain:
                 river_x, river_y = x[j_sup, i_sup], y[j_sup, i_sup]
                 ax.plot([river_x], [river_y], ".r")
                 ax.text(river_x, river_y, river.name, color="r")
+
+        if show_open_boundaries:
+            x_X, y_X = x[::2, ::2], y[::2, ::2]
+            for b in self.open_boundaries:
+                if b.side in (open_boundaries.Side.WEST, open_boundaries.Side.EAST):
+                    imin = b.l_glob
+                    imax = imin + 1
+                    jmin, jmax = b.mstart_glob, b.mstop_glob
+                else:
+                    jmin = b.l_glob
+                    jmax = jmin + 1
+                    imin, imax = b.mstart_glob, b.mstop_glob
+                x_b = x_X[jmin : jmax + 1, imin : imax + 1]
+                y_b = y_X[jmin : jmax + 1, imin : imax + 1]
+                if x_b.shape[1] == 2:
+                    x_b, y_b = x_b.T, y_b.T
+                x_b = np.hstack((x_b[0, :], x_b[1, ::-1]))
+                y_b = np.hstack((y_b[0, :], y_b[1, ::-1]))
+                ax.fill(x_b, y_b, alpha=0.3, fc="r", ec="None")
+                ax.fill(x_b, y_b, fc="None", ec="r")
 
         def plot_mesh(ax, x, y, **kwargs):
             segs1 = np.stack((x, y), axis=2)

@@ -1,6 +1,6 @@
 ! Copyright (C) 2024 Bolding & Bruggeman and Hans Burchard
 
-module c_adaptive
+module m_adaptive
 
    use iso_c_binding, only: c_int, c_double
 
@@ -43,15 +43,14 @@ contains
 subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
                              mask, H, D, zo, &
                              ho, NN, SS, nu, &
-                             decay, hpow,  &
-                             chsurf, hsurf,  &
+                             decay, hpow, &
+                             chsurf, hsurf, &
                              chmidd, hmidd, &
                              chbott, hbott, &
                              cneigh, rneigh, &
                              cNN, drho, &
                              cSS, dvel, &
                              chmin, hmin, &
-                             dt, &
                              ga) bind(c)
 
 
@@ -66,9 +65,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    real(c_double), intent(in) :: ho(_2D_,nz)
    real(c_double), intent(in) :: NN(_2D_,nz)
    real(c_double), intent(in) :: SS(_2D_,nz)
-   real(c_double), intent(inout) :: nu(_2D_,nz)
+   real(c_double), intent(inout) :: nu(_2D_,0:nz)
    real(c_double), intent(inout) :: ga(_2D_,0:nz)
-!KB   real(c_double), intent(inout) :: ga(nx,ny,0:nz)
 #undef _2D_
    real(c_double), intent(in), value :: decay
    integer(c_int), intent(in), value :: hpow
@@ -79,7 +77,6 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    real(c_double), intent(in), value :: cNN, drho
    real(c_double), intent(in), value :: cSS, dvel
    real(c_double), intent(in), value :: chmin, hmin
-   real(c_double), intent(in), value :: dt
 
 !  Local constants
    integer, parameter ::surface=1, interior=2, bottom=3
@@ -89,7 +86,6 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    integer :: i,j,k
    integer :: imin=1, jmin=1, imax, jmax, kmax
    real(c_double), allocatable, save :: ihmax(:,:,:)
-   !KB - maybe real(c_double), allocatable, save :: havg(:,:)
    real(c_double), allocatable, save :: sdecay(:)
    real(c_double), allocatable, save :: bdecay(:)
    real(c_double), allocatable, save :: haux(:,:,:)
@@ -100,36 +96,14 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    imax=nx; jmax=ny; kmax=nz
 
    if (first) then
-
-#define N_PRINT_
-#ifdef _PRINT_
-   write(100,*) 'c_update_adaptive'
-   write(100,*) nx, ny, nz
-   write(100,*) halox, haloy
-   write(100,*) halox, haloy
-!   write(100,*) 'H ',H
-!   write(100,*) 'D ',D
-   write(100,*) 'ho ',ho
-!   write(100,*) 'NN ', NN
-!   write(100,*) 'SS ', SS
-   write(100,*) 'decay ',decay, hpow
-   write(100,*) 'S     ',chsurf, hsurf
-   write(100,*) 'I     ',chmidd, hmidd
-   write(100,*) 'B     ',chbott, hbott
-   write(100,*) 'neigh ',cneigh, rneigh
-   write(100,*) 'NN    ',cNN, drho
-   write(100,*) 'SS    ',cSS, dvel
-   write(100,*) 'min   ',hmin, chmin
-#endif
-
       if ( chsurf > ceps .or. chmidd > ceps .or. chbott > ceps) then
          allocate(ihmax(nx,ny,3))
       end if
       if ( decay > ceps) then
-         allocate(sdecay(0:nz))
-         allocate(bdecay(0:nz))
+         allocate(sdecay(1:kmax))
+         allocate(bdecay(1:kmax))
       end if
-      allocate(haux(nx,ny,nz))
+      allocate(haux(-halox+1:nx+halox,-haloy+1:ny+haloy,nz))
 
       do j=jmin,jmax
          do i=imin,imax
@@ -172,34 +146,21 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
 
       ! surface and bottm wall decay
       if (decay > ceps) then
-         sdecay(0) = 0._rk
-         sdecay(kmax) = 1._rk
-         do k=kmax-1,1,-1
+         sdecay(kmax) = 1._rk ! or sdecay(kmax1)
+         do k=kmax-1,1,-1 ! or kmax-1,1,-1
             sdecay(k) = sdecay(k+1)*decay
          end do
 
-         bdecay(0) = 0._rk
          bdecay(1) = 1._rk
          do k=2,kmax
             bdecay(k) = bdecay(k-1)*decay
          end do
       end if
 
-#ifdef _PRINT_
-   if ( chsurf > ceps .or. chmidd > ceps .or. chbott > ceps) then
-      write(100,*) 'ihmax ',ihmax(50,1,:)
-   end if
-   if (decay > ceps) then
-      write(100,*) 'sdecay ',sdecay
-      write(100,*) 'bdecay ',bdecay
-   end if
-   write(100,*) 'c_update_adaptive'
-#endif
-
       first = .false.
    end if
 
-   ! set up ratio between old and new
+   ! set up ratio between old and new layer heights
    do j=jmin,jmax
       do i=imin,imax
          if (mask(i,j) < 1 ) cycle
@@ -207,9 +168,6 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
          haux(i,j,:)=D(i,j)/(H(i,j)+zo(i,j))*ho(i,j,:)
       end do
    end do
-#ifdef _PRINT_
-   write(100,*) 'haux ',haux(50,1,:)
-#endif
 
    ! Construct the grid diffusivity
 
@@ -218,7 +176,6 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    ! 1.2 - GVC - done in Python
 
    ! 1.3 - chmidd
-   !write(*,*) "1.3"
    if (chmidd > ceps) then
       large_cell_limitation: block
       real(c_double) :: relh(kmax)
@@ -243,7 +200,6 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end if
 
    ! 1.4.1 chsurf
-   !write(*,*) "1.4.1"
    if (chsurf > ceps) then
       surface_cell_limitation: block
       real(c_double) :: relh
@@ -260,14 +216,13 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
                wwh=0.5_rk+sign(0.5_rk,relh)
             end if
 
-            nu(i,j,:)=nu(i,j,:)+chsurf*wwh*sdecay(:)
+            nu(i,j,1:kmax)=nu(i,j,1:kmax)+chsurf*wwh*sdecay(:kmax)
          end do
       end do
       end block surface_cell_limitation
    end if
 
    ! 1.4.2 chbott
-   !write(*,*) "1.4.2"
    if (chbott > ceps) then
       bottom_cell_limitation: block
       real(c_double) :: relh
@@ -284,14 +239,13 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
                wwh=0.5_rk+sign(0.5_rk,relh)
             end if
 
-            nu(i,j,:)=nu(i,j,:)+chbott*wwh*bdecay(:)
+            nu(i,j,1:kmax)=nu(i,j,1:kmax)+chbott*wwh*bdecay(:kmax)
          end do
       end do
       end block bottom_cell_limitation
    end if
 
    ! 1.? Neighbor-cell size-ratio limiter.
-   !write(*,*) "1.?"
    if (cneigh > ceps) then
       neighbor_cell_limitation: block
       real(c_double) :: irneigh
@@ -305,19 +259,19 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
             if (mask(i,j) < 1) cycle
 
             relh(1)=haux(i,j,1)/haux(i,j,2)
-            relh(kmax)=haux(i,j,kmax)/haux(i,j,kmax-1)
             do k=2,kmax-1
                relh(k)=haux(i,j,k-1)/haux(i,j,k+1)
             end do
+            relh(kmax)=haux(i,j,kmax)/haux(i,j,kmax-1)
             relh(:)=max(0._rk, relh(:)-1._rk)
 #if 0
             wwh(:)=min(1._rk,irneigh*relh(:))
             wwh(:) = wwh(:)**hpow
-            do k=1,kmax
+            do k=1,kmax-1
                nu(i,j,k)=nu(i,j,k)+cneigh*wwh(k)
             end do
 #else
-            nu(i,j,:)=nu(i,j,:)+cneigh*min(1._rk,irneigh*relh(:))**hpow
+            nu(i,j,1:kmax)=nu(i,j,1:kmax)+cneigh*min(1._rk,irneigh*relh(:))**hpow
 #endif
          end do
       end do
@@ -325,7 +279,6 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end if
 
    ! 1.5.1 bouyancy
-   !write(*,*) "1.5.1"
    if (cNN > ceps) then
       bouyancy: block
       real(c_double) :: idNN
@@ -347,7 +300,6 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end if
 
    ! 1.5.2 shear
-   !write(*,*) "1.5.2"
    if (cSS > ceps) then
       shear: block
       real(c_double) :: idvel
@@ -369,26 +321,26 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    end if
 
    ! 1.6.1 - small-cell limiter
-   !write(*,*) "1.6.1"
    small_cell_limiter: block
    real(c_double) :: f, ihmin
 
-   ihmin=1._rk/hmin
-   do j=jmin,jmax
-      do i=imin,imax
-         if (mask(i,j) < 1) cycle
+   if (hmin > ceps) then
+      ihmin=1._rk/hmin
+      do j=jmin,jmax
+         do i=imin,imax
+            if (mask(i,j) < 1) cycle
 
-         do k=1,kmax
-            f=2._rk * (haux(i,j,k)*ihmin - 1._rk)
-            f = max(0._rk, min(1._rk, f))
-            nu(i,j,k) = f*nu(i,j,k)
+            do k=1,kmax
+               f=2._rk * (haux(i,j,k)*ihmin - 1._rk)
+               f = max(0._rk, min(1._rk, f))
+               nu(i,j,k) = f*nu(i,j,k)
+            end do
          end do
       end do
-   end do
+   end if
    end block small_cell_limiter
 
    ! 1.6.2 - shallow-water effect
-   !write(*,*) "1.6.2"
    if (chmin > ceps) then
       shallow_water_limiter: block
       real(c_double) :: relh
@@ -403,14 +355,11 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
                relh=(0.5_rk+sign(0.5_rk,relh))
             end if
 
-            nu(i,j,:)=nu(i,j,:)+chmin*relh
+            nu(i,j,1:kmax)=nu(i,j,1:kmax)+chmin*relh
          end do
       end do
       end block shallow_water_limiter
    end if
-#ifdef _PRINT_
-   write(100,*) 'nu ',nu(50,1,:)
-#endif
 
    ! 2. Vertical filtering - done in Python
 
@@ -431,10 +380,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
       do j=jmin,jmax
          do i=imin,imax
             if (mask(i,j) < 1) cycle
+
             ga(i,j,k) = ga(i,j,k-1) + ho(i,j,k)*iD(i,j)
-!            write(75,*) i,j,mask(i,j),ho(i,j,k),iD(i,j)
-!            write(75,*) ga(i,j,k-1),ga(i,j,k)
-!            stop 1111
          end do
       end do
    end do

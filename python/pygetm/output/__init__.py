@@ -47,9 +47,9 @@ class File(operators.FieldCollection):
             interval: time interval to save at
             interval_units: units for time interval
                 (not used if ``interval`` is given as :class:`datetime.timedelta`)
-            start: simulation time at which to start saving
+            start: simulation time at which to start saving.
                 This defaults to the start of the simulation
-            stop: simulation time at which to stop saving
+            stop: simulation time at which to stop saving.
                 This defaults to the end of the simulation
             default_dtype: default data type for real-valued variables
             sub: whether to save separate files per subdomain
@@ -95,6 +95,7 @@ class File(operators.FieldCollection):
         elif self.interval_units == TimeUnit.YEARS:
             next_time = time.replace(year=time.year + self.interval)
             return seconds_passed + (next_time - time).total_seconds()
+        raise Exception(f"Unknown value for interval_units: {self.interval_units}")
 
     def start(
         self,

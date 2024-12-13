@@ -1,4 +1,4 @@
-from typing import Iterable, Mapping, Optional, Tuple, Union, Any, List
+from typing import Iterable, Mapping, Optional, Tuple, Union, Any, List, Dict
 import logging
 import functools
 import pickle
@@ -144,18 +144,17 @@ class Tiling:
         self.n = ncpus if ncpus is not None else self.comm.size
 
         if nrow is None and ncol is not None:
-            nrow = self.n // ncol
+            nrow = int(np.ceil(self.n / ncol))
         if ncol is None and nrow is not None:
-            ncol = self.n // nrow
+            ncol = int(np.ceil(self.n / nrow))
 
-        if nrow is None and ncol is None:
-            assert map is not None, (
-                "If the number of rows and columns in the subdomain decomposition is"
-                " not provided, the rank map must be provided instead."
-            )
-            self.map = map
+        if map is None:
+            assert nrow is not None and ncol is not None
+            map = np.arange(nrow * ncol).reshape(nrow, ncol)
         else:
-            self.map = np.arange(nrow * ncol).reshape(nrow, ncol)
+            assert nrow is None or nrow == map.shape[0]
+            assert ncol is None or ncol == map.shape[1]
+        self.map = map
         self.nrow, self.ncol = self.map.shape
 
         self.n_neigbors = 0
@@ -199,7 +198,7 @@ class Tiling:
         self.bottomleft = find_neighbor(-1, -1)
         self.bottomright = find_neighbor(-1, +1)
 
-        self._caches = {}
+        self._caches: Dict[Tuple[Tuple[int, ...], DTypeLike, Any], np.ndarray] = {}
         self.nx_glob = None
 
     @property
@@ -302,10 +301,49 @@ class Tiling:
     def wrap(self, *args, **kwargs) -> "DistributedArray":
         return DistributedArray(self, *args, **kwargs)
 
+    def subdomain2rawslices(
+        self,
+        irow: Optional[int] = None,
+        icol: Optional[int] = None,
+        *,
+        halox_sub: int = 0,
+        haloy_sub: int = 0,
+        scale: int = 1,
+        share: int = 0,
+    ) -> Union[Tuple[slice, slice], Tuple[None, None]]:
+        if irow is None:
+            irow = self.irow
+        if icol is None:
+            icol = self.icol
+
+        assert isinstance(share, int)
+        assert isinstance(scale, int)
+        assert isinstance(halox_sub, int)
+        assert isinstance(haloy_sub, int)
+
+        if irow is None:
+            return None, None
+
+        assert self.map[irow, icol] >= 0, f"{self.map} {irow} {icol}"
+
+        # Global start and stop of local subdomain (no halos yet)
+        xstart_glob = scale * (icol * self.nx_sub + self.xoffset_global)
+        xstop_glob = scale * ((icol + 1) * self.nx_sub + self.xoffset_global)
+        ystart_glob = scale * (irow * self.ny_sub + self.yoffset_global)
+        ystop_glob = scale * ((irow + 1) * self.ny_sub + self.yoffset_global)
+
+        # Adjust for halos and any overlap ("share")
+        xstart_glob -= halox_sub
+        xstop_glob += halox_sub + share
+        ystart_glob -= haloy_sub
+        ystop_glob += haloy_sub + share
+        return (slice(ystart_glob, ystop_glob), slice(xstart_glob, xstop_glob))
+
     def subdomain2slices(
         self,
         irow: Optional[int] = None,
         icol: Optional[int] = None,
+        *,
         halox_sub: int = 0,
         haloy_sub: int = 0,
         halox_glob: int = 0,
@@ -340,15 +378,15 @@ class Tiling:
             Tuple with the local slices, global slices, extent of a subdomain array, and
             extent of a global array. The extents always include halos and shared points
         """
-        if irow is None:
-            irow = self.irow
-        if icol is None:
-            icol = self.icol
+        yslice_glob, xslice_glob = self.subdomain2rawslices(
+            irow,
+            icol,
+            halox_sub=halox_sub,
+            haloy_sub=haloy_sub,
+            scale=scale,
+            share=share,
+        )
 
-        assert isinstance(share, int)
-        assert isinstance(scale, int)
-        assert isinstance(halox_sub, int)
-        assert isinstance(haloy_sub, int)
         assert isinstance(halox_glob, int)
         assert isinstance(haloy_glob, int)
 
@@ -362,23 +400,14 @@ class Tiling:
             scale * self.nx_glob + 2 * halox_glob + share,
         )
 
-        if irow is None:
+        if xslice_glob is None:
             local_slice = global_slice = (Ellipsis, slice(0, 0), slice(0, 0))
             return local_slice, global_slice, local_shape, global_shape
 
-        assert self.map[irow, icol] >= 0
-
-        # Global start and stop of local subdomain (no halos yet)
-        xstart_glob = scale * (icol * self.nx_sub + self.xoffset_global)
-        xstop_glob = scale * ((icol + 1) * self.nx_sub + self.xoffset_global)
-        ystart_glob = scale * (irow * self.ny_sub + self.yoffset_global)
-        ystop_glob = scale * ((irow + 1) * self.ny_sub + self.yoffset_global)
-
-        # Adjust for halos and any overlap ("share")
-        xstart_glob += -halox_sub + halox_glob
-        xstop_glob += halox_sub + halox_glob + share
-        ystart_glob += -haloy_sub + haloy_glob
-        ystop_glob += haloy_sub + haloy_glob + share
+        xstart_glob = xslice_glob.start + halox_glob
+        xstop_glob = xslice_glob.stop + halox_glob
+        ystart_glob = yslice_glob.start + haloy_glob
+        ystop_glob = yslice_glob.stop + haloy_glob
 
         # Local start and stop
         xstart_loc = 0
@@ -776,6 +805,7 @@ class Gather:
             for source, global_slice in self.buffers:
                 out[slice_spec + global_slice] = source
             return out
+        return None
 
 
 class Scatter:
@@ -832,6 +862,7 @@ class Scatter:
     def __call__(self, global_data: Optional[np.ndarray]):
         if self.sendbuf is not None:
             # we are root and have to send the global field
+            assert global_data is not None
             assert global_data.shape[-2:] == self.global_shape, (
                 f"Global shape {global_data.shape[-2:]} differs"
                 f" from expected {self.global_shape}"
@@ -858,6 +889,7 @@ def find_optimal_divison(
     if ncpus is None:
         ncpus = (comm or MPI.COMM_WORLD).size
 
+    mask = np.asarray(mask)
     ny, nx = mask.shape
 
     # If we only have 1 CPU, just use the full domain
@@ -874,7 +906,7 @@ def find_optimal_divison(
 
     # If we have a 1D grid with only unmasked (water) points,
     # return simple equal subdomian division
-    if ny == 1 and np.all(mask):
+    if ny == 1 and mask.all():
         return {
             "ncpus": ncpus,
             "nx": int(np.ceil(nx / ncpus)),
@@ -888,7 +920,6 @@ def find_optimal_divison(
     comm = comm or mpi4py_autofree(MPI.COMM_WORLD.Dup())
 
     # Determine mask extent excluding any outer fully masked strips
-    mask = np.asarray(mask)
     (mask_x,) = mask.any(axis=0).nonzero()
     (mask_y,) = mask.any(axis=1).nonzero()
     imin, imax = mask_x[0], mask_x[-1]

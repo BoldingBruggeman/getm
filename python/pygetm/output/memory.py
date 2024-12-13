@@ -1,19 +1,21 @@
-from typing import Optional
+from typing import Optional, List, Mapping, Tuple
 
 import numpy as np
+import numpy.typing as npt
 import cftime
 import xarray as xr
 
 from . import File
+from .operators import Base
 
 
 class MemoryFile(File):
     def start_now(
         self, seconds_passed: float, time: Optional[cftime.datetime], *args, **kwargs
     ):
-        self._times = None if time is None else []
-        self._seconds = []
-        self._recorded_fields = {}
+        self._times: Optional[List[cftime.datetime]] = None if time is None else []
+        self._seconds: List[float] = []
+        self._recorded_fields: Mapping[str, Tuple[Base, List[np.ndarray]]] = {}
         for name, field in self.fields.items():
             if field.time_varying:
                 self._recorded_fields[name] = (field, [])
@@ -47,6 +49,7 @@ class MemoryFile(File):
         name2var = timecoords.copy()
         for name, field in self.fields.items():
             coord_names = [renames.get(c, c) for c in field.coordinates]
+            values: npt.ArrayLike
             if field.time_varying:
                 dims = ("time",) + field.dims
                 values = self._recorded_fields[name][1]
@@ -54,7 +57,7 @@ class MemoryFile(File):
             else:
                 dims = field.dims
                 values = field.get()
-            attrs = field.attrs.copy()
+            attrs = dict(field.attrs)
             if coord_names:
                 attrs["coordinates"] = " ".join(coord_names)
             name = renames.get(name, name)

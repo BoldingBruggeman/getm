@@ -334,7 +334,7 @@ contains
       real(c_double), allocatable :: flux(:,:)
 
       allocate(flux(UG%l(1):UG%u(1), UG%l(2):UG%u(2)))
-   
+
       ! Central for dx(2*Am*dx(U/DU))
       do j=UUG%jmin,UUG%jmax
          do i=UUG%imin-1,UUG%imax ! shear defined on T-points
@@ -352,7 +352,7 @@ contains
             end if
          end do
       end do
-   
+
       ! Central for dy(Am*(dy(U/DU)+dx(V/DV)))
       do j=UVG%jmin-1,UVG%jmax ! work2d defined on X-points
          do i=UVG%imin,UVG%imax
@@ -369,7 +369,7 @@ contains
             end if
          end do
       end do
-   
+
       ! Central for dx(Am*(dy(U/DU)+dx(V/DV)))
       do j=VUG%jmin,VUG%jmax
          do i=VUG%imin-1,VUG%imax ! work2d defined on X-points
@@ -387,7 +387,7 @@ contains
             end if
          end do
       end do
-   
+
       ! Central for dy(2*Am*dy(V/DV))
       do j=VVG%jmin-1,VVG%jmax ! work2d defined on T-points
          do i=VVG%imin,VVG%imax
@@ -404,7 +404,7 @@ contains
             end if
          end do
       end do
-   
+
    end subroutine horizontal_momentum_diffusion
 
    subroutine c_thickness2center_depth(nx, ny, nz, istart, istop, jstart, jstop, mask, h, out) bind(c)

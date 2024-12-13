@@ -9,7 +9,7 @@ def copy_variable(
     dimensions: Optional[Iterable[str]] = None,
     copy_data: bool = True,
     chunksizes=None,
-    name: str = None,
+    name: Optional[str] = None,
     zlib: bool = False,
 ) -> netCDF4.Variable:
     if name is None:

@@ -52,7 +52,7 @@ class Base:
         self.dtype = dtype
         self.shape = shape
         self.ndim = len(shape)
-        assert self.ndim == len(dims)
+        assert self.ndim == len(dims), f"Expected {self.ndim} dimensions but got {dims}"
         self.dims = dims
         self.fill_value = fill_value
         self.attrs = attrs
@@ -92,16 +92,22 @@ class Base:
 
     @property
     def mask(self) -> np.ndarray:
+        if self.grid is None:
+            raise NotImplementedError()
         if self.ndim > 2 and hasattr(self.grid, "_land3d"):
             return self.grid._land3d
         return self.grid._land
 
     @property
     def halox(self) -> int:
+        if self.grid is None:
+            raise NotImplementedError()
         return self.grid.halox
 
     @property
     def haloy(self) -> int:
+        if self.grid is None:
+            raise NotImplementedError()
         return self.grid.haloy
 
 
@@ -127,7 +133,7 @@ class WrappedArray(Base):
         return ()
 
     def get(
-        self, out: Optional[ArrayLike] = None, slice_spec: Tuple[int] = ()
+        self, out: Optional[ArrayLike] = None, slice_spec: Tuple[int, ...] = ()
     ) -> ArrayLike:
         if out is None:
             return self.values
@@ -149,7 +155,7 @@ class FieldCollection:
         sub: bool = False,
     ):
         self.fields: MutableMapping[str, Base] = collections.OrderedDict()
-        self.expression2name = {}
+        self.expression2name: MutableMapping[str, str] = {}
         self.available_fields = available_fields
         self.default_dtype = default_dtype
         self.sub = sub
@@ -297,10 +303,14 @@ class FieldCollection:
             updater()
 
 
-def grid2dims(grid: pygetm.core.Grid, z) -> Tuple[str, ...]:
-    dims = (f"y{grid.postfix}", f"x{grid.postfix}")
+def grid2dims(grid: pygetm.core.Grid, z, on_boundary=False) -> Tuple[str, ...]:
+    dims = ()
+    if not on_boundary:
+        dims = (f"y{grid.postfix}", f"x{grid.postfix}")
     if z:
         dims = ("zi" if z == INTERFACES else "z",) + dims
+    if on_boundary:
+        dims = (f"bdy{grid.postfix}",) + dims
     return dims
 
 
@@ -317,12 +327,13 @@ class Field(Base):
         default_time_varying = TimeVarying.MACRO if array.z else TimeVarying.MICRO
         time_varying = array.attrs.get("_time_varying", default_time_varying)
         shape = list(self.array.shape)
-        shape[-1] += 2 * array.grid.halox
-        shape[-2] += 2 * array.grid.haloy
+        if not array.on_boundary:
+            shape[-1] += 2 * array.grid.halox
+            shape[-2] += 2 * array.grid.haloy
         super().__init__(
             array.name,
             tuple(shape),
-            grid2dims(array.grid, array.z),
+            grid2dims(array.grid, array.z, array.on_boundary),
             dtype or array.dtype,
             array.fill_value,
             time_varying,
@@ -340,10 +351,14 @@ class Field(Base):
 
     @property
     def coords(self) -> Iterable[Base]:
-        for array in self.grid.horizontal_coordinates:
-            yield Field(array)
-        if self.z:
-            yield Field(self.grid.zf if self.z == INTERFACES else self.grid.zc)
+        if not self.array.on_boundary:
+            for array in self.grid.horizontal_coordinates:
+                yield Field(array)
+            if self.z:
+                yield Field(self.grid.zf if self.z == INTERFACES else self.grid.zc)
+        elif self.z:
+            bdy = self.grid.open_boundaries
+            yield Field(bdy.zf if self.z == INTERFACES else bdy.zc)
         yield from self.grid.extra_output_coordinates
 
     @property
@@ -357,6 +372,14 @@ class Field(Base):
     @property
     def grid(self) -> pygetm.core.Grid:
         return self.array.grid
+
+    @property
+    def halox(self) -> int:
+        return 0 if self.array.on_boundary else self.grid.halox
+
+    @property
+    def haloy(self) -> int:
+        return 0 if self.array.on_boundary else self.grid.haloy
 
 
 class UnivariateTransform(Base):
@@ -468,7 +491,7 @@ class Gather(UnivariateTransform):
 class Slice(UnivariateTransform):
     __slots__ = "_slice"
 
-    def __init__(self, source: Field):
+    def __init__(self, source: Base):
         xstart = source.halox
         ystart = source.haloy
         xstop = source.shape[-1] - source.halox

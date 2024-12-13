@@ -93,17 +93,19 @@ class River:
             allx, ally = x, y
         else:
             return
+        assert allx is not None
+        assert ally is not None
 
         # Location is specified by x, y coordinate.
         # Look up nearest unmasked grid cell.
         dist = (allx - self.x) ** 2 + (ally - self.y) ** 2
         dist[mask != 1] = np.inf
         idx = np.nanargmin(dist)
-        self.j_glob, self.i_glob = np.unravel_index(idx, dist.shape)
+        self.j_glob, self.i_glob = map(int, np.unravel_index(idx, dist.shape))
         assert mask[self.j_glob, self.i_glob] == 1
 
     def to_local_grid(self, grid: core.Grid, logger: logging.Logger) -> bool:
-        """Map global river positon (i,j) to local subdomain."""
+        """Map global river position (i,j) to local subdomain."""
         # Map global i, j to local subdomain.
         # These are indices into local arrays that INclude halos
         i_loc = self.i_glob - grid.tiling.xoffset + grid.halox
@@ -125,7 +127,7 @@ class River:
 
         return True
 
-    def initialize(self, grid: core.Grid, flow: np.ndarray) -> bool:
+    def initialize(self, grid: core.Grid, flow: np.ndarray):
         self.flow = core.Array(
             grid=grid,
             name="river_" + self.name + "_flow",

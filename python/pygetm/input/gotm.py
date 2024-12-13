@@ -10,8 +10,8 @@ import xarray as xr
 
 METEO_COLUMNS = ("u10", "v10", "sp", "t2m", "hum", "tcc")
 METEO_LONG_NAMES = dict(
-    u10="Eastward wind speed",
-    v10="Northward wind speed",
+    u10="eastward wind speed",
+    v10="northward wind speed",
     sp="surface pressure",
     t2m="air temperature @ 2 m",
     hum="humidity @ 2 m",

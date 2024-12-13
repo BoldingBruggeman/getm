@@ -301,20 +301,28 @@ class Momentum:
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
-        self.fU = vgrid.array(fill_value=FILL_VALUE, attrs=dict(_mask_output=True))
-        self.fV = ugrid.array(fill_value=FILL_VALUE, attrs=dict(_mask_output=True))
+        self.fU = vgrid.array(
+            name="fU", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+        )
+        self.fV = ugrid.array(
+            name="fV", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+        )
         self.fpk = vgrid.array(
             name="fpk", z=CENTERS, fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
         )
         self.fqk = ugrid.array(
             name="fqk", z=CENTERS, fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
         )
-        self.advU = ugrid.array(fill_value=FILL_VALUE, attrs=dict(_mask_output=True))
-        self.advV = vgrid.array(fill_value=FILL_VALUE, attrs=dict(_mask_output=True))
-        self.diffU = ugrid.array(fill_value=FILL_VALUE)
-        self.diffV = vgrid.array(fill_value=FILL_VALUE)
-        self.dampU = ugrid.array(fill_value=FILL_VALUE)
-        self.dampV = vgrid.array(fill_value=FILL_VALUE)
+        self.advU = ugrid.array(
+            name="advU", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+        )
+        self.advV = vgrid.array(
+            name="advV", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+        )
+        self.diffU = ugrid.array(name="diffU", fill_value=FILL_VALUE)
+        self.diffV = vgrid.array(name="diffV", fill_value=FILL_VALUE)
+        self.dampU = ugrid.array(name="dampU", fill_value=FILL_VALUE)
+        self.dampV = vgrid.array(name="dampV", fill_value=FILL_VALUE)
         self.advpk = ugrid.array(
             name="advpk",
             z=CENTERS,
@@ -327,8 +335,8 @@ class Momentum:
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
-        self.diffpk = ugrid.array(z=CENTERS, fill_value=FILL_VALUE)
-        self.diffqk = vgrid.array(z=CENTERS, fill_value=FILL_VALUE)
+        self.diffpk = ugrid.array(name="diffpk", z=CENTERS, fill_value=FILL_VALUE)
+        self.diffqk = vgrid.array(name="diffqk", z=CENTERS, fill_value=FILL_VALUE)
         self.ru = ugrid.array(name="ru", fill_value=FILL_VALUE)
         self.rv = vgrid.array(name="rv", fill_value=FILL_VALUE)
         self.rru = ugrid.array(

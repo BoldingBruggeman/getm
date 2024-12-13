@@ -372,7 +372,10 @@ class BaseSimulation:
                     f" (out of {unmasked_count} unmasked values)."
                 )
         if nbad:
-            raise Exception(f"Non-finite values found in {nbad} fields")
+            raise Exception(
+                f"Non-finite values found in {nbad} fields"
+                f" at istep={self.istep}, time={self.time}"
+            )
 
     def _summarize_profiling_result(self, ps: pstats.Stats):
         pass
@@ -470,8 +473,8 @@ class Simulation(BaseSimulation):
             runtype: simulation run type
             Dmin: minimum depth (m) for wet points. At this depth, all hydrodynamic
                 terms except the pressure gradient and bottom friction are switched off.
-            Dcrit: depth (m) at which tapering of processes (all except pressure
-                gradient and bottom friction) begins.
+            Dcrit: depth (m) at which tapering off of hydrodynamic processes
+                (all except pressure gradient and bottom friction) begins.
             delay_slow_ip: let slow internal pressure terms lag one macrotimestep
                 behind the 3d internal pressure terms. This can help stabilize
                 density-driven flows in deep water
@@ -480,6 +483,13 @@ class Simulation(BaseSimulation):
                 the number of active CPU cores
         """
         super().__init__(domain, log_level=log_level, tiling=tiling)
+
+        if Dmin <= 0.0:
+            self.logger.error(f"Dmin ({Dmin} m) must exceed zero")
+            raise Exception("Dmin<=0")
+        if Dcrit < Dmin:
+            self.logger.error(f"Dcrit ({Dcrit} m) must exceed Dmin ({Dmin} m)")
+            raise Exception("Dcrit<Dmin")
 
         self.rivers = domain.rivers
         self.open_boundaries = domain.open_boundaries
@@ -490,7 +500,7 @@ class Simulation(BaseSimulation):
 
         maxdt, i, j, depth = domain.cfl_check(return_location=True)
         self.logger.info(
-            f"Maximum dt = {maxdt:.3f} s "
+            f"Maximum timestep for 2D barotropic processes: {maxdt:.3f} s "
             f"(i={i}, j={j}, bathymetric depth={depth:.3f} m)"
         )
 
@@ -1488,9 +1498,13 @@ class Simulation(BaseSimulation):
                 # Elsewhere this can be used as approximate pressure in dbar
                 _pygetm.thickness2center_depth(self.T.mask, self.T.hn, self.depth)
 
+            # Update vertical coordinate at open boundary, used to interpolate
+            # inputs on z grid to dynamic model depths
             if self.open_boundaries.zc.saved:
-                # Update vertical coordinate at open boundary, used to interpolate
-                # inputs on z grid to dynamic model depths
                 self.open_boundaries.zc.all_values[...] = self.T.zc.all_values[
+                    :, self.open_boundaries.j, self.open_boundaries.i
+                ].T
+            if self.open_boundaries.zf.saved:
+                self.open_boundaries.zf.all_values[...] = self.T.zf.all_values[
                     :, self.open_boundaries.j, self.open_boundaries.i
                 ].T

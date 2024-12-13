@@ -86,10 +86,10 @@ class Base:
 
         Args:
             time: date and time
-            sst: temperature of the water surface
-            ssu: surface water velocity in x-direction
+            sst: temperature of the water surface (°C)
+            ssu: surface water velocity in x-direction (m s-1)
                 (model-centric, not rotated to be geocentric)
-            ssv: surface water velocity in y-direction
+            ssv: surface water velocity in y-direction (m s-1)
                 (model-centric, not rotated to be geocentric)
             calculate_heat_flux: update the surface heat flux (:attr:`shf`),
                 net downwelling shortwave flux (:attr:`swr`) and net freshwater
@@ -298,14 +298,14 @@ class FluxesFromMeteo(Fluxes):
 
         self.u10 = grid.array(
             name="u10",
-            long_name="wind speed in Eastward direction @ 10 m",
+            long_name="wind speed in eastward direction @ 10 m",
             units="m s-1",
             fill_value=FILL_VALUE,
             attrs=dict(standard_name="eastward_wind"),
         )
         self.v10 = grid.array(
             name="v10",
-            long_name="wind speed in Northward direction @ 10 m",
+            long_name="wind speed in northward direction @ 10 m",
             units="m s-1",
             fill_value=FILL_VALUE,
             attrs=dict(standard_name="northward_wind"),
@@ -395,7 +395,7 @@ class FluxesFromMeteo(Fluxes):
         actual specific humidity :attr:`qa` and air density :attr:`rhoa`
 
         Args:
-            sst: temperature of the water surface (degrees Celsius)
+            sst: temperature of the water surface (°C)
         """
         awex.humidity(
             self.humidity_measure,
@@ -414,7 +414,7 @@ class FluxesFromMeteo(Fluxes):
         """Update net downwelling longwave radiation :attr:`ql`
 
         Args:
-            sst: temperature of the water surface (degrees Celsius)
+            sst: temperature of the water surface (°C)
         """
         sst_K = sst.all_values + 273.15
         t2m_K = self.t2m.all_values + 273.15
@@ -459,7 +459,7 @@ class FluxesFromMeteo(Fluxes):
         (:attr:`cd_latent`) and sensible heat (:attr:`cd_sensible`)
 
         Args:
-            sst: temperature of the water surface (degrees Celsius)
+            sst: temperature of the water surface (°C)
         """
 
         # Air and water temperature in Kelvin
@@ -490,10 +490,10 @@ class FluxesFromMeteo(Fluxes):
 
         Args:
             time: date and time
-            sst: temperature of the water surface (degrees Celsius)
-            ssu: surface water velocity in x-direction
+            sst: temperature of the water surface (°C)
+            ssu: surface water velocity in x-direction (m s-1)
                 (model-centric, not rotated to be geocentric)
-            ssv: surface water velocity in y-direction
+            ssv: surface water velocity in y-direction (m s-1)
                 (model-centric, not rotated to be geocentric)
             calculate_heat_flux: update the surface heat flux (:attr:`shf`),
                 net downwelling shortwave flux (:attr:`swr`) and net freshwater
@@ -535,7 +535,7 @@ class FluxesFromMeteo(Fluxes):
 
         if calculate_heat_flux:
             # Latent heat of vaporization (J/kg) at sea surface
-            # Note SST must be in degrees Celsius
+            # Note SST must be in °C
             L = 2.5e6 - 0.00234e6 * sst.all_values
 
             # Sensible heat flux

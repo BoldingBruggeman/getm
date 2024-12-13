@@ -6,7 +6,6 @@ import logging
 import numpy as np
 
 from pygetm import core
-from pygetm import parallel
 from .constants import (
     CENTERS,
     GRAVITY,
@@ -17,6 +16,7 @@ from .constants import (
     FLATHER_TRANSPORT,
     CLAMPED,
     TimeVarying,
+    FILL_VALUE,
 )
 
 if TYPE_CHECKING:
@@ -457,19 +457,83 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         assert (
             not self._frozen
         ), "The open boundary collection has already been initialized"
-        if side in (Side.WEST, Side.EAST):
+        along_y = side in (Side.WEST, Side.EAST)
+        if along_y:
             l_max, m_max = (self.nx, self.ny)
         else:
             l_max, m_max = (self.ny, self.nx)
 
-        assert mstop > mstart and mstop <= m_max
-        assert l >= 0 and l <= l_max
+        assert mstop > mstart and mstart >= 0 and mstop <= m_max
+        assert l >= 0 and l < l_max
 
         if name is None:
             name = str(len(self._boundaries))
+
+        for b in self._boundaries:
+            current_along_y = b.side in (Side.WEST, Side.EAST)
+            if along_y == current_along_y:
+                if l == b.l_glob:
+                    overlap = min(mstop, b.mstop_glob) - max(mstart, b.mstart_glob)
+                    if overlap > 0:
+                        raise Exception(
+                            f"New boundary {name} overlaps in {overlap} points"
+                            f" with existing boundary {b.name}"
+                        )
+            else:
+                cross = (
+                    l >= b.mstart_glob
+                    and l < b.mstop_glob
+                    and b.l_glob >= mstart
+                    and b.l_glob < mstop
+                )
+                if cross:
+                    i, j = (l, b.l_glob) if along_y else (b.l_glob, l)
+                    raise Exception(
+                        f"New boundary {name} crosses existing boundary {b.name}"
+                        f" at i={i}, j={j}"
+                    )
+
         self._boundaries.append(
             OpenBoundary(name, side, l, mstart, mstop, type_2d, type_3d)
         )
+
+    def add_top_boundary(
+        self, name: str, j: int, istart: int, istop: int, type_2d: int, type_3d: int
+    ):
+        """Add an open boundary with the model exterior above and the model
+        interior below. This is a northern open boundary in a spherical domain.
+        """
+        self.add_by_index(Side.NORTH, j, istart, istop, type_2d, type_3d, name=name)
+
+    def add_bottom_boundary(
+        self, name: str, j: int, istart: int, istop: int, type_2d: int, type_3d: int
+    ):
+        """Add an open boundary with the model exterior below and the model
+        interior above. This is a southern open boundary in a spherical domain.
+        """
+        self.add_by_index(Side.SOUTH, j, istart, istop, type_2d, type_3d, name=name)
+
+    def add_left_boundary(
+        self, name: str, i: int, jstart: int, jstop: int, type_2d: int, type_3d: int
+    ):
+        """Add an open boundary with the model exterior to the left and the
+        model interior to the right. This is a western open boundary in a
+        spherical domain.
+        """
+        self.add_by_index(Side.WEST, i, jstart, jstop, type_2d, type_3d, name=name)
+
+    def add_right_boundary(
+        self, name: str, i: int, jstart: int, jstop: int, type_2d: int, type_3d: int
+    ):
+        """Add an open boundary with the model exterior to the right and the
+        model interior to the left. This is an eastern open boundary in a
+        spherical domain.
+        """
+        self.add_by_index(Side.EAST, i, jstart, jstop, type_2d, type_3d, name=name)
+
+    def clear(self):
+        """Delete all open boundaries."""
+        self._boundaries.clear()
 
     def adjust_mask(self, mask: np.ndarray):
         """Adjust the global mask for open boundaries
@@ -477,10 +541,13 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         This assigns mask values 2 (masked T point), 3 (velocity point in
         between open boundary T points) and 4 (velocity point just
         outside the open boundary)
+
+        Args:
+            mask: writeable mask defined on the supergrid, with shape (1+2\*ny, 1+2\*nx)
         """
         assert mask.shape == (1 + 2 * self.ny, 1 + 2 * self.nx)
-        umask = mask[1::2, 2::2]
-        vmask = mask[2::2, 1::2]
+        umask = mask[1::2, 0::2]
+        vmask = mask[0::2, 1::2]
         tmask = mask[1::2, 1::2]
         for boundary in self._boundaries:
             l = boundary.l_glob
@@ -504,13 +571,13 @@ class OpenBoundaries(Sequence[OpenBoundary]):
 
             # Velocity points that lie just outside the T points of the open boundary
             if boundary.side in (Side.WEST, Side.EAST):
-                umask[mslice, l - 1 if boundary.side == Side.WEST else l] = 4
+                umask[mslice, l if boundary.side == Side.WEST else l + 1] = 4
             else:
-                vmask[l - 1 if boundary.side == Side.SOUTH else l, mslice] = 4
+                vmask[l if boundary.side == Side.SOUTH else l + 1, mslice] = 4
 
         # Velocity points that lie in between open boundary T points
-        umask[:, :-1][(tmask[:, :-1] == 2) & (tmask[:, 1:] == 2)] = 3
-        vmask[:-1, :][(tmask[:-1, :] == 2) & (tmask[1:, :] == 2)] = 3
+        umask[:, 1:-1][(tmask[:, :-1] == 2) & (tmask[:, 1:] == 2)] = 3
+        vmask[1:-1, :][(tmask[:-1, :] == 2) & (tmask[1:, :] == 2)] = 3
 
     def initialize(self, grid: core.Grid):
         """Freeze the open boundary collection. Drop those outside the current
@@ -531,45 +598,37 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         # subdomains without any open boundary
         bdy_i = [np.empty((0,), dtype=np.intc)]
         bdy_j = [np.empty((0,), dtype=np.intc)]
-        side2count = {}
-        self.local_to_global = []
+        side2count = {Side.WEST: 0, Side.NORTH: 0, Side.EAST: 0, Side.SOUTH: 0}
+        self.local_to_global: List[slice] = []
         bdy_types_2d = {}
-        for side in (Side.WEST, Side.NORTH, Side.EAST, Side.SOUTH):
-            n = 0
-            for boundary in [b for b in self._boundaries if b.side == side]:
-                if boundary.l is not None:
-                    mskip = boundary.mstart - boundary.mstart_
-                    assert mskip >= 0
-                    boundary.start = nbdyp
-                    boundary.stop = nbdyp + boundary.np
-                    boundary.slice_bdy = (
-                        slice(boundary.start, boundary.stop),
-                        Ellipsis,
-                    )
-                    if boundary.type_2d not in bdy_types_2d:
-                        bdy_types_2d[boundary.type_2d] = self._make_bc(boundary.type_2d)
-                    boundary.type_2d = bdy_types_2d[boundary.type_2d]
-                    nbdyp += boundary.np
+        for boundary in self._boundaries:
+            if boundary.l is not None:
+                mskip = boundary.mstart - boundary.mstart_
+                assert mskip >= 0
+                boundary.start = nbdyp
+                boundary.stop = nbdyp + boundary.np
+                boundary.slice_bdy = (
+                    slice(boundary.start, boundary.stop),
+                    Ellipsis,
+                )
+                if boundary.type_2d not in bdy_types_2d:
+                    bdy_types_2d[boundary.type_2d] = self._make_bc(boundary.type_2d)
+                boundary.type_2d = bdy_types_2d[boundary.type_2d]
+                nbdyp += boundary.np
 
-                    bdy_i.append(boundary.i)
-                    bdy_j.append(boundary.j)
+                bdy_i.append(boundary.i)
+                bdy_j.append(boundary.j)
 
-                    start_glob = nbdyp_glob + mskip
-                    if (
-                        self.local_to_global
-                        and self.local_to_global[-1][1] == start_glob
-                    ):
-                        # attach to previous boundary
-                        self.local_to_global[-1][1] += boundary.np
-                    else:
-                        # gap; add new slice
-                        self.local_to_global.append(
-                            [start_glob, start_glob + boundary.np]
-                        )
-                    n += 1
-                    self.active.append(boundary)
-                nbdyp_glob += boundary.mstop_ - boundary.mstart_
-            side2count[side] = n
+                start_glob = nbdyp_glob + mskip
+                stop_glob = start_glob + boundary.np
+                if self.local_to_global and self.local_to_global[-1].stop == start_glob:
+                    # Attach to previous boundary by dropping previous slice
+                    # and adopting its start index
+                    start_glob = self.local_to_global.pop().start
+                self.local_to_global.append(slice(start_glob, stop_glob))
+                side2count[boundary.side] += 1
+                self.active.append(boundary)
+            nbdyp_glob += boundary.mstop_ - boundary.mstart_
 
         # Number of open boundary points (local and global)
         self.np = nbdyp
@@ -598,22 +657,21 @@ class OpenBoundaries(Sequence[OpenBoundary]):
                 # This subdomain includes all open boundaries in full
                 assert (
                     len(self.local_to_global) == 1
-                    and self.local_to_global[0][0] == 0
-                    and self.local_to_global[0][1] == self.np_glob
+                    and self.local_to_global[0].start == 0
+                    and self.local_to_global[0].stop == self.np_glob
                 )
                 self.local_to_global = None
             else:
                 # This subdomain part of the open boundaries
-                self.logger.info(
-                    f"global-to-local open boundary map: {self.local_to_global}"
+                slices = ", ".join(
+                    [f"[{s.start}:{s.stop}]" for s in self.local_to_global]
                 )
+                self.logger.info(f"global-to-local open boundary map: {slices}")
 
         if grid.ugrid:
             self._configure_mirroring(grid)
 
-        # Coordinates of open boundary points
-        self.zc = grid.array(z=CENTERS, on_boundary=True)
-        self.zf = grid.array(z=INTERFACES, on_boundary=True)
+        # Horizontal coordinates of open boundary points
         if grid.lon is not None:
             self.lon = grid.array(
                 on_boundary=True, fill=grid.lon.all_values[self.j, self.i]
@@ -623,8 +681,23 @@ class OpenBoundaries(Sequence[OpenBoundary]):
                 on_boundary=True, fill=grid.lat.all_values[self.j, self.i]
             )
 
-        # The arrays below are placeholders that will be assigned data
-        # (from momentum/sealevel Fortran modules) when linked to the Simulation
+        # Vertical coordinates of open boundary points.
+        # These will be updated by indexing into the full zc and zf
+        # after every update of surface elevation/water depth/cell thickness
+        kwargs = dict(
+            fill_value=FILL_VALUE,
+            units="m",
+            on_boundary=True,
+            attrs=dict(
+                axis="Z", positive="up", standard_name="height_above_mean_sea_level"
+            ),
+        )
+        self.zc = grid.array(name="zc_bdy", z=CENTERS, long_name="height", **kwargs)
+        self.zf = grid.array(
+            name="zf_bdy", z=INTERFACES, long_name="interface height", **kwargs
+        )
+
+        # Prescribed depth-averaged or depth-integrated velocity at the open boundaries
         self.u = grid.array(name="u_bdy", on_boundary=True)
         self.v = grid.array(name="v_bdy", on_boundary=True)
 
@@ -738,9 +811,9 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         indices = np.arange(self.np, dtype=int)
         if self.local_to_global is not None:
             i = 0
-            for start, stop in self.local_to_global:
-                indices[i : i + stop - start] = np.arange(start, stop)
-                i += stop - start
+            for s in self.local_to_global:
+                indices[i : i + s.stop - s.start] = np.arange(s.start, s.stop)
+                i += s.stop - s.start
             assert i == self.np
         return indices
 

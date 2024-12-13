@@ -36,15 +36,24 @@ def get(
         out = pygetm.input.horizontal_interpolation(out, lon, lat)
         return out
 
-    postfix = ""
-    if os.path.isfile(os.path.join(root, "grid_tpxo9_atlas_30_v5.nc")):
-        postfix = "_v5"
+    # Detect version
+    if os.path.isfile(os.path.join(root, "grid_tpxo10atlas_v2.nc")):
+        version, postfix = "10", "_v2"
+    elif os.path.isfile(os.path.join(root, "grid_tpxo9_atlas_30_v5.nc")):
+        version, postfix = "9", "_v5"
+    else:
+        version, postfix = "9", ""
 
     if variable in ("hz", "hu", "hv"):
+        grid_file = os.path.join(root, f"grid_tpxo{version}_atlas{postfix}.nc")
+        if not os.path.isfile(grid_file):
+            # The template for the grid file is unfortunately different in TPXO10
+            grid_file = os.path.join(root, f"grid_tpxo{version}atlas{postfix}.nc")
+
         # Water depth at z, u, or v points.
-        # These are static variables definied in the grid file
+        # These are static variables defined in the grid file
         axis = variable[1]
-        with xr.open_dataset(os.path.join(root, f"grid_tpxo9_atlas{postfix}.nc")) as ds:
+        with xr.open_dataset(grid_file) as ds:
             ds = ds.set_coords((f"lat_{axis}", f"lon_{axis}"))
             return select(ds[variable])
 
@@ -55,7 +64,7 @@ def get(
     for component in COMPONENTS:
         if verbose:
             print(f"TPXO: reading {component} constituent of {variable}...")
-        name = f"{file_prefix}_{component}_tpxo9_atlas_30{postfix}.nc"
+        name = f"{file_prefix}_{component}_tpxo{version}_atlas_30{postfix}.nc"
         path = os.path.join(root, name)
         with xr.open_dataset(path) as ds:
             ds = ds.set_coords((f"lat_{axis}", f"lon_{axis}"))

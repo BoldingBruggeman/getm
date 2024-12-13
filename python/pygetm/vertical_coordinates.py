@@ -1,13 +1,12 @@
-from typing import TYPE_CHECKING, Optional, Union
+from typing import Optional, Union
 import logging
 
 import numpy as np
 import numpy.typing as npt
 
-if TYPE_CHECKING:
-    from . import domain
 from .constants import CENTERS, INTERFACES
 from . import _pygetm
+from . import core
 
 
 class Base:
@@ -22,7 +21,7 @@ class Base:
         self.nz = nz
 
     def initialize(
-        self, ref_grid: "core.Grid", *other_grids: "core.Grid", logger: logging.Logger
+        self, ref_grid: core.Grid, *other_grids: core.Grid, logger: logging.Logger
     ):
         self.logger = logger
 
@@ -35,11 +34,11 @@ class PerGrid(Base):
     """Base class for vertical coordinate types that apply the same operation
     to every grid."""
 
-    def initialize(self, *grids: "core.Grid", logger: logging.Logger):
+    def initialize(self, *grids: core.Grid, logger: logging.Logger):
         super().initialize(*grids, logger=logger)
         self.grid_info = [self.prepare_update_args(grid) for grid in grids]
 
-    def prepare_update_args(self, grid: "core.Grid"):
+    def prepare_update_args(self, grid: core.Grid):
         """Prepare grid-specific information that will be passed as
         arguments to __call__"""
         return (grid.D.all_values, grid.hn.all_values, grid.mask.all_values)
@@ -172,7 +171,7 @@ class GVC(PerGrid):
         denom = alpha_min * self.dsigma + (1.0 - alpha_min) * self.dbeta[self.k_ref]
         self.D_max = np.inf if abs(denom) < 1e-15 else (Dgamma * self.dsigma) / denom
 
-    def initialize(self, *grids: "core.Grid", logger: logging.Logger):
+    def initialize(self, *grids: core.Grid, logger: logging.Logger):
         super().initialize(*grids, logger=logger)
         self.logger.info(
             f"This GVC parameterization supports water depths up to {self.D_max:.3f} m"
@@ -184,10 +183,11 @@ class GVC(PerGrid):
         out: Optional[np.ndarray] = None,
         where: Optional[np.ndarray] = None,
     ):
+        print(self.dsigma, self.Dgamma, self.k_ref, D.shape)
         if out is None:
             out = np.empty(self.dbeta.shape + D.shape)
         if where is None:
-            where = np.full(D.shape, 1)
+            where = np.full(D.shape, 1, dtype=np.intc)
         _pygetm.update_gvc(
             self.dsigma, self.dbeta, self.Dgamma, self.k_ref, D, where, out
         )
@@ -195,12 +195,13 @@ class GVC(PerGrid):
 
 
 class Adaptive(Base):
-    """Adaptive coordinates - placeholder only for now"""
+    """Adaptive coordinates"""
 
-    # add parameters of adaptive coordinates here, after nz [but not model fields]
     def __init__(
         self,
         nz: int,
+        timestep: float = -1.0,
+        cnpar: float = 1.0,
         ddl: float = 0.0,
         ddu: float = 0.0,
         gamma_surf: bool = True,
@@ -227,12 +228,14 @@ class Adaptive(Base):
         vfilter: float = 0.2,
         nhfilter: int = 1,
         hfilter: float = 0.1,
-        tgrid: float = 14400.0,
         split: int = 1,
+        timescale: float = 14400.0,
     ):
         """
         Args:
             nz: number of layers
+            timestep: model baroclinic time step
+            cnpar: Crank Nicolson implicitness parameter
             ddl: zoom factor at bottom (0: no zooming, 2: strong zooming)
             ddu: zoom factor at surface (0: no zooming, 2: strong zooming)
             gamma_surf: use layers of constant thickness `Dgamma/nz` at surface (otherwise, at bottom)
@@ -255,23 +258,35 @@ class Adaptive(Base):
             dvel: reference value for SS absolute shear between neighbor cells
             chmin: internal nug coeff for shallow-water regions
             hmin: minimum depth
-            nvfilter: Number of vertical Dgrid filter iterations [0:]
-            vfilter: Strength of vertical filter-of-Dgrid [0:~0.5]
-            nhfilter: Number of horizontal Dgrid filter iterations [0:]
-            hfilter: Strength of horizontal filter-of-Dgrid [0:~0.5]
-            tgrid: Time scale of grid adaptation
-            split: Take this many partial-steps for diffusion eq.
+            nvfilter: number of vertical Dgrid filter iterations [0:]
+            vfilter: strength of vertical filter-of-Dgrid [0:~0.5]
+            nhfilter: number of horizontal Dgrid filter iterations [0:]
+            hfilter: strength of horizontal filter-of-Dgrid [0:~0.5]
+            split: Take this many partial-steps for for vertical filtering == 1 for now
+            timescale: time scale of grid adaptation [s-1]
         """
 
+        if timestep <= 0.0:
+            raise Exception("timestep must be a positive value")
         if ddl <= 0.0 and ddu <= 0.0:
             raise Exception("ddl and/or ddu must be a positive number")
+        if csigma <= 0.0 and cgvc <= 0.0:
+            raise Exception("either csigma or cgvc must be a positive number")
         if Dgamma <= 0.0:
             raise Exception("Dgamma must be a positive number")
+        if timescale <= 0.0:
+            raise Exception("timescale must be a positive value")
+
+        if csigma > 0.0 and cgvc > 0.0:
+            #            self.logger.info( f"Both csigma and cgvc > 0 - setting csig < 0")
+            csigma = -csigma
 
         super().__init__(nz)
-        self.cnp = 1.0 # needed from outside
+        self.timestep = timestep
+        self.cnpar = cnpar
         self.ddl = ddl
         self.ddu = ddu
+        self.gamma_surf = gamma_surf
         self.Dgamma = Dgamma
         self.decay = decay
         self.hpow = hpow
@@ -295,22 +310,31 @@ class Adaptive(Base):
         self.vfilter = vfilter
         self.nhfilter = nhfilter
         self.hfilter = hfilter
-        self.tgrid = tgrid
-        self.split = split
+        # self.split = split
+        self.split = 1
+        self.timescale = timescale
 
-        # sigma = Sigma(nz, ddl, ddu)
         if self.csigma > 0.0:
-            self._sigma_dga = Sigma(nz).dga
+            self._sigma = Sigma(nz, ddu=self.ddu, ddl=self.ddl)
+
         if self.cgvc > 0.0:
-            self._gvc_dga = GVC(nz).dga
+            self._gvc = GVC(
+                nz,
+                ddu=self.ddu,
+                ddl=self.ddl,
+                gamma_surf=self.gamma_surf,
+                Dgamma=self.Dgamma,
+            )
 
-    def initialize(self, tgrid: "core.Grid", *other_grids: "core.Grid", logger: logging.Logger):
-        from pygetm.operators import VerticalDiffusion
-
+    def initialize(
+        self, tgrid: core.Grid, *other_grids: core.Grid, logger: logging.Logger
+    ):
         super().initialize(tgrid, *other_grids, logger=logger)
-        self.logger.info( f"Initialize Adaptive coordinates")
+        self.logger.info(f"Initialize Adaptive coordinates")
 
-        self._vertical_diffusion = VerticalDiffusion(tgrid, cnpar=self.cnp)
+        self.other_grids = other_grids
+        self.dga_t = tgrid.array(z=CENTERS)
+        self.dga_other = tuple(grid.array(z=CENTERS) for grid in other_grids)
 
         self.tgrid = tgrid
         self.nug = tgrid.array(
@@ -320,18 +344,65 @@ class Adaptive(Base):
             z=INTERFACES,
             attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
         )
+        # Should catch if illegal values are used
+        self.nug.all_values[0, ...] = np.nan
+        # self.nug.all_values[-1, ...] = np.nan
 
-        self.ga = tgrid.array(z=INTERFACES, attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True))
+        self.ga = tgrid.array(
+            z=CENTERS,
+            attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
+        )
+
+        self.gai = tgrid.array(
+            z=INTERFACES,
+            attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
+        )
+        # KBself._vertical_diffusion = VerticalDiffusion(self.tgrid, cnpar=self.cnpar)
+
+        if self.csigma > 0.0:
+            # this is only needed if we are not starting from a restart in which case
+            # we will have tgrid.hn - maybe there is a better way to do this
+            tgrid.hn[...] = self._sigma(tgrid.D.values)
+
+        if self.cgvc > 0.0:
+            # this is only needed if we are not starting from a restart in which case
+            # we will have tgrid.hn - maybe there is a better way to do this
+            self.hn_gvc = tgrid.array(
+                z=CENTERS,
+                attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
+            )
+            tgrid.hn[...] = self._gvc(tgrid.D[...])
 
         self.other_grids = other_grids
         self.dga_t = tgrid.array(z=CENTERS)
         self.dga_other = tuple(grid.array(z=CENTERS) for grid in other_grids)
-
         # Here you can obtain any other model field by name, as tgrid.fields[NAME]
         # and store it as attribte of self for later use in update
+        # print('AAAA', type(tgrid.fields))
+        # This has to be fixed with proper NN and SS references
 
-    def __call__(self, D: np.ndarray, out: np.ndarray = None, where: np.ndarray = None):
-        """Calculate dimension less layer thicknesses
+        # There is a issue as the first returns an Array and the second
+        # and numpy array. This has consequences for the call further
+        # down. May create Array instead of np.zeros()?
+        # And it seems that NN and SS are not in the dictionary even
+        # if runtype is BAROCLINIC
+
+        if "NN" in tgrid.fields.keys():
+            self.NN = tgrid.fields["NN"]
+        else:
+            self.NN = np.zeros(self.nug.shape)
+        if "SS" in tgrid.fields.keys():
+            self.SS = tgrid.fields["SS"]
+        else:
+            self.SS = np.zeros(self.nug.shape)
+
+    def __call__(
+        self,
+        D: np.ndarray,
+        out: np.ndarray = None,
+        where: np.ndarray = None,
+    ):
+        """Calculate dimensionless layer thickness for the T-grid
 
         Args:
             D: water depths (m)
@@ -349,25 +420,28 @@ class Adaptive(Base):
         # handled by python
 
         if self.csigma > 0:
-            self.nug[...] = self.csigma
+            # self.nug[1:-1, ...] = self.csigma
+            self.nug[1:, ...] = self.csigma
         else:
-            self.nug = 0.0
+            self.nug.all_values[...] = np.nan
 
-        # Here we need to have h_gvc - and the scaling has to depend
-        # on the value of gamma_surf
-        # if self.cgvc > 0:
-        #     self.nug(k)=self.nug(k) + cgvc*(hn_gvc(kmax)/h_gvc(k)) !*Hm1
+        # Here we need to have hn_gvc - and the scaling has to depend
+        # on the value of gamma_surf - needs fix
+        if self.cgvc > 0:
+            self.hn_gvc[...] = self._gvc(self.tgrid.D[...])
+            self.nug[1:-1, :, :] = self.cgvc * (
+                np.divide(self.hn_gvc[-1, :, :], self.hn_gvc[:-1, :, :])
+            )
 
-        self.NN = np.empty(self.nug.shape)
-        self.SS = np.empty(self.nug.shape)
-
-        dt = 3600. # must come from somewhere
         # then add contributions handled by Fortran
+
         _pygetm.update_adaptive(
             self.nug,
-            self.ga,
+            self.gai,
             self.NN,
             self.SS,
+            # self.NN.all_values,
+            # self.SS.all_values,
             self.decay,
             self.hpow,
             self.chsurf,
@@ -384,40 +458,30 @@ class Adaptive(Base):
             self.dvel,
             self.chmin,
             self.hmin,
-            dt,
         )
         # all contributions to nug are now added
 
+        # apply diffusion timescale
+        self.nug[...] /= self.timescale
+
         # apply vertical filtering from ~/python/src/filters.F90
         if self.nvfilter > 0 and self.vfilter > 0:
-            #print("_pygetm.vertical_filter")
             _pygetm.vertical_filter(self.nvfilter, self.nug, self.vfilter)
 
         # apply horizontal filtering from ~/python/src/filters.F90
         # requires halo updates
         if self.hfilter > 0:
             for _ in range(self.nhfilter):
-                #print("_pygetm.horizontal_filter")
                 self.nug.update_halos()
                 _pygetm.horizontal_filter(self.nug, self.hfilter)
 
-
         # now the grid diffusion field is ready to be applied
-        # naming of input vectors/arrays to solver
-        #KB Bjarne - GETM - pygetm
-        #KB mata   -> au    -> a1
-        #KB matb   -> bu    -> a2
-        #KB matc   -> cu    -> a3
-        #KB rhs    -> du    -> a4
-
-        #self.nug.all_values[...] = 0.01
-        #self.nug = self.nug/(2.*self.tgrid)
-        self._vertical_diffusion.prepare(self.nug, dt)
-        self._vertical_diffusion.apply(self.ga)
+        _pygetm.tridiagonal(self.nug, self.gai, self.cnpar, self.timestep)
+        # self.nug[:-1, ...] = np.nan
 
         # To get dga - that can be used to interpolate to
         # other grids for the calculation of layer heights
-        self.dga_t[...] = np.diff(self.ga[...], axis=0)
+        self.dga_t[...] = np.diff(self.gai[...], axis=0)
         self.dga_t.update_halos()
         return out
 

@@ -210,7 +210,10 @@ class Grid(_pygetm.Grid):
         self.horizontal_coordinates: List["Array"] = []
         self.extra_output_coordinates = []
         for name in self._fortran_arrays:
-            self._setup_array(name)
+            kwargs = dict(fill_value=FILL_VALUE)
+            kwargs.update(self._array_args[name])
+            array = Array(name=name + self.postfix, **kwargs)
+            setattr(self, f"_{name}", self.wrap(array, name.encode("ascii")))
 
         self.rotation = Array.create(
             grid=self,
@@ -223,6 +226,9 @@ class Grid(_pygetm.Grid):
         )
 
     def freeze(self):
+        """Freeze all grid attributes. This will calculate derived metrics
+        such as the inverse of cell height/width/area and initialize elevation
+        and water depth. It subsequently makes most attributes read-only."""
         with np.errstate(divide="ignore"):
             self._iarea.all_values[...] = 1.0 / self._area.all_values
             self._idx.all_values[...] = 1.0 / self._dx.all_values
@@ -246,6 +252,7 @@ class Grid(_pygetm.Grid):
         self.zf.all_values[...] = -self.H.all_values
 
         self.H.all_values[self._land] = FILL_VALUE
+        assert np.isfinite(self.H.all_values[self._water]).all()
         self.z0b_min.all_values[self._land] = FILL_VALUE
         self.H.all_values.flags.writeable = False
         self.z0b_min.all_values.flags.writeable = False
@@ -263,10 +270,14 @@ class Grid(_pygetm.Grid):
         D = self.H.all_values + self.z.all_values
         self.D.all_values[self._water] = D[self._water]
 
-        # Determine whether any grid points are reotated with respect to true North
+        # Determine whether any grid points are rotated with respect to true North
         # If that flag is False, it will allow us to skip potentially expensive
         # rotation operations (`rotate` method)
         self.rotated = self.rotation.all_values[self._water].any()
+
+        for child in (self.ugrid, self.vgrid, self.xgrid):
+            if child:
+                child.freeze()
 
     def close_flux_interfaces(self):
         """Mask U and V points that do not have two bordering wet T points"""
@@ -294,53 +305,6 @@ class Grid(_pygetm.Grid):
         self.vgrid._water_contact = vmask.all_values != 0
         umask.all_values[:, :] = umask_backup
         vmask.all_values[:, :] = vmask_backup
-
-    def _setup_array(
-        self, name: str, array: Optional["Array"] = None, from_supergrid: bool = True
-    ) -> "Array":
-        if array is None:
-            # No array provided, so it must live in Fortran; retrieve it
-            kwargs = dict(fill_value=FILL_VALUE)
-            kwargs.update(self._array_args[name])
-            array = Array(name=name + self.postfix, **kwargs)
-            setattr(self, f"_{name}", self.wrap(array, name.encode("ascii")))
-
-        # # Obtain corresponding array on the supergrid.
-        # # If this does not exist, we are done
-        # source = getattr(self.domain, name + "_", None)
-        # if source is None or not from_supergrid:
-        #     return array
-
-        # imax, jmax = self.ioffset + 2 * self.nx_, self.joffset + 2 * self.ny_
-        # values = source[(slice(self.joffset, jmax, 2), slice(self.ioffset, imax, 2))]
-        # slc = (Ellipsis,)
-        # if name in ("z0b_min",):
-        #     slc = self.mask.all_values[: values.shape[0], : values.shape[1]] > 0
-        # array.all_values[: values.shape[0], : values.shape[1]][slc] = values[slc]
-        # if values.shape != array.all_values.shape:
-        #     # supergrid does not span entire grid; fill remainder by exchanging halos
-        #     array.update_halos()
-
-        # has_bounds = (
-        #     self.ioffset > 0
-        #     and self.joffset > 0
-        #     and source.shape[-1] >= imax
-        #     and source.shape[-2] >= jmax
-        # )
-        # if has_bounds and name in self._coordinate_arrays:
-        #     # Generate interface coordinates. These are not represented in Fortran as
-        #     # they are only needed for plotting. The interface coordinates are slices
-        #     # that point to the supergrid data; they thus do not consume additional
-        #     # memory.
-        #     values_i = source[self.joffset - 1 : jmax : 2, self.ioffset - 1 : imax : 2]
-        #     setattr(self, f"_{name}i_", values_i)
-        #     setattr(
-        #         self,
-        #         f"_{name}i",
-        #         values_i[self.haloy : -self.haloy, self.halox : -self.halox],
-        #     )
-
-        return array
 
     def interpolator(self, target: "Grid") -> Callable[[np.ndarray, np.ndarray], None]:
         ip = self._interpolators.get(target)
@@ -433,9 +397,9 @@ class Grid(_pygetm.Grid):
 
         Args:
             u: velocity in x-direction in source coordinate system
-                (Eastward velocity if the source is a geocentric velocity field)
+                (eastward velocity if the source is a geocentric velocity field)
             v: velocity in y-direction in source coordinate system
-                (Northward velocity if the source is a geocentric velocity field)
+                (northward velocity if the source is a geocentric velocity field)
             to_grid: rotate from geocentric to model coordinate system, not vice versa
         """
         if not self.rotated:
