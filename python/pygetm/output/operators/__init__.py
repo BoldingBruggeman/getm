@@ -457,13 +457,16 @@ class Gather(UnivariateTransform):
         if isinstance(source, Field):
             if "_global_values" in source.array.attrs and not source.time_varying:
                 self.global_values = source.array.attrs["_global_values"]
+        overlap = 0 if source.grid is None else source.grid.overlap
         xstart = source.halox
         ystart = source.haloy
         xstop = source.shape[-1] - source.halox
         ystop = source.shape[-2] - source.haloy
         local_shape = source.shape[:-2] + (ystop - ystart, xstop - xstart)
         self._slice = (Ellipsis, slice(ystart, ystop), slice(xstart, xstop))
-        self._gather = pygetm.parallel.Gather(self.tiling, local_shape, self.dtype)
+        self._gather = pygetm.parallel.Gather(
+            self.tiling, local_shape, self.dtype, overlap=overlap
+        )
 
     def get(
         self, out: Optional[ArrayLike] = None, slice_spec: Tuple[int, ...] = ()
