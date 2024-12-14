@@ -37,6 +37,7 @@ import pygetm.radiation
 import pygetm.tracer
 import pygetm.internal_pressure
 import pygetm.vertical_coordinates
+import pygetm.open_boundaries
 
 
 def to_cftime(time: Union[datetime.datetime, cftime.datetime]) -> cftime.datetime:
@@ -437,7 +438,6 @@ class Simulation(BaseSimulation):
         "rivers",
         "open_boundaries",
         "vertical_coordinates",
-        "z_T_half",
         "D_T_half",
         "h_T_half",
         "depth",
@@ -532,6 +532,62 @@ class Simulation(BaseSimulation):
                 f" excluding halos: {(grid.mask.values > 0).sum()}"
             )
 
+        self.T.z = self.T.array(
+            name="zt",
+            units="m",
+            long_name="elevation",
+            fill_value=FILL_VALUE,
+            attrs=dict(_part_of_state=True),
+        )
+        self.T.zo = self.T.array(
+            name="zot",
+            units="m",
+            long_name="elevation at previous microtimestep",
+            fill_value=FILL_VALUE,
+            attrs=dict(_part_of_state=True),
+        )
+        # Initialize elevation at all water points to 0
+        self.T.z.fill(0.0)
+        self.T.zo.fill(0.0)
+
+        if runtype > RunType.BAROTROPIC_2D:
+            self.T.zin = self.T.array(
+                name="zint",
+                units="m",
+                long_name="elevation at macrotimestep",
+                fill_value=FILL_VALUE,
+                attrs=dict(_part_of_state=True),
+            )
+            self.T.zio = self.T.array(
+                name="ziot",
+                units="m",
+                long_name="elevation at previous macrotimestep",
+                fill_value=FILL_VALUE,
+                attrs=dict(_part_of_state=True),
+            )
+
+            for grid in (self.T, self.U, self.V):
+                grid.ho = grid.array(
+                    name="ho" + grid.postfix,
+                    z=CENTERS,
+                    units="m",
+                    long_name="cell thickness at previous time step",
+                    fill_value=FILL_VALUE,
+                )
+
+            # On T grid, ho cannot be computed from zio,
+            # because rivers modify ho-from-zio before it is stored
+            self.T.ho.attrs["_part_of_state"] = True
+        else:
+            # In 2D barotropic runs, bottom roughness is updated iteratively
+            # (new value is a function of the previous value), which requires
+            # it being icluded in restarts as part of the model state
+            self.U.z0b.attrs["_part_of_state"] = True
+            self.V.z0b.attrs["_part_of_state"] = True
+
+        self.T.z.open_boundaries = pygetm.open_boundaries.ArrayOpenBoundaries(self.T.z)
+        self.open_boundaries.z = self.T.z.open_boundaries.values
+
         # Water depths clipped to Dmin (already the default for U,V,X grids)
         self.T.Dclip = self.T.array()
 
@@ -542,19 +598,11 @@ class Simulation(BaseSimulation):
         self.U.ugrid.hn.attrs["_mask_output"] = True
         self.V.vgrid.hn.attrs["_mask_output"] = True
 
-        # Elevation on U/V/X will be interpolated from the T grid and therefore
-        # contain values other than fill_value in masked points
-        for grid in (self.U, self.V, self.X):
-            grid.z.attrs["_mask_output"] = True
-            grid.zio.attrs["_mask_output"] = True
-            grid.zin.attrs["_mask_output"] = True
-
         self.Dmin = Dmin
         self.Dcrit = Dcrit
 
         # Water depth and thicknesses on T grid that lag 1/2 time step behind tracer
         # (i.e., they are in sync with U, V, X grids)
-        self.z_T_half = self.T.array(fill=np.nan)
         self.D_T_half = self.T.array(fill=np.nan)
         self.h_T_half = self.T.array(fill=np.nan, z=CENTERS)
         self.depth = self.T.array(
@@ -565,21 +613,6 @@ class Simulation(BaseSimulation):
             fabm_standard_name="depth",
             fill_value=FILL_VALUE,
         )
-
-        # Flag selected domain/grid fields (elevations, thicknesses, bottom roughness)
-        # as part of model state (saved in/loaded from restarts)
-        self.T.z.attrs["_part_of_state"] = True
-        self.T.zo.attrs["_part_of_state"] = True
-        if runtype > RunType.BAROTROPIC_2D:
-            self.T.zio.attrs["_part_of_state"] = True
-            self.T.zin.attrs["_part_of_state"] = True
-
-            # ho cannot be computed from zio,
-            # because rivers modify ho-from-zio before it is stored
-            self.T.ho.attrs["_part_of_state"] = True
-        if runtype == RunType.BAROTROPIC_2D:
-            self.U.z0b.attrs["_part_of_state"] = True
-            self.V.z0b.attrs["_part_of_state"] = True
 
         unmasked = self.T.mask != 0
         self.total_volume_ref = (self.T.H * self.T.area).global_sum(where=unmasked)
@@ -1378,81 +1411,54 @@ class Simulation(BaseSimulation):
         if _3d:
             # Store current elevations as previous elevations (on the 3D time step)
             self.T.zio.all_values[...] = self.T.zin.all_values
-            self.U.zio.all_values[...] = self.U.zin.all_values
-            self.V.zio.all_values[...] = self.V.zin.all_values
-            self.X.zio.all_values[...] = self.X.zin.all_values
 
             # Synchronize new elevations on the 3D time step to those of the 2D time
             # step that has just completed.
             self.T.zin.all_values[...] = self.T.z.all_values
 
-            z_T, z_U, z_V, z_X, zo_T = (
-                self.T.zin,
-                self.U.zin,
-                self.V.zin,
-                self.X.zin,
-                self.T.zio,
-            )
+            z_T, zo_T = self.T.zin, self.T.zio
         else:
-            z_T, z_U, z_V, z_X, zo_T = self.T.z, self.U.z, self.V.z, self.X.z, self.T.zo
+            z_T, zo_T = self.T.z, self.T.zo
 
-        # Compute surface elevation on U, V, X grids.
-        # These must lag 1/2 a timestep behind the T grid.
-        # They are therefore calculated from the average of old and new elevations on
-        # the T grid.
-        np.add(zo_T.all_values, z_T.all_values, out=self.z_T_half.all_values)
-        self.z_T_half.all_values *= 0.5
+        z_U, z_V, z_X, z_T_half = self.U._work, self.V._work, self.X._work, self.T._work
 
-        self.z_T_half.interp(z_U)
-        self.z_T_half.mirror(z_U)
-        _pygetm.clip_z(z_U, self.Dmin)
+        # Update total water depth D on T grid
+        # This is the only grid where we track raw depth (possibly < Dmin)
+        # as well as clipped depth max(D, Dmin). On other grids w only track
+        # clipped depth.
+        _pygetm.elevation2depth(z_T, self.T.H, -1000.0, self.T.D)
+        np.maximum(self.T.D.all_values, self.Dmin, out=self.T.Dclip.all_values)
 
-        self.z_T_half.interp(z_V)
-        self.z_T_half.mirror(z_V)
-        _pygetm.clip_z(z_V, self.Dmin)
+        # For water depths on U, V, X grids we need elevations that lag 1/2 a
+        # timestep behind the T grid. Calculate these by averaging old and
+        # new elevations on the T grid.
+        np.add(zo_T.all_values, z_T.all_values, out=z_T_half.all_values)
+        z_T_half.all_values *= 0.5
 
-        self.z_T_half.interp(z_X)
-        _pygetm.clip_z(z_X, self.Dmin)
+        # Total water depth D on U grid
+        z_T_half.interp(z_U)
+        z_T_half.mirror(z_U)
+        _pygetm.elevation2depth(z_U, self.U.H, self.Dmin, self.U.D)
 
-        # Halo exchange for elevation on U, V grids, needed because the very last
+        # Total water depth D on V grid
+        z_T_half.interp(z_V)
+        z_T_half.mirror(z_V)
+        _pygetm.elevation2depth(z_V, self.V.H, self.Dmin, self.V.D)
+
+        # Total water depth D on X grid
+        z_T_half.interp(z_X)
+        _pygetm.elevation2depth(z_X, self.X.H, self.Dmin, self.X.D)
+
+        # Halo exchange for water depth on U, V grids, needed because the very last
         # points in the halos (x=-1 for U, y=-1 for V) are not valid after
-        # interpolating from the T grid above.
-        # These elevations are needed to later compute velocities from transports
-        # (by dividing by layer thicknesses, which are computed from elevation)
+        # interpolating elevation from the T grid above.
+        # These depths are needed to later compute velocities from transports
         # These velocities will be advected, and therefore need to be valid througout
         # the halos. We do not need to halo-exchange elevation on the X grid, since
         # that needs to be be valid at the innermost halo point only, which is ensured
         # by z_T exchange.
-        z_U.update_halos(parallel.Neighbor.RIGHT)
-        z_V.update_halos(parallel.Neighbor.TOP)
-
-        # Update total water depth D on T, U, V, X grids
-        # This also processes the halos; no further halo exchange needed.
-        np.add(
-            self.T.H.all_values,
-            z_T.all_values,
-            where=self.T._water,
-            out=self.T.D.all_values,
-        )
-        np.maximum(self.T.D.all_values, self.Dmin, out=self.T.Dclip.all_values)
-        np.add(
-            self.U.H.all_values,
-            z_U.all_values,
-            where=self.U._water,
-            out=self.U.D.all_values,
-        )
-        np.add(
-            self.V.H.all_values,
-            z_V.all_values,
-            where=self.V._water,
-            out=self.V.D.all_values,
-        )
-        np.add(
-            self.X.H.all_values,
-            z_X.all_values,
-            where=self.X._water,
-            out=self.X.D.all_values,
-        )
+        self.U.D.update_halos(parallel.Neighbor.RIGHT)
+        self.V.D.update_halos(parallel.Neighbor.TOP)
 
         # Update dampening factor (0-1) for shallow water
         _pygetm.alpha(self.U.D, 2 * self.Dmin, self.Dcrit, self.U.alpha)
@@ -1461,10 +1467,7 @@ class Simulation(BaseSimulation):
         # Update total water depth on advection grids. These must be 1/2 timestep
         # behind the T grid. That's already the case for the X grid, but for the T grid
         # we explicitly compute and use the average of old and new D.
-        _pygetm.clip_z(self.z_T_half, self.Dmin)
-        np.add(
-            self.T.H.all_values, self.z_T_half.all_values, out=self.D_T_half.all_values
-        )
+        _pygetm.elevation2depth(z_T_half, self.T.H, self.Dmin, self.D_T_half)
         self.U.ugrid.D.all_values[:, :-1] = self.D_T_half.all_values[:, 1:]
         self.V.vgrid.D.all_values[:-1, :] = self.D_T_half.all_values[1:, :]
         self.U.vgrid.D.all_values[:, :] = self.X.D.all_values[1:, 1:]
@@ -1472,10 +1475,12 @@ class Simulation(BaseSimulation):
 
         if _3d:
             # Store previous layer thicknesses
+            # NB on U and V grids, ho is needed to estimate thicknesses
+            # in between start and stop of the timestep (i.e., in sync with T grid)
+            # These are used in the momentum update
             self.T.ho.all_values[...] = self.T.hn.all_values
             self.U.ho.all_values[...] = self.U.hn.all_values
             self.V.ho.all_values[...] = self.V.hn.all_values
-            self.X.ho.all_values[...] = self.X.hn.all_values
 
             # Update layer thicknesses (hn) on all grids, using bathymetry H and new
             # elevations zin (on the 3D timestep)

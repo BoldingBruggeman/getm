@@ -744,9 +744,6 @@ class Domain:
         T.freeze()
 
         self.open_boundaries.initialize(T)
-        T.z.open_boundaries = open_boundaries.ArrayOpenBoundaries(T.z)
-        self.open_boundaries.z = T.z.open_boundaries.values
-
         self.rivers.initialize(T)
 
         return T

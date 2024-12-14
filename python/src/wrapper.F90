@@ -431,13 +431,14 @@ contains
       where (mask /= 0) alpha = max(0._c_double, min(1._c_double, (D - Dmin) / (Dcrit - Dmin)))
    end subroutine
 
-   subroutine c_clip_z(n, z, H, Dmin, mask) bind(c)
+   subroutine c_elevation2depth(n, z, H, Dmin, mask, D) bind(c)
       integer(c_int), intent(in), value :: n
-      real(c_double), intent(inout)     :: z(n)
+      real(c_double), intent(in)        :: z(n)
       real(c_double), intent(in)        :: H(n)
       real(c_double), intent(in), value :: Dmin
       integer(c_int), intent(in)        :: mask(n)
-      where (mask /= 0) z = max(-H + Dmin, z)
+      real(c_double), intent(inout)     :: D(n)
+      where (mask /= 0) D = max(H + z, Dmin)
    end subroutine
 
    subroutine c_vertical_advection_to_sources(nx, ny, nz, halox, haloy, mask, c, w, h, s) bind(c)
