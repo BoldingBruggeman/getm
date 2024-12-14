@@ -549,14 +549,6 @@ class Simulation(BaseSimulation):
             grid.zio.attrs["_mask_output"] = True
             grid.zin.attrs["_mask_output"] = True
 
-        self.vertical_coordinates.initialize(
-            self.T,
-            self.U,
-            self.V,
-            self.X,
-            logger=self.logger.getChild("vertical_coordinates"),
-        )
-
         self.Dmin = Dmin
         self.Dcrit = Dcrit
 
@@ -824,6 +816,14 @@ class Simulation(BaseSimulation):
             self.internal_pressure.initialize(self.U, self.V)
             self.temp_sf = None
             self.salt_sf = None
+
+        self.vertical_coordinates.initialize(
+            self.T,
+            self.U,
+            self.V,
+            self.X,
+            logger=self.logger.getChild("vertical_coordinates"),
+        )
 
         # Derive old and new elevations, water depths and thicknesses from current
         # surface elevation on T grid. This must be done after self.pres.saved is set
