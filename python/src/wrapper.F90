@@ -3,12 +3,9 @@ module pygetm
    use iso_c_binding, only: c_ptr, c_int, c_double, c_char, c_loc, c_f_pointer, c_associated, C_NULL_CHAR, C_NULL_PTR
    use iso_fortran_env, only: real64
 
-   use getm_domain, only: type_getm_domain, type_getm_grid, g
+   use getm_domain, only: type_getm_grid, g
    use getm_operators, only: type_advection, type_vertical_diffusion
-   use getm_sealevel, only: type_getm_sealevel
-   use getm_pressure, only: type_getm_pressure
-   use getm_momentum, only: type_getm_momentum, kappa, rho0
-   use memory_manager
+   use getm_momentum, only: rho0
 
    implicit none
 
@@ -74,9 +71,8 @@ contains
       integer(c_int),                 intent(out) :: grid_type, sub_type, data_type
       type(c_ptr),                    intent(out) :: p
 
-      type (type_getm_grid),     pointer :: grid
-      type (type_getm_momentum), pointer :: momentum
-      character(len=10),         pointer :: pname
+      type (type_getm_grid), pointer :: grid
+      character(len=10),     pointer :: pname
 
       integer, parameter :: subtype_depth_explicit = 1
       integer, parameter :: subtype_depth_explicit_interfaces = 2
@@ -123,20 +119,6 @@ contains
          case ('alpha'); p = c_loc(grid%alpha)
          end select
       end select
-   end subroutine
-
-   subroutine domain_initialize(pdomain, runtype, Dmin, maxdt) bind(c)
-      type(c_ptr),    intent(in), value :: pdomain
-      integer(c_int), intent(in), value :: runtype
-      real(c_double), intent(in), value :: Dmin
-      real(c_double), intent(out)       :: maxdt
-
-      type (type_getm_domain), pointer :: domain
-
-      call c_f_pointer(pdomain, domain)
-      domain%Dmin = Dmin
-      call domain%initialize(runtype)
-      maxdt = domain%maxdt
    end subroutine
 
    function vertical_diffusion_create(ptgrid) result(pdiffusion) bind(c)
