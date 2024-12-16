@@ -459,8 +459,8 @@ class Simulation(BaseSimulation):
         radiation: Optional[pygetm.radiation.Radiation] = None,
         internal_pressure: Optional[pygetm.internal_pressure.Base] = None,
         vertical_coordinates: Optional[pygetm.vertical_coordinates.Base] = None,
-        Dmin: float = 1.0,
-        Dcrit: float = 2.0,
+        Dmin: float = 0.02,
+        Dcrit: float = 0.1,
         logger: Optional[logging.Logger] = None,
         log_level: Optional[int] = None,
         delay_slow_ip: bool = False,
@@ -487,9 +487,12 @@ class Simulation(BaseSimulation):
         if Dmin <= 0.0:
             self.logger.error(f"Dmin ({Dmin} m) must exceed zero")
             raise Exception("Dmin<=0")
-        if Dcrit < Dmin:
-            self.logger.error(f"Dcrit ({Dcrit} m) must exceed Dmin ({Dmin} m)")
-            raise Exception("Dcrit<Dmin")
+        if Dcrit < 2.5 * Dmin:
+            self.logger.error(
+                f"Dcrit ({Dcrit} m) must equal or exceed 2.5 * Dmin ({Dmin} m)"
+                f" = {2.5 * Dmin} m"
+            )
+            raise Exception("Dcrit < 2.5*Dmin")
 
         self.rivers = domain.rivers
         self.open_boundaries = domain.open_boundaries
@@ -529,6 +532,9 @@ class Simulation(BaseSimulation):
                 f" excluding halos: {(grid.mask.values > 0).sum()}"
             )
 
+        # Water depths clipped to Dmin (already the default for U,V,X grids)
+        self.T.Dclip = self.T.array()
+
         # Water depth and thicknesses on UU/VV grids will be taken from T grid,
         # which near land has valid values where UU/VV are masked
         self.U.ugrid.D.attrs["_mask_output"] = True
@@ -542,14 +548,6 @@ class Simulation(BaseSimulation):
             grid.z.attrs["_mask_output"] = True
             grid.zio.attrs["_mask_output"] = True
             grid.zin.attrs["_mask_output"] = True
-
-        self.vertical_coordinates.initialize(
-            self.T,
-            self.U,
-            self.V,
-            self.X,
-            logger=self.logger.getChild("vertical_coordinates"),
-        )
 
         self.Dmin = Dmin
         self.Dcrit = Dcrit
@@ -814,8 +812,18 @@ class Simulation(BaseSimulation):
                 self.momentum.SxB.attrs["_part_of_state"] = True
                 self.momentum.SyB.attrs["_part_of_state"] = True
         else:
+            self.internal_pressure = pygetm.internal_pressure.Base()
+            self.internal_pressure.initialize(self.U, self.V)
             self.temp_sf = None
             self.salt_sf = None
+
+        self.vertical_coordinates.initialize(
+            self.T,
+            self.U,
+            self.V,
+            self.X,
+            logger=self.logger.getChild("vertical_coordinates"),
+        )
 
         # Derive old and new elevations, water depths and thicknesses from current
         # surface elevation on T grid. This must be done after self.pres.saved is set
@@ -1426,6 +1434,7 @@ class Simulation(BaseSimulation):
             where=self.T._water,
             out=self.T.D.all_values,
         )
+        np.maximum(self.T.D.all_values, self.Dmin, out=self.T.Dclip.all_values)
         np.add(
             self.U.H.all_values,
             z_U.all_values,
@@ -1446,8 +1455,8 @@ class Simulation(BaseSimulation):
         )
 
         # Update dampening factor (0-1) for shallow water
-        _pygetm.alpha(self.U.D, self.Dmin, self.Dcrit, self.U.alpha)
-        _pygetm.alpha(self.V.D, self.Dmin, self.Dcrit, self.V.alpha)
+        _pygetm.alpha(self.U.D, 2 * self.Dmin, self.Dcrit, self.U.alpha)
+        _pygetm.alpha(self.V.D, 2 * self.Dmin, self.Dcrit, self.V.alpha)
 
         # Update total water depth on advection grids. These must be 1/2 timestep
         # behind the T grid. That's already the case for the X grid, but for the T grid

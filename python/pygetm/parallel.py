@@ -760,6 +760,7 @@ class Gather:
         dtype: DTypeLike,
         fill_value=None,
         root: int = 0,
+        overlap: int = 0,
     ):
         self.comm = tiling.comm
         self.root = root
@@ -776,7 +777,9 @@ class Gather:
                         global_slice,
                         local_shape,
                         global_shape,
-                    ) = tiling.subdomain2slices(irow, icol, exclude_halos=True)
+                    ) = tiling.subdomain2slices(
+                        irow, icol, exclude_halos=True, share=overlap
+                    )
                     assert shape[-2:] == local_shape, (
                         f"Field shape {shape[-2:]} differs"
                         f" from expected {local_shape}"
