@@ -759,6 +759,9 @@ class Simulation(BaseSimulation):
             self.pres = self.depth
             self.pres.fabm_standard_name = "pressure"
 
+            self.ssu_U = self.momentum.uk.isel(z=-1)
+            self.ssv_V = self.momentum.vk.isel(z=-1)
+
         self.sst = self.T.array(
             name="sst",
             units="degrees_Celsius",
@@ -833,8 +836,6 @@ class Simulation(BaseSimulation):
             ]
             self.temp_sf = self.temp.isel(z=-1)
             self.salt_sf = self.salt.isel(z=-1)
-            self.ssu_U = self.momentum.uk.isel(z=-1)
-            self.ssv_V = self.momentum.vk.isel(z=-1)
 
             if internal_pressure is None:
                 internal_pressure = pygetm.internal_pressure.ShchepetkinMcwilliams()
@@ -894,7 +895,7 @@ class Simulation(BaseSimulation):
             shallow = (z.all_values < valid_min) & self.T._water
             if shallow.any():
                 self.logger.warning(
-                    f"Increasing {shallow.sum()} elevations in {zname} to ensure"
+                    f"Increasing {shallow.sum()} elevations in {z.name} to ensure"
                     f" initial water depths equal or exceed the minimum depth of"
                     f" {self.Dmin} m"
                 )
@@ -1017,39 +1018,41 @@ class Simulation(BaseSimulation):
                 self.vertical_mixing.num,
             )
 
-            if self.runtype == RunType.BAROCLINIC:
-                # Update turbulent quantities (T grid - interfaces) from time=0 to
-                # time=1 (macrotimestep), using surface/buoyancy-related forcing
-                # (ustar_s, z0s, NN) at time=0, and bottom/velocity-related forcing
-                # (ustar_b, z0b, SS) at time=1/2
-                # self.T.z0b.all_values[1:, 1:] = 0.5 * (np.maximum(self.U.z0b.all_values[1:, 1:], self.U.z0b.all_values[1:, :-1]) + np.maximum(self.V.z0b.all_values[:-1, 1:], self.V.z0b.all_values[1:, :-1]))
-                self.vertical_mixing.advance(
-                    self.macrotimestep,
-                    self.ustar_s,
-                    self.momentum.ustar_b,
-                    self.z0s,
-                    self.T.z0b,
-                    self.NN,
-                    self.momentum.SS,
-                )
+            # Update turbulent quantities (T grid - interfaces) from time=0 to
+            # time=1 (macrotimestep), using surface/buoyancy-related forcing
+            # (ustar_s, z0s, NN) at time=0, and bottom/velocity-related forcing
+            # (ustar_b, z0b, SS) at time=1/2
+            # self.T.z0b.all_values[1:, 1:] = 0.5 * (np.maximum(self.U.z0b.all_values[1:, 1:], self.U.z0b.all_values[1:, :-1]) + np.maximum(self.V.z0b.all_values[:-1, 1:], self.V.z0b.all_values[1:, :-1]))
+            self.vertical_mixing.advance(
+                self.macrotimestep,
+                self.ustar_s,
+                self.momentum.ustar_b,
+                self.z0s,
+                self.T.z0b,
+                self.NN,
+                self.momentum.SS,
+            )
 
-                # Advect and diffuse tracers. Source terms are optionally handled too,
-                # as part of the diffusion update.
-                self.tracers.advance(
-                    self.macrotimestep,
-                    self.momentum.uk,
-                    self.momentum.vk,
-                    self.momentum.ww,
-                    self.vertical_mixing.nuh,
-                )
+            # Advect and diffuse tracers. Source terms are optionally handled too,
+            # as part of the diffusion update.
+            self.tracers.advance(
+                self.macrotimestep,
+                self.momentum.uk,
+                self.momentum.vk,
+                self.momentum.ww,
+                self.vertical_mixing.nuh,
+            )
 
-                if self.delay_slow_ip:
-                    self.internal_pressure.idpdx.all_values.sum(
-                        axis=0, out=self.momentum.SxB.all_values
-                    )
-                    self.internal_pressure.idpdy.all_values.sum(
-                        axis=0, out=self.momentum.SyB.all_values
-                    )
+            # If we have to delay slow (2D depth-integrated) terms for internal pressure
+            # by one macrotimestep, calculate them now, at the end of state update of the
+            # macrotimestep, and just before the new 3D internal pressure is calculated.
+            if self.runtype == RunType.BAROCLINIC and self.delay_slow_ip:
+                self.internal_pressure.idpdx.all_values.sum(
+                    axis=0, out=self.momentum.SxB.all_values
+                )
+                self.internal_pressure.idpdy.all_values.sum(
+                    axis=0, out=self.momentum.SyB.all_values
+                )
 
     def _update_forcing_and_diagnostics(self, macro_active: bool):
         """Update all inputs and fluxes that will drive the next state update.
@@ -1068,7 +1071,8 @@ class Simulation(BaseSimulation):
         update_z0b = self.runtype == RunType.BAROTROPIC_2D and not starting
 
         baroclinic_active = self.runtype == RunType.BAROCLINIC and macro_active
-        if baroclinic_active:
+
+        if self.runtype > RunType.BAROTROPIC_2D and macro_active:
             self.open_boundaries.prepare_depth_explicit()
 
             # Update tracer values at open boundaries. This must be done after
@@ -1078,6 +1082,12 @@ class Simulation(BaseSimulation):
                 for tracer in self.tracers:
                     tracer.open_boundaries.update()
 
+            # Interpolate surface velocities to T grid.
+            # These are used by airsea as offset for wind speeds
+            self.ssu_U.interp(self.ssu)
+            self.ssv_V.interp(self.ssv)
+
+        if baroclinic_active:
             # Update density, buoyancy and internal pressure to keep them in sync with
             # T and S.
             self.density.get_density(self.salt, self.temp, p=self.pres, out=self.rho)
@@ -1107,11 +1117,6 @@ class Simulation(BaseSimulation):
             self.density.get_buoyancy_frequency(
                 self.salt, self.temp, p=self.pres, out=self.NN
             )
-
-            # Interpolate surface velocities to T grid.
-            # These are used by airsea as offset for wind speeds
-            self.ssu_U.interp(self.ssu)
-            self.ssv_V.interp(self.ssv)
 
         # Update surface elevation z on U, V, X grids and water depth D on all grids
         # This is based on old and new elevation (T grid) for the microtimestep.
@@ -1179,13 +1184,13 @@ class Simulation(BaseSimulation):
             self.dpdxo.all_values[...] = self.dpdx.all_values
             self.dpdyo.all_values[...] = self.dpdy.all_values
 
-        if baroclinic_active:
             # Update surface shear velocity (used by GOTM). This requires updated
             # surface stresses and there can only be done after the airsea update.
             _pygetm.surface_shear_velocity(
                 self.airsea.taux, self.airsea.tauy, self.ustar_s
             )
 
+        if baroclinic_active:
             # Update radiation in the interior.
             # This must come after the airsea update, which is responsible for
             # calculating downwelling shortwave radiation at the water surface (swr)
