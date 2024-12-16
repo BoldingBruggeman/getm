@@ -41,6 +41,7 @@ class TestInternalPressure(unittest.TestCase):
         vc.update(None)
         for g in (T, U, V):
             pygetm._pygetm.thickness2vertical_coordinates(g.mask, g.H, g.hn, g.zc, g.zf)
+        T.zin = T.array(fill_value=0.0)
 
         ip.initialize(U, V)
         rho = T.array(z=pygetm.CENTERS)
