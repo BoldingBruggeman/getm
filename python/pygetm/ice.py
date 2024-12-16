@@ -22,7 +22,7 @@ class Ice:
         )
         self.ice.fill(0.0)
         self.has_ice = False
-        self.covered = np.full(grid.z.all_values.shape, False)
+        self.covered = np.full(grid.H.all_values.shape, False)
 
     def __call__(
         self,
