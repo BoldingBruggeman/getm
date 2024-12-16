@@ -1070,9 +1070,13 @@ class Simulation(BaseSimulation):
         # simulation.
         update_z0b = self.runtype == RunType.BAROTROPIC_2D and not starting
 
-        baroclinic_active = self.runtype == RunType.BAROCLINIC and macro_active
+        update_3d = self.runtype > RunType.BAROTROPIC_2D and macro_active
+        update_baroclinic = self.runtype == RunType.BAROCLINIC and macro_active
 
-        if self.runtype > RunType.BAROTROPIC_2D and macro_active:
+        if update_3d:
+            # Determine transports across the open boundaries and related quantities
+            # that are used by active open boundary conditions (e.g., flow-dependent
+            # sponge)
             self.open_boundaries.prepare_depth_explicit()
 
             # Update tracer values at open boundaries. This must be done after
@@ -1087,7 +1091,7 @@ class Simulation(BaseSimulation):
             self.ssu_U.interp(self.ssu)
             self.ssv_V.interp(self.ssv)
 
-        if baroclinic_active:
+        if update_baroclinic:
             # Update density, buoyancy and internal pressure to keep them in sync with
             # T and S.
             self.density.get_density(self.salt, self.temp, p=self.pres, out=self.rho)
@@ -1146,9 +1150,9 @@ class Simulation(BaseSimulation):
             self.sst,
             self.ssu,
             self.ssv,
-            calculate_heat_flux=baroclinic_active,
+            calculate_heat_flux=update_baroclinic,
         )
-        self.ice(baroclinic_active, self.temp_sf, self.salt_sf, self.airsea)
+        self.ice(update_baroclinic, self.temp_sf, self.salt_sf, self.airsea)
 
         # Update depth-integrated freshwater fluxes:
         # precipitation, evaporation, condensation, rivers
@@ -1161,6 +1165,8 @@ class Simulation(BaseSimulation):
 
         # Update elevation at the open boundaries. This must be done before
         # calculating the surface pressure gradient
+        # NB from this moment on, elevation z and water depth D are out of sync
+        # at the open boundary until the next call to update_depths!
         self.T.z.open_boundaries.update()
 
         # Calculate the surface pressure gradient in the U and V points.
@@ -1177,7 +1183,7 @@ class Simulation(BaseSimulation):
         self.airsea.tauy.update_halos(parallel.Neighbor.TOP)
         self.airsea.tauy.interp(self.tausy)
 
-        if self.runtype > RunType.BAROTROPIC_2D and macro_active:
+        if update_3d:
             # Save surface forcing variables for the next macro momentum update
             self.tausxo.all_values[...] = self.tausx.all_values
             self.tausyo.all_values[...] = self.tausy.all_values
@@ -1190,11 +1196,11 @@ class Simulation(BaseSimulation):
                 self.airsea.taux, self.airsea.tauy, self.ustar_s
             )
 
-        if baroclinic_active:
-            # Update radiation in the interior.
-            # This must come after the airsea update, which is responsible for
-            # calculating downwelling shortwave radiation at the water surface (swr)
-            self.radiation(self.airsea.swr, self.fabm.kc if self.fabm else None)
+            if update_baroclinic:
+                # Update radiation in the interior.
+                # This must come after the airsea update, which is responsible for
+                # calculating downwelling shortwave radiation at the water surface (swr)
+                self.radiation(self.airsea.swr, self.fabm.kc if self.fabm else None)
 
             # If we need vertical tracer diffusivity at layer centers (for FABM),
             # calculate it by interpolating diffusivity at the layer interfaces.

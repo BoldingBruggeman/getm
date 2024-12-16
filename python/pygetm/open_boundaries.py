@@ -7,6 +7,7 @@ from typing import (
     Callable,
     Tuple,
     Union,
+    Set,
     TYPE_CHECKING,
 )
 import functools
@@ -445,7 +446,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         self.zero_gradient = ZeroGradient()
         self.active: List[OpenBoundary] = []
         self._frozen = False
-        self.bcs = set()
+        self.bcs: Set[BoundaryCondition] = set()
 
     def _make_bc(self, value) -> BoundaryCondition:
         if isinstance(value, BoundaryCondition):
@@ -842,6 +843,8 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         return indices
 
     def prepare_depth_explicit(self):
+        """Determine 3D velocities across the open boundaries and allow each class
+        of open boundary condition to use these to calculate derived metrics."""
         if self.velocity_3d_in.saved:
             for boundary in self.active:
                 boundary.velocity_3d_in[:] = boundary.inflow_sign * boundary.vel.T
