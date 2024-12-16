@@ -525,7 +525,7 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             fill_value is None or np.ndim(fill_value) == 0
         ), "fill_value must be a scalar value"
         self._name = name
-        self.attrs = attrs.copy()
+        self.attrs: Mapping[str, Any] = attrs.copy()
         if units:
             self.attrs["units"] = units
         if long_name:

@@ -532,12 +532,15 @@ class Simulation(BaseSimulation):
                 f" excluding halos: {(grid.mask.values > 0).sum()}"
             )
 
+        self.Dmin = Dmin
+        self.Dcrit = Dcrit
+
         self.T.z = self.T.array(
             name="zt",
             units="m",
             long_name="elevation",
             fill_value=FILL_VALUE,
-            attrs=dict(_part_of_state=True),
+            attrs=dict(_part_of_state=True, _minimum=self.Dmin - self.T.H.all_values),
         )
         self.T.zo = self.T.array(
             name="zot",
@@ -585,6 +588,7 @@ class Simulation(BaseSimulation):
             self.U.z0b.attrs["_part_of_state"] = True
             self.V.z0b.attrs["_part_of_state"] = True
 
+        # Enable open boundaries for surface elevation
         self.T.z.open_boundaries = pygetm.open_boundaries.ArrayOpenBoundaries(self.T.z)
         self.open_boundaries.z = self.T.z.open_boundaries.values
 
@@ -597,9 +601,6 @@ class Simulation(BaseSimulation):
         self.V.vgrid.D.attrs["_mask_output"] = True
         self.U.ugrid.hn.attrs["_mask_output"] = True
         self.V.vgrid.hn.attrs["_mask_output"] = True
-
-        self.Dmin = Dmin
-        self.Dcrit = Dcrit
 
         # Water depth and thicknesses on T grid that lag 1/2 time step behind tracer
         # (i.e., they are in sync with U, V, X grids)
@@ -896,8 +897,9 @@ class Simulation(BaseSimulation):
             shallow = (z.all_values < minz) & self.T._water
             if shallow.any():
                 self.logger.warning(
-                    f"Increasing {shallow.sum()} elevations in {zname} to avoid"
-                    f" water depths below the minimum depth of {self.Dmin} m."
+                    f"Increasing {shallow.sum()} elevations in {zname} to ensure"
+                    f" initial water depths equal or exceed the minimum depth of"
+                    f" {self.Dmin} m"
                 )
                 np.putmask(z.all_values, shallow, minz)
 
