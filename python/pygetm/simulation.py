@@ -890,18 +890,23 @@ class Simulation(BaseSimulation):
         if self.fabm:
             self.fabm.start(self.macrotimestep, self.time)
 
-        # Ensure elevations are valid (not shallower than minimum depth)
-        minz = -self.T.H.all_values + self.Dmin
-        for zname in ("z", "zo", "zin", "zio"):
-            z = getattr(self.T, zname)
-            shallow = (z.all_values < minz) & self.T._water
+        def clip_z(z: core.Array, valid_min: np.ndarray):
+            shallow = (z.all_values < valid_min) & self.T._water
             if shallow.any():
                 self.logger.warning(
                     f"Increasing {shallow.sum()} elevations in {zname} to ensure"
                     f" initial water depths equal or exceed the minimum depth of"
                     f" {self.Dmin} m"
                 )
-                np.putmask(z.all_values, shallow, minz)
+                np.putmask(z.all_values, shallow, valid_min)
+
+        # Ensure elevations are valid (not shallower than minimum depth)
+        minz = -self.T.H.all_values + self.Dmin
+        clip_z(self.T.z, minz)
+        clip_z(self.T.zo, minz)
+        if self.runtype > RunType.BAROTROPIC_2D:
+            clip_z(self.T.zin, minz)
+            clip_z(self.T.zio, minz)
 
         # First (out of two) 2D depth update based on old elevations zo
         z_backup = self.T.z.all_values.copy()
