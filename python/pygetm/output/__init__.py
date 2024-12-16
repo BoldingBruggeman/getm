@@ -244,7 +244,7 @@ class OutputManager:
                 very first simulation.
         """
         self._time_reference = default_time_reference or time
-        for file in list(self._startable_files):
+        for file in self._startable_files:
             if file._start is not None:
                 file._start = (file._start - time).total_seconds()
             else:
