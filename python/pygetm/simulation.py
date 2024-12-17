@@ -4,7 +4,6 @@ import datetime
 import timeit
 import functools
 import pstats
-import enum
 
 import numpy as np
 import cftime
@@ -23,7 +22,6 @@ from .constants import (
 from . import _pygetm
 from . import core
 from . import parallel
-from . import output
 from . import operators
 import pygetm.domain
 import pygetm.airsea
@@ -584,7 +582,7 @@ class Simulation(BaseSimulation):
         else:
             # In 2D barotropic runs, bottom roughness is updated iteratively
             # (new value is a function of the previous value), which requires
-            # it being icluded in restarts as part of the model state
+            # it being included in restarts as part of the model state
             self.U.z0b.attrs["_part_of_state"] = True
             self.V.z0b.attrs["_part_of_state"] = True
 
@@ -773,11 +771,12 @@ class Simulation(BaseSimulation):
         self.ssu = self.T.array(fill=0.0)
         self.ssv = self.T.array(fill=0.0)
 
-        if runtype == RunType.BAROCLINIC:
-            self.density = density or pygetm.density.Density()
-
+        if radiation is not None or runtype == RunType.BAROCLINIC:
             self.radiation = radiation or pygetm.radiation.TwoBand()
             self.radiation.initialize(self.T, self.logger.getChild("radiation"))
+
+        if runtype == RunType.BAROCLINIC:
+            self.density = density or pygetm.density.Density()
 
             self.temp = self.tracers.add(
                 name="temp",
@@ -793,6 +792,7 @@ class Simulation(BaseSimulation):
                 molecular_diffusivity=1.4e-7,
                 attrs=dict(standard_name="sea_water_conservative_temperature"),
             )
+
             self.salt = self.tracers.add(
                 name="salt",
                 units="g kg-1",
@@ -802,9 +802,16 @@ class Simulation(BaseSimulation):
                 molecular_diffusivity=1.1e-9,
                 attrs=dict(standard_name="sea_water_absolute_salinity"),
             )
-            self.pres.saved = True
+
+            # Set initial temperature and salinity to default value throughout
+            # the domain
             self.temp.fill(5.0)
             self.salt.fill(35.0)
+
+            # Ensure [approximate] pressure is updated in update_depth as it is
+            # needed for equation of state
+            self.pres.saved = True
+
             self.rho = self.T.array(
                 z=CENTERS,
                 name="rho",
@@ -958,8 +965,8 @@ class Simulation(BaseSimulation):
         # Update transports U and V from time=-1/2 to +1/2, using surface stresses and
         # pressure gradients defined at time=0
         # Inputs and outputs are on U and V grids. Stresses and pressure gradients have
-        # already been updated by the call to update_forcing at the end of the previous
-        # time step.
+        # already been updated by the call to _update_forcing_and_diagnostics at the end
+        #  of the previous time step.
         self.momentum.advance_depth_integrated(
             self.timestep, self.tausx, self.tausy, self.dpdx, self.dpdy
         )
@@ -1165,8 +1172,9 @@ class Simulation(BaseSimulation):
 
         # Update elevation at the open boundaries. This must be done before
         # calculating the surface pressure gradient
-        # NB from this moment on, elevation z and water depth D are out of sync
-        # at the open boundary until the next call to update_depths!
+        # NB from this moment on, elevations z at the open boundary will be out
+        # of sync with water depths D and thicknesses hn (only on T grid).
+        # This will last until the next call to update_depth!
         self.T.z.open_boundaries.update()
 
         # Calculate the surface pressure gradient in the U and V points.
@@ -1196,7 +1204,7 @@ class Simulation(BaseSimulation):
                 self.airsea.taux, self.airsea.tauy, self.ustar_s
             )
 
-            if update_baroclinic:
+            if self.radiation is not None:
                 # Update radiation in the interior.
                 # This must come after the airsea update, which is responsible for
                 # calculating downwelling shortwave radiation at the water surface (swr)
