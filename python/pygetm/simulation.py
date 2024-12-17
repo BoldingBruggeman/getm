@@ -1141,8 +1141,9 @@ class Simulation(BaseSimulation):
         # The call to update_surface_elevation_boundaries is made later.
         self.update_depth()
 
-        # Calculate advection and diffusion tendencies of transports, bottom friction
-        # and Coriolis terms. Only do 2D Coriolis update at the start of the simulation
+        # Calculate tendencies of transports (depth-integrated velocities) due
+        # to advection and diffusion, bottom friction and Coriolis terms.
+        # Only do 2D Coriolis update at the start of the simulation.
         # At subsequent times, this term will already have been updated
         # as part of the momentum update in _advance_state
         self.momentum.update_depth_integrated_diagnostics(
@@ -1159,10 +1160,14 @@ class Simulation(BaseSimulation):
             self.ssv,
             calculate_heat_flux=update_baroclinic,
         )
+
+        # Update ice coverage. This is done after the airsea update to allow
+        # the ice module to manipulate (e.g., suppress) surface fluxes of
+        # heat and momentum
         self.ice(update_baroclinic, self.temp_sf, self.salt_sf, self.airsea)
 
         # Update depth-integrated freshwater fluxes:
-        # precipitation, evaporation, condensation, rivers
+        # precipitation/evaporation/condensation from the airsea module, plus rivers
         self.fwf.all_values[...] = self.airsea.pe.all_values
         np.add.at(
             self.fwf.all_values,
