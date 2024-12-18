@@ -165,7 +165,7 @@ class GOTM(VerticalMixing):
             timestep,
             self.grid.mask.all_values,
             self.grid.hn.all_values,
-            self.grid.D.all_values,
+            self.grid.Dclip.all_values,
             ustar_s.all_values,
             ustar_b.all_values,
             z0s.all_values,
