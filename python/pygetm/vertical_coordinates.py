@@ -1,5 +1,6 @@
 from typing import Optional, Union
 import logging
+import warnings
 
 import numpy as np
 import numpy.typing as npt
@@ -183,7 +184,6 @@ class GVC(PerGrid):
         out: Optional[np.ndarray] = None,
         where: Optional[np.ndarray] = None,
     ):
-        print(self.dsigma, self.Dgamma, self.k_ref, D.shape)
         if out is None:
             out = np.empty(self.dbeta.shape + D.shape)
         if where is None:
@@ -268,8 +268,6 @@ class Adaptive(Base):
 
         if timestep <= 0.0:
             raise Exception("timestep must be a positive value")
-        if ddl <= 0.0 and ddu <= 0.0:
-            raise Exception("ddl and/or ddu must be a positive number")
         if csigma <= 0.0 and cgvc <= 0.0:
             raise Exception("either csigma or cgvc must be a positive number")
         if Dgamma <= 0.0:
@@ -278,7 +276,7 @@ class Adaptive(Base):
             raise Exception("timescale must be a positive value")
 
         if csigma > 0.0 and cgvc > 0.0:
-            #            self.logger.info( f"Both csigma and cgvc > 0 - setting csig < 0")
+            warnings.warn(f"Overriding csigma={csigma} and use cgvc={cgvc}")
             csigma = -csigma
 
         super().__init__(nz)
@@ -318,6 +316,8 @@ class Adaptive(Base):
             self._sigma = Sigma(nz, ddu=self.ddu, ddl=self.ddl)
 
         if self.cgvc > 0.0:
+            if ddl < 0.0 and ddu < 0.0:
+                raise Exception("ddl and/or ddu must be a positive number")
             self._gvc = GVC(
                 nz,
                 ddu=self.ddu,
@@ -327,7 +327,10 @@ class Adaptive(Base):
             )
 
     def initialize(
-        self, tgrid: core.Grid, *other_grids: core.Grid, logger: logging.Logger
+        self,
+        tgrid: core.Grid,
+        *other_grids: core.Grid,
+        logger: logging.Logger,
     ):
         super().initialize(tgrid, *other_grids, logger=logger)
         self.logger.info(f"Initialize Adaptive coordinates")
@@ -346,23 +349,16 @@ class Adaptive(Base):
         )
         # Should catch if illegal values are used
         self.nug.all_values[0, ...] = np.nan
-        # self.nug.all_values[-1, ...] = np.nan
-
-        self.ga = tgrid.array(
-            z=CENTERS,
-            attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
-        )
 
         self.gai = tgrid.array(
             z=INTERFACES,
             attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
         )
-        # KBself._vertical_diffusion = VerticalDiffusion(self.tgrid, cnpar=self.cnpar)
 
         if self.csigma > 0.0:
             # this is only needed if we are not starting from a restart in which case
             # we will have tgrid.hn - maybe there is a better way to do this
-            tgrid.hn[...] = self._sigma(tgrid.D.values)
+            self._sigma(tgrid.D.values, tgrid.hn[...])
 
         if self.cgvc > 0.0:
             # this is only needed if we are not starting from a restart in which case
@@ -371,30 +367,18 @@ class Adaptive(Base):
                 z=CENTERS,
                 attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
             )
-            tgrid.hn[...] = self._gvc(tgrid.D[...])
+            self._gvc(tgrid.D[...], tgrid.hn[...])
 
-        self.other_grids = other_grids
-        self.dga_t = tgrid.array(z=CENTERS)
-        self.dga_other = tuple(grid.array(z=CENTERS) for grid in other_grids)
-        # Here you can obtain any other model field by name, as tgrid.fields[NAME]
-        # and store it as attribte of self for later use in update
-        # print('AAAA', type(tgrid.fields))
-        # This has to be fixed with proper NN and SS references
-
-        # There is a issue as the first returns an Array and the second
-        # and numpy array. This has consequences for the call further
-        # down. May create Array instead of np.zeros()?
-        # And it seems that NN and SS are not in the dictionary even
-        # if runtype is BAROCLINIC
-
+        # Obtain additional fields used by adaptive coordinates
+        # NN and SS should maybe be interpolated to centers
         if "NN" in tgrid.fields.keys():
             self.NN = tgrid.fields["NN"]
         else:
-            self.NN = np.zeros(self.nug.shape)
+            self.NN = tgrid.array(z=INTERFACES)
         if "SS" in tgrid.fields.keys():
             self.SS = tgrid.fields["SS"]
         else:
-            self.SS = np.zeros(self.nug.shape)
+            self.SS = tgrid.array(z=INTERFACES)
 
     def __call__(
         self,
@@ -420,7 +404,6 @@ class Adaptive(Base):
         # handled by python
 
         if self.csigma > 0:
-            # self.nug[1:-1, ...] = self.csigma
             self.nug[1:, ...] = self.csigma
         else:
             self.nug.all_values[...] = np.nan
@@ -428,9 +411,9 @@ class Adaptive(Base):
         # Here we need to have hn_gvc - and the scaling has to depend
         # on the value of gamma_surf - needs fix
         if self.cgvc > 0:
-            self.hn_gvc[...] = self._gvc(self.tgrid.D[...])
-            self.nug[1:-1, :, :] = self.cgvc * (
-                np.divide(self.hn_gvc[-1, :, :], self.hn_gvc[:-1, :, :])
+            self._gvc(self.tgrid.D[...], self.hn_gvc[...])
+            self.nug[1:, :, :] = self.cgvc * (
+                np.divide(self.hn_gvc[-1, :, :], self.hn_gvc[:, :, :])
             )
 
         # then add contributions handled by Fortran
@@ -438,10 +421,8 @@ class Adaptive(Base):
         _pygetm.update_adaptive(
             self.nug,
             self.gai,
-            self.NN,
-            self.SS,
-            # self.NN.all_values,
-            # self.SS.all_values,
+            self.NN.all_values,
+            self.SS.all_values,
             self.decay,
             self.hpow,
             self.chsurf,
@@ -477,7 +458,6 @@ class Adaptive(Base):
 
         # now the grid diffusion field is ready to be applied
         _pygetm.tridiagonal(self.nug, self.gai, self.cnpar, self.timestep)
-        # self.nug[:-1, ...] = np.nan
 
         # To get dga - that can be used to interpolate to
         # other grids for the calculation of layer heights
