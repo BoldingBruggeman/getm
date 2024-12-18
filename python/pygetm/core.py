@@ -83,6 +83,7 @@ class Grid(_pygetm.Grid):
         "overlap",
         "_interpolators",
         "rotated",
+        "_interior",
         "_water_contact",
         "_land",
         "_land3d",
@@ -196,6 +197,7 @@ class Grid(_pygetm.Grid):
         self.fields = {} if fields is None else fields
         self.tiling = tiling
 
+        self._interior = (Ellipsis, slice(haloy, haloy + ny), slice(halox, halox + nx))
         self._sin_rot: Optional[np.ndarray] = None
         self._cos_rot: Optional[np.ndarray] = None
         self._interpolators = {}
@@ -235,11 +237,7 @@ class Grid(_pygetm.Grid):
         self._land = self.mask.all_values == 0
         self._water = ~self._land
         self._water_nohalo = np.full_like(self._water, False)
-        interior = (
-            slice(self.haloy, self.haloy + self.ny),
-            slice(self.halox, self.halox + self.nx),
-        )
-        self._water_nohalo[interior] = self._water[interior]
+        self._water_nohalo[self._interior] = self._water[self._interior]
         if not hasattr(self, "_water_contact"):
             self._water_contact = self._water
 
@@ -567,9 +565,7 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             # boundary array or scalar
             self.values = self.all_values[...]
         else:
-            ny, nx = self.all_values.shape[-2:]
-            halox, haloy = self.grid.halox, self.grid.haloy
-            self.values = self.all_values[..., haloy : ny - haloy, halox : nx - halox]
+            self.values = self.all_values[self.grid._interior]
 
         self._shape = self.values.shape
         self._size = self.values.size
