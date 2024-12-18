@@ -38,8 +38,6 @@ class Grid(_pygetm.Grid):
         "dy",
         "idx",
         "idy",
-        "dlon",
-        "dlat",
         "area",
         "iarea",
         "cor",
@@ -117,8 +115,6 @@ class Grid(_pygetm.Grid):
         "dy": dict(units="m", attrs=dict(_time_varying=False)),
         "idx": dict(units="m-1", attrs=dict(_time_varying=False)),
         "idy": dict(units="m-1", attrs=dict(_time_varying=False)),
-        "dlon": dict(units="degrees_east", attrs=dict(_time_varying=False)),
-        "dlat": dict(units="degrees_north", attrs=dict(_time_varying=False)),
         "H": dict(
             units="m", long_name="water depth at rest", attrs=dict(_time_varying=False)
         ),
