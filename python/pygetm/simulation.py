@@ -4,7 +4,6 @@ import datetime
 import timeit
 import functools
 import pstats
-import enum
 
 import numpy as np
 import cftime
@@ -23,7 +22,6 @@ from .constants import (
 from . import _pygetm
 from . import core
 from . import parallel
-from . import output
 from . import operators
 import pygetm.domain
 import pygetm.airsea
@@ -37,6 +35,7 @@ import pygetm.radiation
 import pygetm.tracer
 import pygetm.internal_pressure
 import pygetm.vertical_coordinates
+import pygetm.open_boundaries
 
 
 def to_cftime(time: Union[datetime.datetime, cftime.datetime]) -> cftime.datetime:
@@ -437,7 +436,6 @@ class Simulation(BaseSimulation):
         "rivers",
         "open_boundaries",
         "vertical_coordinates",
-        "z_T_half",
         "D_T_half",
         "h_T_half",
         "depth",
@@ -532,6 +530,66 @@ class Simulation(BaseSimulation):
                 f" excluding halos: {(grid.mask.values > 0).sum()}"
             )
 
+        self.Dmin = Dmin
+        self.Dcrit = Dcrit
+
+        self.T.z = self.T.array(
+            name="zt",
+            units="m",
+            long_name="elevation",
+            fill_value=FILL_VALUE,
+            attrs=dict(_part_of_state=True, _minimum=self.Dmin - self.T.H.all_values),
+        )
+        self.T.zo = self.T.array(
+            name="zot",
+            units="m",
+            long_name="elevation at previous microtimestep",
+            fill_value=FILL_VALUE,
+            attrs=dict(_part_of_state=True),
+        )
+        # Initialize elevation at all water points to 0
+        self.T.z.fill(0.0)
+        self.T.zo.fill(0.0)
+
+        if runtype > RunType.BAROTROPIC_2D:
+            self.T.zin = self.T.array(
+                name="zint",
+                units="m",
+                long_name="elevation at macrotimestep",
+                fill_value=FILL_VALUE,
+                attrs=dict(_part_of_state=True),
+            )
+            self.T.zio = self.T.array(
+                name="ziot",
+                units="m",
+                long_name="elevation at previous macrotimestep",
+                fill_value=FILL_VALUE,
+                attrs=dict(_part_of_state=True),
+            )
+
+            for grid in (self.T, self.U, self.V):
+                grid.ho = grid.array(
+                    name="ho" + grid.postfix,
+                    z=CENTERS,
+                    units="m",
+                    long_name="cell thickness at previous time step",
+                    fill_value=FILL_VALUE,
+                )
+
+            # On T grid, ho cannot be computed from zio,
+            # because rivers modify ho-from-zio before it is stored
+            self.T.ho.attrs["_part_of_state"] = True
+        else:
+            # In 2D barotropic runs, bottom roughness is updated iteratively
+            # (new value is a function of the previous value), which requires
+            # it being included in restarts as part of the model state
+            self.U.z0b.attrs["_part_of_state"] = True
+            self.V.z0b.attrs["_part_of_state"] = True
+
+        # Enable open boundaries for surface elevation
+        self.T.z.open_boundaries = pygetm.open_boundaries.ArrayOpenBoundaries(self.T.z)
+        self.open_boundaries.z = self.T.z.open_boundaries.values
+
         # Water depths clipped to Dmin (already the default for U,V,X grids)
         self.T.Dclip = self.T.array()
 
@@ -542,19 +600,8 @@ class Simulation(BaseSimulation):
         self.U.ugrid.hn.attrs["_mask_output"] = True
         self.V.vgrid.hn.attrs["_mask_output"] = True
 
-        # Elevation on U/V/X will be interpolated from the T grid and therefore
-        # contain values other than fill_value in masked points
-        for grid in (self.U, self.V, self.X):
-            grid.z.attrs["_mask_output"] = True
-            grid.zio.attrs["_mask_output"] = True
-            grid.zin.attrs["_mask_output"] = True
-
-        self.Dmin = Dmin
-        self.Dcrit = Dcrit
-
         # Water depth and thicknesses on T grid that lag 1/2 time step behind tracer
         # (i.e., they are in sync with U, V, X grids)
-        self.z_T_half = self.T.array(fill=np.nan)
         self.D_T_half = self.T.array(fill=np.nan)
         self.h_T_half = self.T.array(fill=np.nan, z=CENTERS)
         self.depth = self.T.array(
@@ -565,21 +612,6 @@ class Simulation(BaseSimulation):
             fabm_standard_name="depth",
             fill_value=FILL_VALUE,
         )
-
-        # Flag selected domain/grid fields (elevations, thicknesses, bottom roughness)
-        # as part of model state (saved in/loaded from restarts)
-        self.T.z.attrs["_part_of_state"] = True
-        self.T.zo.attrs["_part_of_state"] = True
-        if runtype > RunType.BAROTROPIC_2D:
-            self.T.zio.attrs["_part_of_state"] = True
-            self.T.zin.attrs["_part_of_state"] = True
-
-            # ho cannot be computed from zio,
-            # because rivers modify ho-from-zio before it is stored
-            self.T.ho.attrs["_part_of_state"] = True
-        if runtype == RunType.BAROTROPIC_2D:
-            self.U.z0b.attrs["_part_of_state"] = True
-            self.V.z0b.attrs["_part_of_state"] = True
 
         unmasked = self.T.mask != 0
         self.total_volume_ref = (self.T.H * self.T.area).global_sum(where=unmasked)
@@ -725,6 +757,9 @@ class Simulation(BaseSimulation):
             self.pres = self.depth
             self.pres.fabm_standard_name = "pressure"
 
+            self.ssu_U = self.momentum.uk.isel(z=-1)
+            self.ssv_V = self.momentum.vk.isel(z=-1)
+
         self.sst = self.T.array(
             name="sst",
             units="degrees_Celsius",
@@ -736,11 +771,12 @@ class Simulation(BaseSimulation):
         self.ssu = self.T.array(fill=0.0)
         self.ssv = self.T.array(fill=0.0)
 
-        if runtype == RunType.BAROCLINIC:
-            self.density = density or pygetm.density.Density()
-
+        if radiation is not None or runtype == RunType.BAROCLINIC:
             self.radiation = radiation or pygetm.radiation.TwoBand()
             self.radiation.initialize(self.T, self.logger.getChild("radiation"))
+
+        if runtype == RunType.BAROCLINIC:
+            self.density = density or pygetm.density.Density()
 
             self.temp = self.tracers.add(
                 name="temp",
@@ -756,6 +792,7 @@ class Simulation(BaseSimulation):
                 molecular_diffusivity=1.4e-7,
                 attrs=dict(standard_name="sea_water_conservative_temperature"),
             )
+
             self.salt = self.tracers.add(
                 name="salt",
                 units="g kg-1",
@@ -765,9 +802,16 @@ class Simulation(BaseSimulation):
                 molecular_diffusivity=1.1e-9,
                 attrs=dict(standard_name="sea_water_absolute_salinity"),
             )
-            self.pres.saved = True
+
+            # Set initial temperature and salinity to default value throughout
+            # the domain
             self.temp.fill(5.0)
             self.salt.fill(35.0)
+
+            # Ensure [approximate] pressure is updated in update_depth as it is
+            # needed for equation of state
+            self.pres.saved = True
+
             self.rho = self.T.array(
                 z=CENTERS,
                 name="rho",
@@ -799,8 +843,6 @@ class Simulation(BaseSimulation):
             ]
             self.temp_sf = self.temp.isel(z=-1)
             self.salt_sf = self.salt.isel(z=-1)
-            self.ssu_U = self.momentum.uk.isel(z=-1)
-            self.ssv_V = self.momentum.vk.isel(z=-1)
 
             if internal_pressure is None:
                 internal_pressure = pygetm.internal_pressure.ShchepetkinMcwilliams()
@@ -856,17 +898,23 @@ class Simulation(BaseSimulation):
         if self.fabm:
             self.fabm.start(self.macrotimestep, self.time)
 
-        # Ensure elevations are valid (not shallower than minimum depth)
-        minz = -self.T.H.all_values + self.Dmin
-        for zname in ("z", "zo", "zin", "zio"):
-            z = getattr(self.T, zname)
-            shallow = (z.all_values < minz) & self.T._water
+        def clip_z(z: core.Array, valid_min: np.ndarray):
+            shallow = (z.all_values < valid_min) & self.T._water
             if shallow.any():
                 self.logger.warning(
-                    f"Increasing {shallow.sum()} elevations in {zname} to avoid"
-                    f" water depths below the minimum depth of {self.Dmin} m."
+                    f"Increasing {shallow.sum()} elevations in {z.name} to ensure"
+                    f" initial water depths equal or exceed the minimum depth of"
+                    f" {self.Dmin} m"
                 )
-                np.putmask(z.all_values, shallow, minz)
+                np.putmask(z.all_values, shallow, valid_min)
+
+        # Ensure elevations are valid (not shallower than minimum depth)
+        minz = -self.T.H.all_values + self.Dmin
+        clip_z(self.T.z, minz)
+        clip_z(self.T.zo, minz)
+        if self.runtype > RunType.BAROTROPIC_2D:
+            clip_z(self.T.zin, minz)
+            clip_z(self.T.zio, minz)
 
         # First (out of two) 2D depth update based on old elevations zo
         z_backup = self.T.z.all_values.copy()
@@ -917,8 +965,8 @@ class Simulation(BaseSimulation):
         # Update transports U and V from time=-1/2 to +1/2, using surface stresses and
         # pressure gradients defined at time=0
         # Inputs and outputs are on U and V grids. Stresses and pressure gradients have
-        # already been updated by the call to update_forcing at the end of the previous
-        # time step.
+        # already been updated by the call to _update_forcing_and_diagnostics at the end
+        #  of the previous time step.
         self.momentum.advance_depth_integrated(
             self.timestep, self.tausx, self.tausy, self.dpdx, self.dpdy
         )
@@ -977,39 +1025,41 @@ class Simulation(BaseSimulation):
                 self.vertical_mixing.num,
             )
 
-            if self.runtype == RunType.BAROCLINIC:
-                # Update turbulent quantities (T grid - interfaces) from time=0 to
-                # time=1 (macrotimestep), using surface/buoyancy-related forcing
-                # (ustar_s, z0s, NN) at time=0, and bottom/velocity-related forcing
-                # (ustar_b, z0b, SS) at time=1/2
-                # self.T.z0b.all_values[1:, 1:] = 0.5 * (np.maximum(self.U.z0b.all_values[1:, 1:], self.U.z0b.all_values[1:, :-1]) + np.maximum(self.V.z0b.all_values[:-1, 1:], self.V.z0b.all_values[1:, :-1]))
-                self.vertical_mixing.advance(
-                    self.macrotimestep,
-                    self.ustar_s,
-                    self.momentum.ustar_b,
-                    self.z0s,
-                    self.T.z0b,
-                    self.NN,
-                    self.momentum.SS,
-                )
+            # Update turbulent quantities (T grid - interfaces) from time=0 to
+            # time=1 (macrotimestep), using surface/buoyancy-related forcing
+            # (ustar_s, z0s, NN) at time=0, and bottom/velocity-related forcing
+            # (ustar_b, z0b, SS) at time=1/2
+            # self.T.z0b.all_values[1:, 1:] = 0.5 * (np.maximum(self.U.z0b.all_values[1:, 1:], self.U.z0b.all_values[1:, :-1]) + np.maximum(self.V.z0b.all_values[:-1, 1:], self.V.z0b.all_values[1:, :-1]))
+            self.vertical_mixing.advance(
+                self.macrotimestep,
+                self.ustar_s,
+                self.momentum.ustar_b,
+                self.z0s,
+                self.T.z0b,
+                self.NN,
+                self.momentum.SS,
+            )
 
-                # Advect and diffuse tracers. Source terms are optionally handled too,
-                # as part of the diffusion update.
-                self.tracers.advance(
-                    self.macrotimestep,
-                    self.momentum.uk,
-                    self.momentum.vk,
-                    self.momentum.ww,
-                    self.vertical_mixing.nuh,
-                )
+            # Advect and diffuse tracers. Source terms are optionally handled too,
+            # as part of the diffusion update.
+            self.tracers.advance(
+                self.macrotimestep,
+                self.momentum.uk,
+                self.momentum.vk,
+                self.momentum.ww,
+                self.vertical_mixing.nuh,
+            )
 
-                if self.delay_slow_ip:
-                    self.internal_pressure.idpdx.all_values.sum(
-                        axis=0, out=self.momentum.SxB.all_values
-                    )
-                    self.internal_pressure.idpdy.all_values.sum(
-                        axis=0, out=self.momentum.SyB.all_values
-                    )
+            # If we have to delay slow (2D depth-integrated) terms for internal pressure
+            # by one macrotimestep, calculate them now, at the end of state update of the
+            # macrotimestep, and just before the new 3D internal pressure is calculated.
+            if self.runtype == RunType.BAROCLINIC and self.delay_slow_ip:
+                self.internal_pressure.idpdx.all_values.sum(
+                    axis=0, out=self.momentum.SxB.all_values
+                )
+                self.internal_pressure.idpdy.all_values.sum(
+                    axis=0, out=self.momentum.SyB.all_values
+                )
 
     def _update_forcing_and_diagnostics(self, macro_active: bool):
         """Update all inputs and fluxes that will drive the next state update.
@@ -1027,8 +1077,13 @@ class Simulation(BaseSimulation):
         # simulation.
         update_z0b = self.runtype == RunType.BAROTROPIC_2D and not starting
 
-        baroclinic_active = self.runtype == RunType.BAROCLINIC and macro_active
-        if baroclinic_active:
+        update_3d = self.runtype > RunType.BAROTROPIC_2D and macro_active
+        update_baroclinic = self.runtype == RunType.BAROCLINIC and macro_active
+
+        if update_3d:
+            # Determine transports across the open boundaries and related quantities
+            # that are used by active open boundary conditions (e.g., flow-dependent
+            # sponge)
             self.open_boundaries.prepare_depth_explicit()
 
             # Update tracer values at open boundaries. This must be done after
@@ -1038,6 +1093,12 @@ class Simulation(BaseSimulation):
                 for tracer in self.tracers:
                     tracer.open_boundaries.update()
 
+            # Interpolate surface velocities to T grid.
+            # These are used by airsea as offset for wind speeds
+            self.ssu_U.interp(self.ssu)
+            self.ssv_V.interp(self.ssv)
+
+        if update_baroclinic:
             # Update density, buoyancy and internal pressure to keep them in sync with
             # T and S.
             self.density.get_density(self.salt, self.temp, p=self.pres, out=self.rho)
@@ -1068,11 +1129,6 @@ class Simulation(BaseSimulation):
                 self.salt, self.temp, p=self.pres, out=self.NN
             )
 
-            # Interpolate surface velocities to T grid.
-            # These are used by airsea as offset for wind speeds
-            self.ssu_U.interp(self.ssu)
-            self.ssv_V.interp(self.ssv)
-
         # Update surface elevation z on U, V, X grids and water depth D on all grids
         # This is based on old and new elevation (T grid) for the microtimestep.
         # Thus, for grids lagging 1/2 a timestep behind (U, V, X grids), the elevations
@@ -1085,8 +1141,9 @@ class Simulation(BaseSimulation):
         # The call to update_surface_elevation_boundaries is made later.
         self.update_depth()
 
-        # Calculate advection and diffusion tendencies of transports, bottom friction
-        # and Coriolis terms. Only do 2D Coriolis update at the start of the simulation
+        # Calculate tendencies of transports (depth-integrated velocities) due
+        # to advection and diffusion, bottom friction and Coriolis terms.
+        # Only do 2D Coriolis update at the start of the simulation.
         # At subsequent times, this term will already have been updated
         # as part of the momentum update in _advance_state
         self.momentum.update_depth_integrated_diagnostics(
@@ -1101,12 +1158,16 @@ class Simulation(BaseSimulation):
             self.sst,
             self.ssu,
             self.ssv,
-            calculate_heat_flux=baroclinic_active,
+            calculate_heat_flux=update_baroclinic,
         )
-        self.ice(baroclinic_active, self.temp_sf, self.salt_sf, self.airsea)
+
+        # Update ice coverage. This is done after the airsea update to allow
+        # the ice module to manipulate (e.g., suppress) surface fluxes of
+        # heat and momentum
+        self.ice(update_baroclinic, self.temp_sf, self.salt_sf, self.airsea)
 
         # Update depth-integrated freshwater fluxes:
-        # precipitation, evaporation, condensation, rivers
+        # precipitation/evaporation/condensation from the airsea module, plus rivers
         self.fwf.all_values[...] = self.airsea.pe.all_values
         np.add.at(
             self.fwf.all_values,
@@ -1116,6 +1177,9 @@ class Simulation(BaseSimulation):
 
         # Update elevation at the open boundaries. This must be done before
         # calculating the surface pressure gradient
+        # NB from this moment on, elevations z at the open boundary will be out
+        # of sync with water depths D and thicknesses hn (only on T grid).
+        # This will last until the next call to update_depth!
         self.T.z.open_boundaries.update()
 
         # Calculate the surface pressure gradient in the U and V points.
@@ -1132,24 +1196,24 @@ class Simulation(BaseSimulation):
         self.airsea.tauy.update_halos(parallel.Neighbor.TOP)
         self.airsea.tauy.interp(self.tausy)
 
-        if self.runtype > RunType.BAROTROPIC_2D and macro_active:
+        if update_3d:
             # Save surface forcing variables for the next macro momentum update
             self.tausxo.all_values[...] = self.tausx.all_values
             self.tausyo.all_values[...] = self.tausy.all_values
             self.dpdxo.all_values[...] = self.dpdx.all_values
             self.dpdyo.all_values[...] = self.dpdy.all_values
 
-        if baroclinic_active:
             # Update surface shear velocity (used by GOTM). This requires updated
             # surface stresses and there can only be done after the airsea update.
             _pygetm.surface_shear_velocity(
                 self.airsea.taux, self.airsea.tauy, self.ustar_s
             )
 
-            # Update radiation in the interior.
-            # This must come after the airsea update, which is responsible for
-            # calculating downwelling shortwave radiation at the water surface (swr)
-            self.radiation(self.airsea.swr, self.fabm.kc if self.fabm else None)
+            if self.radiation is not None:
+                # Update radiation in the interior.
+                # This must come after the airsea update, which is responsible for
+                # calculating downwelling shortwave radiation at the water surface (swr)
+                self.radiation(self.airsea.swr, self.fabm.kc if self.fabm else None)
 
             # If we need vertical tracer diffusivity at layer centers (for FABM),
             # calculate it by interpolating diffusivity at the layer interfaces.
@@ -1378,81 +1442,54 @@ class Simulation(BaseSimulation):
         if _3d:
             # Store current elevations as previous elevations (on the 3D time step)
             self.T.zio.all_values[...] = self.T.zin.all_values
-            self.U.zio.all_values[...] = self.U.zin.all_values
-            self.V.zio.all_values[...] = self.V.zin.all_values
-            self.X.zio.all_values[...] = self.X.zin.all_values
 
             # Synchronize new elevations on the 3D time step to those of the 2D time
             # step that has just completed.
             self.T.zin.all_values[...] = self.T.z.all_values
 
-            z_T, z_U, z_V, z_X, zo_T = (
-                self.T.zin,
-                self.U.zin,
-                self.V.zin,
-                self.X.zin,
-                self.T.zio,
-            )
+            z_T, zo_T = self.T.zin, self.T.zio
         else:
-            z_T, z_U, z_V, z_X, zo_T = self.T.z, self.U.z, self.V.z, self.X.z, self.T.zo
+            z_T, zo_T = self.T.z, self.T.zo
 
-        # Compute surface elevation on U, V, X grids.
-        # These must lag 1/2 a timestep behind the T grid.
-        # They are therefore calculated from the average of old and new elevations on
-        # the T grid.
-        np.add(zo_T.all_values, z_T.all_values, out=self.z_T_half.all_values)
-        self.z_T_half.all_values *= 0.5
+        z_U, z_V, z_X, z_T_half = self.U._work, self.V._work, self.X._work, self.T._work
 
-        self.z_T_half.interp(z_U)
-        self.z_T_half.mirror(z_U)
-        _pygetm.clip_z(z_U, self.Dmin)
+        # Update total water depth D on T grid
+        # This is the only grid where we track raw depth (possibly < Dmin)
+        # as well as clipped depth max(D, Dmin). On other grids w only track
+        # clipped depth.
+        _pygetm.elevation2depth(z_T, self.T.H, -1000.0, self.T.D)
+        np.maximum(self.T.D.all_values, self.Dmin, out=self.T.Dclip.all_values)
 
-        self.z_T_half.interp(z_V)
-        self.z_T_half.mirror(z_V)
-        _pygetm.clip_z(z_V, self.Dmin)
+        # For water depths on U, V, X grids we need elevations that lag 1/2 a
+        # timestep behind the T grid. Calculate these by averaging old and
+        # new elevations on the T grid.
+        np.add(zo_T.all_values, z_T.all_values, out=z_T_half.all_values)
+        z_T_half.all_values *= 0.5
 
-        self.z_T_half.interp(z_X)
-        _pygetm.clip_z(z_X, self.Dmin)
+        # Total water depth D on U grid
+        z_T_half.interp(z_U)
+        z_T_half.mirror(z_U)
+        _pygetm.elevation2depth(z_U, self.U.H, self.Dmin, self.U.D)
 
-        # Halo exchange for elevation on U, V grids, needed because the very last
+        # Total water depth D on V grid
+        z_T_half.interp(z_V)
+        z_T_half.mirror(z_V)
+        _pygetm.elevation2depth(z_V, self.V.H, self.Dmin, self.V.D)
+
+        # Total water depth D on X grid
+        z_T_half.interp(z_X)
+        _pygetm.elevation2depth(z_X, self.X.H, self.Dmin, self.X.D)
+
+        # Halo exchange for water depth on U, V grids, needed because the very last
         # points in the halos (x=-1 for U, y=-1 for V) are not valid after
-        # interpolating from the T grid above.
-        # These elevations are needed to later compute velocities from transports
-        # (by dividing by layer thicknesses, which are computed from elevation)
+        # interpolating elevation from the T grid above.
+        # These depths are needed to later compute velocities from transports
         # These velocities will be advected, and therefore need to be valid througout
         # the halos. We do not need to halo-exchange elevation on the X grid, since
         # that needs to be be valid at the innermost halo point only, which is ensured
         # by z_T exchange.
-        z_U.update_halos(parallel.Neighbor.RIGHT)
-        z_V.update_halos(parallel.Neighbor.TOP)
-
-        # Update total water depth D on T, U, V, X grids
-        # This also processes the halos; no further halo exchange needed.
-        np.add(
-            self.T.H.all_values,
-            z_T.all_values,
-            where=self.T._water,
-            out=self.T.D.all_values,
-        )
-        np.maximum(self.T.D.all_values, self.Dmin, out=self.T.Dclip.all_values)
-        np.add(
-            self.U.H.all_values,
-            z_U.all_values,
-            where=self.U._water,
-            out=self.U.D.all_values,
-        )
-        np.add(
-            self.V.H.all_values,
-            z_V.all_values,
-            where=self.V._water,
-            out=self.V.D.all_values,
-        )
-        np.add(
-            self.X.H.all_values,
-            z_X.all_values,
-            where=self.X._water,
-            out=self.X.D.all_values,
-        )
+        self.U.D.update_halos(parallel.Neighbor.RIGHT)
+        self.V.D.update_halos(parallel.Neighbor.TOP)
 
         # Update dampening factor (0-1) for shallow water
         _pygetm.alpha(self.U.D, 2 * self.Dmin, self.Dcrit, self.U.alpha)
@@ -1461,10 +1498,7 @@ class Simulation(BaseSimulation):
         # Update total water depth on advection grids. These must be 1/2 timestep
         # behind the T grid. That's already the case for the X grid, but for the T grid
         # we explicitly compute and use the average of old and new D.
-        _pygetm.clip_z(self.z_T_half, self.Dmin)
-        np.add(
-            self.T.H.all_values, self.z_T_half.all_values, out=self.D_T_half.all_values
-        )
+        _pygetm.elevation2depth(z_T_half, self.T.H, self.Dmin, self.D_T_half)
         self.U.ugrid.D.all_values[:, :-1] = self.D_T_half.all_values[:, 1:]
         self.V.vgrid.D.all_values[:-1, :] = self.D_T_half.all_values[1:, :]
         self.U.vgrid.D.all_values[:, :] = self.X.D.all_values[1:, 1:]
@@ -1472,10 +1506,12 @@ class Simulation(BaseSimulation):
 
         if _3d:
             # Store previous layer thicknesses
+            # NB on U and V grids, ho is needed to estimate thicknesses
+            # in between start and stop of the timestep (i.e., in sync with T grid)
+            # These are used in the momentum update
             self.T.ho.all_values[...] = self.T.hn.all_values
             self.U.ho.all_values[...] = self.U.hn.all_values
             self.V.ho.all_values[...] = self.V.hn.all_values
-            self.X.ho.all_values[...] = self.X.hn.all_values
 
             # Update layer thicknesses (hn) on all grids, using bathymetry H and new
             # elevations zin (on the 3D timestep)

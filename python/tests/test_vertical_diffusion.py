@@ -37,6 +37,7 @@ def for_each_grid(test_func):
                     T, logger=domain.root_logger.getChild("vertical_coordinates")
                 )
                 vc.update(0.0)
+                T.ho = T.array(z=T.hn.z)
                 T.ho.all_values[:, :, :] = T.hn.all_values
                 test_func(self, T, *args, **kwargs)
 

@@ -48,16 +48,11 @@ class Grid(_pygetm.Grid):
         "H",
         "D",
         "mask",
-        "z",
-        "zo",
-        "ho",
         "hn",
         "zc",
         "zf",
         "z0b",
         "z0b_min",
-        "zio",
-        "zin",
         "alpha",
     )
     _all_arrays = tuple(
@@ -77,6 +72,11 @@ class Grid(_pygetm.Grid):
         "_cos_rot",
         "rotation",
         "Dclip",
+        "z",
+        "zo",
+        "zin",
+        "zio",
+        "ho",
         "open_boundaries",
         "input_manager",
         "default_output_transforms",
@@ -97,6 +97,7 @@ class Grid(_pygetm.Grid):
         "fields",
         "mask3d",
         "bottom_indices",
+        "_work",
     )
 
     _array_args = {
@@ -127,10 +128,6 @@ class Grid(_pygetm.Grid):
             attrs=dict(standard_name="sea_floor_depth_below_sea_surface"),
         ),
         "mask": dict(attrs=dict(_time_varying=False), fill_value=0),
-        "z": dict(units="m", long_name="elevation"),
-        "zo": dict(units="m", long_name="elevation at previous microtimestep"),
-        "zin": dict(units="m", long_name="elevation at macrotimestep"),
-        "zio": dict(units="m", long_name="elevation at previous macrotimestep"),
         "area": dict(
             units="m2",
             long_name="cell area",
@@ -144,7 +141,6 @@ class Grid(_pygetm.Grid):
         "cor": dict(
             units="1", long_name="Coriolis parameter", attrs=dict(_time_varying=False)
         ),
-        "ho": dict(units="m", long_name="cell thickness at previous time step"),
         "hn": dict(
             units="m",
             long_name="cell thickness",
@@ -226,6 +222,8 @@ class Grid(_pygetm.Grid):
             attrs=dict(_time_varying=False),
         )
 
+        self._work = self.array(fill_value=np.nan)
+
     def freeze(self):
         """Freeze all grid attributes. This will calculate derived metrics
         such as the inverse of cell height/width/area and initialize elevation
@@ -259,17 +257,8 @@ class Grid(_pygetm.Grid):
         self.z0b_min.all_values.flags.writeable = False
         self.z0b.all_values[...] = self.z0b_min.all_values
 
-        # Initialize elevation at all water points to 0
-        # The array will have been pre-filled with the correct fill value,
-        # so land points are already ok and remain unchanged.
-        self.z.all_values[self._water] = 0.0
-        self.zo.all_values[...] = self.z.all_values
-        self.zio.all_values[...] = self.z.all_values
-        self.zin.all_values[...] = self.z.all_values
-
-        # Calculate water depth from bathymetry and elevation
-        D = self.H.all_values + self.z.all_values
-        self.D.all_values[self._water] = D[self._water]
+        # Default water depth follows bathymetry (elevation=0)
+        self.D.all_values[self._water] = self.H.all_values[self._water]
 
         self.Dclip = self.D
 
@@ -536,7 +525,7 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             fill_value is None or np.ndim(fill_value) == 0
         ), "fill_value must be a scalar value"
         self._name = name
-        self.attrs = attrs.copy()
+        self.attrs: Mapping[str, Any] = attrs.copy()
         if units:
             self.attrs["units"] = units
         if long_name:

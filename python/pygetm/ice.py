@@ -9,6 +9,11 @@ from pygetm.constants import FILL_VALUE
 
 
 class Ice:
+    """Simple ice model that assumes a cell is completely ice covered when its
+    surface temperature drops below freezing. At that point, surface heat
+    fluxes in that cell are clipped to positive values (= no further cooling).
+    Surface momentum fluxes for that same cell are switched off altogether."""
+
     def initialize(self, grid: pygetm.core.Grid, logger: logging.Logger):
         self.logger = logger
         self.grid = grid
@@ -22,7 +27,7 @@ class Ice:
         )
         self.ice.fill(0.0)
         self.has_ice = False
-        self.covered = np.full(grid.z.all_values.shape, False)
+        self.covered = np.full(grid.H.all_values.shape, False)
 
     def __call__(
         self,

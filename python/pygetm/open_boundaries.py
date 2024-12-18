@@ -1,5 +1,15 @@
 import enum
-from typing import Optional, Sequence, List, Mapping, TYPE_CHECKING
+from typing import (
+    Optional,
+    Sequence,
+    List,
+    Mapping,
+    Callable,
+    Tuple,
+    Union,
+    Set,
+    TYPE_CHECKING,
+)
 import functools
 import logging
 
@@ -129,14 +139,35 @@ class BoundaryCondition:
     def get_updater(
         self,
         domain: "Domain",
-        boundary: "OpenBoundary",
+        boundary: OpenBoundary,
         array: core.Array,
         bdy: np.ndarray,
-    ):
+    ) -> Callable[[], None]:
         raise NotImplementedError
 
     def prepare_depth_explicit(self):
         pass
+
+    def get_clipper(
+        self, array: core.Array, slc: Tuple[Union[slice, int], ...]
+    ) -> Callable[[np.ndarray, np.ndarray], None]:
+        valid_min = array.attrs.get("_minimum")
+        if isinstance(valid_min, np.ndarray):
+            valid_min = valid_min[slc]
+        valid_max = array.attrs.get("_maximum")
+        if isinstance(valid_max, np.ndarray):
+            valid_max = valid_max[slc]
+        if valid_min is not None and valid_max is not None:
+            return functools.partial(np.clip, a_min=valid_min, a_max=valid_max)
+        elif valid_min is not None:
+            return functools.partial(np.maximum, valid_min)
+        elif valid_max is not None:
+            return functools.partial(np.minimum, valid_min)
+
+        def no_op(x: np.ndarray, out: np.ndarray):
+            out[...] = x
+
+        return no_op
 
 
 class Sponge(BoundaryCondition):
@@ -165,10 +196,10 @@ class Sponge(BoundaryCondition):
 
     def get_updater(
         self,
-        boundary: "OpenBoundary",
+        boundary: OpenBoundary,
         array: core.Array,
         bdy: np.ndarray,
-    ):
+    ) -> Callable[[], None]:
         mask = boundary.extract_inward(
             array.grid.mask.all_values, start=1, stop=self.n + 1
         )
@@ -189,16 +220,14 @@ class Sponge(BoundaryCondition):
             rlxcoef = None
         sp[mask != 1] = 0.0  # only include updatable water points (exclude bdy)
 
-        return (
+        return functools.partial(
             self.update_boundary,
-            (
-                array.all_values[boundary.slice_t],
-                boundary.extract_inward(array.all_values, start=1, stop=n + 1),
-                bdy,
-                sp,
-                rlxcoef,
-                w,
-            ),
+            array.all_values[boundary.slice_t],
+            boundary.extract_inward(array.all_values, start=1, stop=n + 1),
+            bdy,
+            sp,
+            rlxcoef,
+            w,
         )
 
     @staticmethod
@@ -223,35 +252,29 @@ class Sponge(BoundaryCondition):
 class ZeroGradient(BoundaryCondition):
     def get_updater(
         self,
-        boundary: "OpenBoundary",
+        boundary: OpenBoundary,
         array: core.Array,
         bdy: np.ndarray,
-    ):
-        return (
-            self.update,
-            (
-                array.all_values[boundary.slice_t],
-                boundary.extract_inward(array.all_values, start=1),
-            ),
+    ) -> Callable[[], None]:
+        return functools.partial(
+            self.get_clipper(array, boundary.slice_t),
+            boundary.extract_inward(array.all_values, start=1),
+            out=array.all_values[boundary.slice_t],
         )
-
-    @staticmethod
-    def update(values: np.ndarray, inward_values: np.ndarray):
-        values[:] = inward_values
 
 
 class Clamped(BoundaryCondition):
     def get_updater(
         self,
-        boundary: "OpenBoundary",
+        boundary: OpenBoundary,
         array: core.Array,
         bdy: np.ndarray,
     ):
-        return self.update, (array.all_values[boundary.slice_t], bdy.T)
-
-    @staticmethod
-    def update(values: np.ndarray, prescribed_values: np.ndarray):
-        values[:] = prescribed_values
+        return functools.partial(
+            self.get_clipper(array, boundary.slice_t),
+            bdy.T,
+            out=array.all_values[boundary.slice_t],
+        )
 
 
 class Flather(BoundaryCondition):
@@ -260,20 +283,19 @@ class Flather(BoundaryCondition):
 
     def get_updater(
         self,
-        boundary: "OpenBoundary",
+        boundary: OpenBoundary,
         array: core.Array,
         bdy: np.ndarray,
     ):
-        return (
+        return functools.partial(
             self.update,
-            (
-                array.all_values[boundary.slice_t],
-                bdy,
-                boundary.tp,
-                boundary.flow_ext,
-                array.grid.D.all_values[boundary.slice_t],
-                boundary.inflow_sign,
-            ),
+            array.all_values[boundary.slice_t],
+            bdy,
+            boundary.tp,
+            boundary.flow_ext,
+            array.grid.D.all_values[boundary.slice_t],
+            boundary.inflow_sign,
+            self.get_clipper(array, boundary.slice_t),
         )
 
     @staticmethod
@@ -284,8 +306,9 @@ class Flather(BoundaryCondition):
         vel_ext: np.ndarray,
         D: np.ndarray,
         inflow_sign: float,
+        clipper: Callable[[np.ndarray, np.ndarray], None],
     ):
-        z[:] = z_ext - inflow_sign * (tp - vel_ext * D) / np.sqrt(D * GRAVITY)
+        clipper(z_ext - inflow_sign * (tp - vel_ext * D) / np.sqrt(D * GRAVITY), out=z)
 
     @staticmethod
     def update_transport(
@@ -295,8 +318,9 @@ class Flather(BoundaryCondition):
         tp_ext: np.ndarray,
         D: np.ndarray,
         inflow_sign: float,
+        clipper: Callable[[np.ndarray, np.ndarray], None],
     ):
-        z[:] = z_ext - inflow_sign * (tp - tp_ext) / np.sqrt(D * GRAVITY)
+        clipper(z_ext - inflow_sign * (tp - tp_ext) / np.sqrt(D * GRAVITY), out=z)
 
 
 class ArrayOpenBoundary:
@@ -343,7 +367,7 @@ class ArrayOpenBoundaries:
         )
         if type is not None:
             type = array.grid.open_boundaries._make_bc(type)
-        self._bdy = []
+        self._bdy: List[ArrayOpenBoundary] = []
         for bdy in array.grid.open_boundaries.active:
             self._bdy.append(
                 ArrayOpenBoundary(
@@ -354,7 +378,7 @@ class ArrayOpenBoundaries:
                     type or (bdy.type_2d if array.ndim == 2 else bdy.type_3d),
                 )
             )
-        self.updaters = []
+        self.updaters: List[Callable[[], None]] = []
 
     def _set_type(self, value: int):
         value = self._array.grid.open_boundaries._make_bc(value)
@@ -367,10 +391,11 @@ class ArrayOpenBoundaries:
         bcs = set()
         for bdy in self._bdy:
             bdy._type.initialize(self._array.grid)
-            fn, args = bdy._type.get_updater(
-                bdy._boundary, self._array, bdy._prescribed_values
+            self.updaters.append(
+                bdy._type.get_updater(
+                    bdy._boundary, self._array, bdy._prescribed_values
+                )
             )
-            self.updaters.append(functools.partial(fn, *args))
             bcs.add(bdy._type)
         return bcs
 
@@ -421,7 +446,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         self.zero_gradient = ZeroGradient()
         self.active: List[OpenBoundary] = []
         self._frozen = False
-        self.bcs = set()
+        self.bcs: Set[BoundaryCondition] = set()
 
     def _make_bc(self, value) -> BoundaryCondition:
         if isinstance(value, BoundaryCondition):
@@ -818,6 +843,8 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         return indices
 
     def prepare_depth_explicit(self):
+        """Determine 3D velocities across the open boundaries and allow each class
+        of open boundary condition to use these to calculate derived metrics."""
         if self.velocity_3d_in.saved:
             for boundary in self.active:
                 boundary.velocity_3d_in[:] = boundary.inflow_sign * boundary.vel.T

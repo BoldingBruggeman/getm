@@ -48,7 +48,7 @@ cdef extern void c_exponential_profile_1band_centers(int nx, int ny, int nz, int
 cdef extern void c_thickness2center_depth(int nx, int ny, int nz, int istart, int istop, int jstart, int jstop, int* mask, double* h, double* out) nogil
 cdef extern void c_thickness2vertical_coordinates(int nx, int ny, int nz, int* mask, double* bottom_depth, double* h, double* zc, double* zf) nogil
 cdef extern void c_alpha(int n, double* D, double Dmin, double Dcrit, int* mask, double* alpha) nogil
-cdef extern void c_clip_z(int n, double* z, double* H, double Dmin, int* mask) nogil
+cdef extern void c_elevation2depth(int n, const double* z, const double* H, double Dmin, const int* mask, double* D) nogil
 cdef extern void c_horizontal_diffusion(int imin,int imax,int jmin,int jmax,int halox,int haloy,int* umask,int* vmask,double* idxu,double* dyu,double* idyv,double* dxv,double* Ah_u,double* Ah_v,int* tmask,double* iA,double dt,double* f,double* out) nogil
 cdef extern void c_bottom_friction(int nx, int ny, int* mask, double* u, double* v, double* D, double* z0b, double* z0b_in, double avmmol, double* ru, int iterate) nogil
 cdef extern void c_collect_3d_momentum_sources(int nx, int ny, int nz, int halox, int haloy, int* mask, double* alpha, double* ho, double* hn, double* dp, double* cor, double* adv, double* diff, double* idp, double* taus, double* rr, double dt, double* ea2, double* ea4) nogil
@@ -383,11 +383,12 @@ def alpha(Array D not None, double Dmin, double Dcrit, Array out not None):
     mask = D.grid.mask
     c_alpha(D._array.size, <double*>D.p, Dmin, Dcrit, <int*>mask.p, <double*>out.p)
 
-def clip_z(Array z not None, double Dmin):
-    cdef Array mask, H
+def elevation2depth(Array z not None, Array H not None, double Dmin, Array D not None):
+    assert z.grid is H.grid
+    assert z.grid is D.grid
+    cdef Array mask
     mask = z.grid.mask
-    H = z.grid.H
-    c_clip_z(z._array.size, <double*>z.p, <double*>H.p, Dmin, <int*>mask.p)
+    c_elevation2depth(z._array.size, <double*>z.p, <double*>H.p, Dmin, <int*>mask.p, <double*>D.p)
 
 def horizontal_diffusion(Array f not None, Array Ah_u not None, Array Ah_v not None, double dt, Array out not None):
     cdef int halox = f.grid.halox
