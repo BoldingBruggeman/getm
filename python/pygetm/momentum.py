@@ -1096,6 +1096,14 @@ class Momentum:
         dev: core.Array,
         timestep: float,
     ):
+        """Advance 3D transports (layer-integrated velocities in m2 s-1) in x-
+        or y-direction, using all relevant tendencies supplied as arguments.
+        This also updates the halos.
+
+        Note that 3D velocities (transports divided by thicknesses) are not
+        updated here and therefore will be out of sync with transports after
+        this function returns.
+        """
         grid = tp3d.grid
         pygetm._pygetm.collect_3d_momentum_sources(
             dp, cor, adv, diff, idp, taus, rr, timestep, self.ea2, self.ea4
@@ -1111,11 +1119,15 @@ class Momentum:
         )
         np.multiply(vel3d.all_values, grid.hn.all_values, out=tp3d.all_values)
 
+        # Shift 3D transports to ensure their depth integral equals the depth
+        # integrated velocities calculated by the 2D update. This is done by
+        # adding the same offset in velocity throughout the water column.
         tp3d.all_values.sum(axis=0, out=dev.all_values)
         dev.all_values -= tp2d.all_values
         dev.all_values /= grid.D.all_values
         tp3d.all_values -= dev.all_values * grid.hn.all_values
 
+        # Mirror into/across the open boundaries
         tp3d.mirror()
 
         tp3d.update_halos()
