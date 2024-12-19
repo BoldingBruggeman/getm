@@ -202,7 +202,7 @@ class Momentum:
             name="pk",
             z=CENTERS,
             units="m2 s-1",
-            long_name="layer-integrated transport in x-direction",
+            long_name="layer-integrated velocity in x-direction",
             fill_value=FILL_VALUE,
             attrs=dict(_part_of_state=True, _mask_output=True),
         )
@@ -210,7 +210,7 @@ class Momentum:
             name="qk",
             z=CENTERS,
             units="m2 s-1",
-            long_name="layer-integrated transport in y-direction",
+            long_name="layer-integrated velocity in y-direction",
             fill_value=FILL_VALUE,
             attrs=dict(_part_of_state=True, _mask_output=True),
         )
@@ -301,17 +301,35 @@ class Momentum:
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
-        self.fU = vgrid.array(
-            name="fU", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+        self.corU = ugrid.array(
+            name="corU",
+            units="m-2 s-2",
+            long_name="tendency of depth-integrated x-velocity due to Coriolis effect",
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True),
         )
-        self.fV = ugrid.array(
-            name="fV", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+        self.corV = vgrid.array(
+            name="corV",
+            units="m-2 s-2",
+            long_name="tendency of depth-integrated y-velocity due to Coriolis effect",
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True),
         )
-        self.fpk = vgrid.array(
-            name="fpk", z=CENTERS, fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+        self.corpk = ugrid.array(
+            name="corpk",
+            units="m-2 s-2",
+            long_name="tendency of layer-integrated x-velocity due to Coriolis effect",
+            z=CENTERS,
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True),
         )
-        self.fqk = ugrid.array(
-            name="fqk", z=CENTERS, fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+        self.corqk = vgrid.array(
+            name="corqk",
+            units="m-2 s-2",
+            long_name="tendency of layer-integrated y-velocity due to Coriolis effect",
+            z=CENTERS,
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True),
         )
         self.advU = ugrid.array(
             name="advU", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
@@ -346,26 +364,17 @@ class Momentum:
             name="rrv", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
         )
 
-        # for name in self._arrays:
-        #     kwargs = dict(fill_value=FILL_VALUE)
-        #     kwargs.update(self._array_args.get(name, {}))
-        #     setattr(
-        #         self,
-        #         f"_{name}",
-        #         self.wrap(core.Array(name=name, **kwargs), name.encode("ascii")),
-        #     )
-
         self.logger = logger
         self.runtype = runtype
 
-        # Disable bottom friction if physical bottom roughness is 0 everywhere
+        # Disable bottom friction if minimum hydrodynamic bottom roughness is 0 everywhere
         z0b_u = ugrid.z0b_min.all_values[ugrid._water] == 0.0
         z0b_v = vgrid.z0b_min.all_values[vgrid._water] == 0.0
         self.apply_bottom_friction = not (z0b_u.any() or z0b_v.any())
         if not self.apply_bottom_friction:
             self.logger.warning(
-                "Disabling bottom friction because bottom roughness is 0 in"
-                f" {z0b_u.sum()} U points, {z0b_v.sum()} V points"
+                "Disabling bottom friction because minimum bottom roughness is 0"
+                f" in {z0b_u.sum()} U points, {z0b_v.sum()} V points"
             )
 
         self.diffuse_momentum = self._Am_const > 0.0
@@ -413,19 +422,19 @@ class Momentum:
         for v in ZERO_UNMASKED:
             getattr(self, v).fill(0.0)
 
-        # Zero elements of Coriolis terms that wil never be set, but still
+        # Zero elements of Coriolis terms that will never be set, but still
         # multiplied by f. This prevents overflow warnings
         # We could zero the whole arrays, but by doing this selectively, we
         # can verify in tests that values on other masked points are not used
-        self.fU.all_values[:, 0] = 0.0
-        self.fU.all_values[-1, :] = 0.0
-        self.fV.all_values[:, -1] = 0.0
-        self.fV.all_values[0, :] = 0.0
+        self.corU.all_values[:, -1] = 0.0
+        self.corU.all_values[0, :] = 0.0
+        self.corV.all_values[:, 0] = 0.0
+        self.corV.all_values[-1, :] = 0.0
         if runtype > RunType.BAROTROPIC_2D:
-            self.fpk.all_values[:, :, 0] = 0.0
-            self.fpk.all_values[:, -1, :] = 0.0
-            self.fqk.all_values[:, :, -1] = 0.0
-            self.fqk.all_values[:, 0, :] = 0.0
+            self.corpk.all_values[:, :, -1] = 0.0
+            self.corpk.all_values[:, 0, :] = 0.0
+            self.corqk.all_values[:, :, 0] = 0.0
+            self.corqk.all_values[:, -1, :] = 0.0
 
         self.Ui_tmp = np.zeros_like(self.Ui.all_values)
         self.Vi_tmp = np.zeros_like(self.Vi.all_values)
@@ -576,7 +585,7 @@ class Momentum:
                 self.U,
                 dpdx,
                 tausx,
-                self.fV,
+                self.corU,
                 self.advU,
                 self.diffU,
                 self.dampU,
@@ -589,14 +598,14 @@ class Momentum:
             )
             self.U.mirror()
             self.U.update_halos()
-            self.coriolis(self.U, self.fU, True)
+            self.coriolis(self.U, self.corV, True)
 
         def v():
             pygetm._pygetm.advance_2d_transport(
                 self.V,
                 dpdy,
                 tausy,
-                self.fU,
+                self.corV,
                 self.advV,
                 self.diffV,
                 self.dampV,
@@ -609,7 +618,7 @@ class Momentum:
             )
             self.V.mirror()
             self.V.update_halos()
-            self.coriolis(self.V, self.fV, False)
+            self.coriolis(self.V, self.corU, False)
 
         # Update 2D transports from t-1/2 to t+1/2.
         # This uses advection, diffusion, damping and bottom friction terms
@@ -641,8 +650,8 @@ class Momentum:
             update_z0b: whether to iteratively update hydrodynamic bottom roughness
         """
         if not skip_coriolis:
-            self.coriolis(self.U, self.fU, True)
-            self.coriolis(self.V, self.fV, False)
+            self.coriolis(self.U, self.corV, True)
+            self.coriolis(self.V, self.corU, False)
 
         # Calculate sources of transports U and V due to advection (advU, advV)
         # and diffusion (diffU, diffV)
@@ -712,7 +721,7 @@ class Momentum:
                 self.Ui,
                 self.uk,
                 dpdx,
-                self.fqk,
+                self.corpk,
                 self.advpk,
                 self.diffpk,
                 idpdx,
@@ -722,7 +731,7 @@ class Momentum:
                 self.udev,
                 timestep,
             )
-            self.coriolis(self.pk, self.fpk, True)
+            self.coriolis(self.pk, self.corqk, True)
 
         def v():
             self.advance_3d_transport(
@@ -730,7 +739,7 @@ class Momentum:
                 self.Vi,
                 self.vk,
                 dpdy,
-                self.fpk,
+                self.corqk,
                 self.advqk,
                 self.diffqk,
                 idpdy,
@@ -740,7 +749,7 @@ class Momentum:
                 self.vdev,
                 timestep,
             )
-            self.coriolis(self.qk, self.fqk, False)
+            self.coriolis(self.qk, self.corpk, False)
 
         # Update horizontal transports. Also update the halos so that transports
         # (and more importantly, the velocities derived subsequently) are valid there.
@@ -783,8 +792,8 @@ class Momentum:
                 and do not need recomputing
         """
         if not skip_coriolis:
-            self.coriolis(self.pk, self.fpk, True)
-            self.coriolis(self.qk, self.fqk, False)
+            self.coriolis(self.pk, self.corqk, True)
+            self.coriolis(self.qk, self.corpk, False)
 
         # Infer vertical velocity from horizontal transports and desired layer height
         # change (ho -> hn). This is done at all points surrounding U and V points, so
