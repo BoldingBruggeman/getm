@@ -401,8 +401,8 @@ class Momentum:
             "diffV",
             "ru",
             "rv",
-            "fU",
-            "fV",
+            "corU",
+            "corV",
         )
         if runtype > RunType.BAROTROPIC_2D:
             ZERO_EVERYWHERE = ZERO_EVERYWHERE + MASK_ZERO_3D
@@ -412,8 +412,8 @@ class Momentum:
                 "advqk",
                 "diffpk",
                 "diffqk",
-                "fpk",
-                "fqk",
+                "corpk",
+                "corqk",
                 "ww",
             )
         for v in ZERO_EVERYWHERE:
