@@ -36,8 +36,8 @@ class TestCoriolis(unittest.TestCase):
             sim.V.mask.all_values != 0, v * H, 0.0
         )
 
-        sim.momentum.coriolis(sim.momentum.U, sim.momentum.fU, True)
-        sim.momentum.coriolis(sim.momentum.V, sim.momentum.fV, False)
+        sim.momentum.coriolis(sim.momentum.U, sim.momentum.corV, True)
+        sim.momentum.coriolis(sim.momentum.V, sim.momentum.corU, False)
 
         OMEGA = 2.0 * np.pi / 86164.0  # 86164 is number of seconds in sidereal day
 
@@ -46,8 +46,8 @@ class TestCoriolis(unittest.TestCase):
         self.assertTrue((sim.U.cor.values == f).all())
         self.assertTrue((sim.V.cor.values == f).all())
 
-        fu = sim.momentum.fU / sim.V.H
-        fv = sim.momentum.fV / sim.U.H
+        fu = sim.momentum.corV / sim.V.H
+        fv = sim.momentum.corU / sim.U.H
 
         self.assertTrue((fu.values[:-1, 1:-1] == -f * u).all())
         self.assertTrue((fu.values[:-1, 0] == -0.5 * f * u).all())
@@ -73,11 +73,11 @@ class TestCoriolis(unittest.TestCase):
         self.assertTrue((sim.U.hn.ma == h).all())
         self.assertTrue((sim.V.hn.ma == h).all())
 
-        sim.momentum.coriolis(sim.momentum.pk, sim.momentum.fpk, True)
-        sim.momentum.coriolis(sim.momentum.qk, sim.momentum.fqk, False)
+        sim.momentum.coriolis(sim.momentum.pk, sim.momentum.corqk, True)
+        sim.momentum.coriolis(sim.momentum.qk, sim.momentum.corpk, False)
 
-        fu = sim.momentum.fpk / sim.V.hn
-        fv = sim.momentum.fqk / sim.U.hn
+        fu = sim.momentum.corqk / sim.V.hn
+        fv = sim.momentum.corpk / sim.U.hn
 
         self.assertTrue((fu.values[:, :-1, 1:-1] == -f * u).all())
         self.assertTrue((fu.values[:, :-1, 0] == 0.5 * -f * u).all())
