@@ -293,7 +293,7 @@ class Flather(BoundaryCondition):
             bdy,
             boundary.tp,
             boundary.flow_ext,
-            array.grid.D.all_values[boundary.slice_t],
+            array.grid.Dclip.all_values[boundary.slice_t],
             boundary.inflow_sign,
             self.get_clipper(array, boundary.slice_t),
         )

@@ -771,8 +771,10 @@ class Simulation(BaseSimulation):
         self.ssu = self.T.array(fill=0.0)
         self.ssv = self.T.array(fill=0.0)
 
-        if radiation is not None or runtype == RunType.BAROCLINIC:
-            self.radiation = radiation or pygetm.radiation.TwoBand()
+        if radiation is None and runtype == RunType.BAROCLINIC:
+            radiation = pygetm.radiation.TwoBand()
+        self.radiation = radiation
+        if self.radiation is not None:
             self.radiation.initialize(self.T, self.logger.getChild("radiation"))
 
         if runtype == RunType.BAROCLINIC:
