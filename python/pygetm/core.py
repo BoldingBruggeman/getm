@@ -136,7 +136,9 @@ class Grid(_pygetm.Grid):
             attrs=dict(_time_varying=False),
         ),
         "cor": dict(
-            units="1", long_name="Coriolis parameter", attrs=dict(_time_varying=False)
+            units="s-1",
+            long_name="Coriolis parameter",
+            attrs=dict(standard_name="coriolis_parameter", _time_varying=False),
         ),
         "hn": dict(
             units="m",
