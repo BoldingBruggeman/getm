@@ -270,7 +270,9 @@ if __name__ == "__main__":
             )
             output.request("uk", "vk", "ww", "SS", "num")
             if args.debug_output:
-                output.request("fpk", "fqk", "advpk", "advqk")  # 'diffpk', 'diffqk')
+                output.request(
+                    "corpk", "corqk", "advpk", "advqk"
+                )  # 'diffpk', 'diffqk')
         if sim.runtype == pygetm.RunType.BAROCLINIC:
             output.request("temp", "salt", "rho", "NN", "rad", "sst", "hnt", "nuh")
             if args.debug_output:
