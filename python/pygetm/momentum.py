@@ -75,8 +75,8 @@ class Momentum:
     __slots__ = _arrays + (
         "runtype",
         "logger",
-        "Ui_tmp",
-        "Vi_tmp",
+        "_U_cum",
+        "_V_cum",
         "_ufirst",
         "_u3dfirst",
         "diffuse_momentum",
@@ -144,21 +144,14 @@ class Momentum:
         self.coriolis_scheme = coriolis_scheme
         self.avmmol = avmmol
 
-    def initialize(
-        self,
-        logger: logging.Logger,
-        tgrid: core.Grid,
-        runtype: RunType,
-        default_advection_scheme: operators.AdvectionScheme,
-    ):
-
+    def _create_depth_integrated_arrays(self, tgrid: core.Grid):
         ugrid = tgrid.ugrid
         vgrid = tgrid.vgrid
 
         self.U = ugrid.array(
             name="U",
             units="m2 s-1",
-            long_name="depth-integrated transport in x-direction",
+            long_name="depth-integrated velocity in x-direction",
             fill_value=FILL_VALUE,
             attrs=dict(_part_of_state=True, _mask_output=True),
         )
@@ -166,21 +159,7 @@ class Momentum:
         self.V = vgrid.array(
             name="V",
             units="m2 s-1",
-            long_name="depth-integrated transport in y-direction",
-            fill_value=FILL_VALUE,
-            attrs=dict(_part_of_state=True, _mask_output=True),
-        )
-
-        self.Ui = ugrid.array(
-            name="Ui",
-            units="m2 s-1",
-            fill_value=FILL_VALUE,
-            attrs=dict(_part_of_state=True, _mask_output=True),
-        )
-
-        self.Vi = vgrid.array(
-            name="Vi",
-            units="m2 s-1",
+            long_name="depth-integrated velocity in y-direction",
             fill_value=FILL_VALUE,
             attrs=dict(_part_of_state=True, _mask_output=True),
         )
@@ -197,53 +176,6 @@ class Momentum:
             long_name="depth-averaged velocity in y-direction",
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
-        )
-        self.pk = ugrid.array(
-            name="pk",
-            z=CENTERS,
-            units="m2 s-1",
-            long_name="layer-integrated velocity in x-direction",
-            fill_value=FILL_VALUE,
-            attrs=dict(_part_of_state=True, _mask_output=True),
-        )
-        self.qk = vgrid.array(
-            name="qk",
-            z=CENTERS,
-            units="m2 s-1",
-            long_name="layer-integrated velocity in y-direction",
-            fill_value=FILL_VALUE,
-            attrs=dict(_part_of_state=True, _mask_output=True),
-        )
-        self.uk = ugrid.array(
-            name="uk",
-            z=CENTERS,
-            units="m s-1",
-            long_name="velocity in x-direction",
-            fill_value=FILL_VALUE,
-            attrs=dict(_mask_output=True, standard_name="sea_water_x_velocity"),
-        )
-        self.vk = vgrid.array(
-            name="vk",
-            z=CENTERS,
-            units="m s-1",
-            long_name="velocity in y-direction",
-            fill_value=FILL_VALUE,
-            attrs=dict(_mask_output=True, standard_name="sea_water_y_velocity"),
-        )
-        self.ww = tgrid.array(
-            name="ww",
-            z=INTERFACES,
-            units="m s-1",
-            long_name="vertical velocity",
-            fill_value=FILL_VALUE,
-            attrs=dict(standard_name="upward_sea_water_velocity"),
-        )
-        self.SS = tgrid.array(
-            name="SS",
-            z=INTERFACES,
-            units="s-2",
-            long_name="shear frequency squared",
-            fill_value=FILL_VALUE,
         )
         self.SxA = ugrid.array(
             name="SxA",
@@ -315,6 +247,113 @@ class Momentum:
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
+        self.advU = ugrid.array(
+            name="advU",
+            units="m-2 s-2",
+            long_name="tendency of depth-integrated x-velocity due to advection",
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True),
+        )
+        self.advV = vgrid.array(
+            name="advV",
+            units="m-2 s-2",
+            long_name="tendency of depth-integrated y-velocity due to advection",
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True),
+        )
+        self.diffU = ugrid.array(
+            name="diffU",
+            units="m-2 s-2",
+            long_name="tendency of depth-integrated x-velocity due to horizontal diffusion",
+            fill_value=FILL_VALUE,
+        )
+        self.diffV = vgrid.array(
+            name="diffV",
+            units="m-2 s-2",
+            long_name="tendency of depth-integrated y-velocity due to horizontal diffusion",
+            fill_value=FILL_VALUE,
+        )
+        self.dampU = ugrid.array(
+            name="dampU",
+            units="m-2 s-2",
+            long_name="tendency of depth-integrated x-velocity due to numerical damping",
+            fill_value=FILL_VALUE,
+        )
+        self.dampV = vgrid.array(
+            name="dampV",
+            units="m-2 s-2",
+            long_name="tendency of depth-integrated y-velocity due to numerical damping",
+            fill_value=FILL_VALUE,
+        )
+        self.ru = ugrid.array(
+            name="ru",
+            units="m s-1",
+            long_name="bottom drag coefficient multiplied by depth-averaged velocity",
+            fill_value=FILL_VALUE,
+        )
+        self.rv = vgrid.array(
+            name="rv",
+            units="m s-1",
+            long_name="bottom drag coefficient multiplied by depth-averaged velocity",
+            fill_value=FILL_VALUE,
+        )
+
+        self.uua = ugrid.ugrid.array(fill=np.nan)
+        self.uva = ugrid.vgrid.array(fill=np.nan)
+        self.vua = vgrid.ugrid.array(fill=np.nan)
+        self.vva = vgrid.vgrid.array(fill=np.nan)
+
+    def _create_depth_explicit_arrays(self, tgrid: core.Grid):
+        ugrid = tgrid.ugrid
+        vgrid = tgrid.vgrid
+
+        self.pk = ugrid.array(
+            name="pk",
+            z=CENTERS,
+            units="m2 s-1",
+            long_name="layer-integrated velocity in x-direction",
+            fill_value=FILL_VALUE,
+            attrs=dict(_part_of_state=True, _mask_output=True),
+        )
+        self.qk = vgrid.array(
+            name="qk",
+            z=CENTERS,
+            units="m2 s-1",
+            long_name="layer-integrated velocity in y-direction",
+            fill_value=FILL_VALUE,
+            attrs=dict(_part_of_state=True, _mask_output=True),
+        )
+        self.uk = ugrid.array(
+            name="uk",
+            z=CENTERS,
+            units="m s-1",
+            long_name="velocity in x-direction",
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True, standard_name="sea_water_x_velocity"),
+        )
+        self.vk = vgrid.array(
+            name="vk",
+            z=CENTERS,
+            units="m s-1",
+            long_name="velocity in y-direction",
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True, standard_name="sea_water_y_velocity"),
+        )
+        self.ww = tgrid.array(
+            name="ww",
+            z=INTERFACES,
+            units="m s-1",
+            long_name="vertical velocity",
+            fill_value=FILL_VALUE,
+            attrs=dict(standard_name="upward_sea_water_velocity"),
+        )
+        self.SS = tgrid.array(
+            name="SS",
+            z=INTERFACES,
+            units="s-2",
+            long_name="shear frequency squared",
+            fill_value=FILL_VALUE,
+        )
         self.corpk = ugrid.array(
             name="corpk",
             units="m-2 s-2",
@@ -331,38 +370,130 @@ class Momentum:
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
-        self.advU = ugrid.array(
-            name="advU", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
-        )
-        self.advV = vgrid.array(
-            name="advV", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
-        )
-        self.diffU = ugrid.array(name="diffU", fill_value=FILL_VALUE)
-        self.diffV = vgrid.array(name="diffV", fill_value=FILL_VALUE)
-        self.dampU = ugrid.array(name="dampU", fill_value=FILL_VALUE)
-        self.dampV = vgrid.array(name="dampV", fill_value=FILL_VALUE)
         self.advpk = ugrid.array(
             name="advpk",
+            units="m-2 s-2",
+            long_name="tendency of layer-integrated x-velocity due to advection",
             z=CENTERS,
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
         self.advqk = vgrid.array(
             name="advqk",
+            units="m-2 s-2",
+            long_name="tendency of layer-integrated y-velocity due to advection",
             z=CENTERS,
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
-        self.diffpk = ugrid.array(name="diffpk", z=CENTERS, fill_value=FILL_VALUE)
-        self.diffqk = vgrid.array(name="diffqk", z=CENTERS, fill_value=FILL_VALUE)
-        self.ru = ugrid.array(name="ru", fill_value=FILL_VALUE)
-        self.rv = vgrid.array(name="rv", fill_value=FILL_VALUE)
+        self.diffpk = ugrid.array(
+            name="diffpk",
+            units="m-2 s-2",
+            long_name="tendency of layer-integrated x-velocity due to horizontal diffusion",
+            z=CENTERS,
+            fill_value=FILL_VALUE,
+        )
+        self.diffqk = vgrid.array(
+            name="diffqk",
+            units="m-2 s-2",
+            long_name="tendency of layer-integrated y-velocity due to horizontal diffusion",
+            z=CENTERS,
+            fill_value=FILL_VALUE,
+        )
         self.rru = ugrid.array(
-            name="rru", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+            name="rru",
+            units="m s-1",
+            long_name="bottom drag coefficient multiplied by near-bottom velocity",
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True),
         )
         self.rrv = vgrid.array(
-            name="rrv", fill_value=FILL_VALUE, attrs=dict(_mask_output=True)
+            name="rrv",
+            units="m s-1",
+            long_name="bottom drag coefficient multiplied by near-bottom velocity",
+            fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True),
         )
+
+        self.Ui = ugrid.array(
+            name="Ui",
+            units="m2 s-1",
+            long_name="depth-integrated velocity in x-direction averaged over previous macrotimestep",
+            fill_value=FILL_VALUE,
+            attrs=dict(_part_of_state=True, _mask_output=True),
+        )
+        self.Vi = vgrid.array(
+            name="Vi",
+            units="m2 s-1",
+            long_name="depth-integrated velocity in y-direction averaged over previous macrotimestep",
+            fill_value=FILL_VALUE,
+            attrs=dict(_part_of_state=True, _mask_output=True),
+        )
+
+        self._U_cum = np.zeros_like(self.Ui.all_values)
+        self._V_cum = np.zeros_like(self.Vi.all_values)
+
+        self.udev = ugrid.array(
+            name="udev",
+            units="m s-1",
+            attrs=dict(_mask_output=True),
+            fill_value=FILL_VALUE,
+        )
+        self.vdev = vgrid.array(
+            name="vdev",
+            units="m s-1",
+            attrs=dict(_mask_output=True),
+            fill_value=FILL_VALUE,
+        )
+
+        self.uua3d = ugrid.ugrid.array(fill=np.nan, z=CENTERS)
+        self.uva3d = ugrid.vgrid.array(fill=np.nan, z=CENTERS)
+        self.vua3d = vgrid.ugrid.array(fill=np.nan, z=CENTERS)
+        self.vva3d = vgrid.vgrid.array(fill=np.nan, z=CENTERS)
+
+        self.ustar2_bx = ugrid.array(
+            name="ustar2_bx",
+            long_name="tendency of depth-integrated x-velocity due to bottom friction",
+            units="m2 s-2",
+            attrs=dict(_mask_output=True),
+            fill_value=FILL_VALUE,
+        )
+        self.ustar2_by = vgrid.array(
+            name="ustar2_by",
+            long_name="tendency of depth-integrated y-velocity due to bottom friction",
+            units="m2 s-2",
+            attrs=dict(_mask_output=True),
+            fill_value=FILL_VALUE,
+        )
+        self.ustar_b = tgrid.array(
+            name="ustar_b",
+            units="m s-1",
+            long_name="bottom shear velocity",
+            fill_value=FILL_VALUE,
+        )
+        self.taub = tgrid.array(
+            fill=0.0,
+            name="taub",
+            units="Pa",
+            long_name="bottom shear stress",
+            fill_value=FILL_VALUE,
+            fabm_standard_name="bottom_stress",
+            attrs=dict(_mask_output=True),
+        )
+
+    def initialize(
+        self,
+        logger: logging.Logger,
+        tgrid: core.Grid,
+        runtype: RunType,
+        default_advection_scheme: operators.AdvectionScheme,
+    ):
+        self._create_depth_integrated_arrays(tgrid)
+        if runtype > RunType.BAROTROPIC_2D:
+            self._create_depth_explicit_arrays(tgrid)
+
+        ugrid = tgrid.ugrid
+        vgrid = tgrid.vgrid
 
         self.logger = logger
         self.runtype = runtype
@@ -436,9 +567,6 @@ class Momentum:
             self.corqk.all_values[:, :, 0] = 0.0
             self.corqk.all_values[:, -1, :] = 0.0
 
-        self.Ui_tmp = np.zeros_like(self.Ui.all_values)
-        self.Vi_tmp = np.zeros_like(self.Vi.all_values)
-
         if self.advection_scheme is None:
             self.advection_scheme = default_advection_scheme
         self.logger.info(f"Advection scheme: {self.advection_scheme.name}")
@@ -452,28 +580,18 @@ class Momentum:
         self.logger.info(f"Crank-Nicolson parameter: {self.cnpar}")
         self.logger.info(f"Coriolis interpolation: {self.coriolis_scheme.name}")
 
-        self.uua = ugrid.ugrid.array(fill=np.nan)
-        self.uva = ugrid.vgrid.array(fill=np.nan)
-        self.vua = vgrid.ugrid.array(fill=np.nan)
-        self.vva = vgrid.vgrid.array(fill=np.nan)
-
-        self.u_V = vgrid.array()
-        self.v_U = ugrid.array()
-
         if self.runtype > RunType.BAROTROPIC_2D:
-            self.uua3d = ugrid.ugrid.array(fill=np.nan, z=CENTERS)
-            self.uva3d = ugrid.vgrid.array(fill=np.nan, z=CENTERS)
-            self.vua3d = vgrid.ugrid.array(fill=np.nan, z=CENTERS)
-            self.vva3d = vgrid.vgrid.array(fill=np.nan, z=CENTERS)
-
+            # Layer thicknesses and velocities in bottom layer (for bottom friction)
             self.hU_bot = ugrid.hn.isel(z=0)
             self.hV_bot = vgrid.hn.isel(z=0)
             self.u_bot = self.uk.isel(z=0)
             self.v_bot = self.vk.isel(z=0)
 
-        self._vertical_diffusion = operators.VerticalDiffusion(tgrid, cnpar=self.cnpar)
-        self.ea2 = tgrid.array(fill=0.0, z=CENTERS)
-        self.ea4 = tgrid.array(fill=0.0, z=CENTERS)
+            self._vertical_diffusion = operators.VerticalDiffusion(
+                tgrid, cnpar=self.cnpar
+            )
+            self.ea2 = tgrid.array(fill=0.0, z=CENTERS)
+            self.ea4 = tgrid.array(fill=0.0, z=CENTERS)
 
         self.An = tgrid.array(
             name="An",
@@ -483,7 +601,6 @@ class Momentum:
             attrs=dict(_require_halos=True, _time_varying=False),
         )
         self.An.fill(self._An_const)
-        self.An_uu = self.An_uv = self.An_vu = self.An_vv = None
 
         #: Whether to start the depth-integrated (2D) momentum update with u
         # (as opposed to v)
@@ -492,49 +609,6 @@ class Momentum:
         #: Whether to start the depth-explicit (3D) momentum update with u
         # (as opposed to v)
         self._u3dfirst = False
-
-        self.udev = ugrid.array(
-            name="udev",
-            units="m s-1",
-            attrs=dict(_mask_output=True),
-            fill_value=FILL_VALUE,
-        )
-        self.vdev = vgrid.array(
-            name="vdev",
-            units="m s-1",
-            attrs=dict(_mask_output=True),
-            fill_value=FILL_VALUE,
-        )
-
-        self.ustar2_bx = ugrid.array(
-            name="ustar2_bx",
-            long_name="tendency of transport in x-direction due to bottom friction",
-            units="m2 s-2",
-            attrs=dict(_mask_output=True),
-            fill_value=FILL_VALUE,
-        )
-        self.ustar2_by = vgrid.array(
-            name="ustar2_by",
-            long_name="tendency of transport in y-direction due to bottom friction",
-            units="m2 s-2",
-            attrs=dict(_mask_output=True),
-            fill_value=FILL_VALUE,
-        )
-        self.ustar_b = tgrid.array(
-            name="ustar_b",
-            units="m s-1",
-            long_name="bottom shear velocity",
-            fill_value=FILL_VALUE,
-        )
-        self.taub = tgrid.array(
-            fill=0.0,
-            name="taub",
-            units="Pa",
-            long_name="bottom shear stress",
-            fill_value=FILL_VALUE,
-            fabm_standard_name="bottom_stress",
-            attrs=dict(_mask_output=True),
-        )
 
     def start(self):
         # Ensure transports and velocities are 0 in masked points
@@ -551,15 +625,16 @@ class Momentum:
         self.An.all_values[self.An.grid._land] = self.An.fill_value
         if (self.An.all_values[self.An.grid._water] == 0.0).all():
             self.logger.info("Disabling numerical damping because An is 0 everywhere")
+            self.An_uu = self.An_uv = self.An_vu = self.An_vv = None
         else:
             self.logger.info(
                 "Horizontal diffusivity An used for numerical damping ranges between"
                 f" {self.An.ma.min()} and {self.An.ma.max()} m2 s-1"
             )
-            self.An_uu = self.An.interp(self.uua.grid.array(fill=np.nan))
-            self.An_uv = self.An.interp(self.uva.grid.array(fill=np.nan))
-            self.An_vu = self.An.interp(self.vua.grid.array(fill=np.nan))
-            self.An_vv = self.An.interp(self.vva.grid.array(fill=np.nan))
+            self.An_uu = self.An.interp(self.U.grid.ugrid.array(fill=np.nan))
+            self.An_uv = self.An.interp(self.U.grid.vgrid.array(fill=np.nan))
+            self.An_vu = self.An.interp(self.V.grid.ugrid.array(fill=np.nan))
+            self.An_vv = self.An.interp(self.V.grid.vgrid.array(fill=np.nan))
 
     def advance_depth_integrated(
         self,
@@ -633,8 +708,9 @@ class Momentum:
             u()
         self._ufirst = not self._ufirst
 
-        self.Ui_tmp += self.U.all_values
-        self.Vi_tmp += self.V.all_values
+        if self.runtype > RunType.BAROTROPIC_2D:
+            self._U_cum += self.U.all_values
+            self._V_cum += self.V.all_values
 
     def update_depth_integrated_diagnostics(
         self, timestep: float, skip_coriolis: bool = False, update_z0b: bool = False
@@ -656,7 +732,7 @@ class Momentum:
         # Calculate sources of transports U and V due to advection (advU, advV)
         # and diffusion (diffU, diffV)
         # Transports generally come in at time=-1/2 and are then advanced to time+1/2
-        self.transport_2d_momentum(
+        self._transport_2d_momentum(
             self.U,
             self.V,
             timestep,
@@ -706,10 +782,10 @@ class Momentum:
         # Depth-integrated transports have been summed over all microtimesteps.
         # Average them, then reset depth-integrated transports that will be incremented
         # over the next macrotimestep.
-        np.multiply(self.Ui_tmp, 1.0 / split_factor, out=self.Ui.all_values)
-        np.multiply(self.Vi_tmp, 1.0 / split_factor, out=self.Vi.all_values)
-        self.Ui_tmp.fill(0.0)
-        self.Vi_tmp.fill(0.0)
+        np.multiply(self._U_cum, 1.0 / split_factor, out=self.Ui.all_values)
+        np.multiply(self._V_cum, 1.0 / split_factor, out=self.Vi.all_values)
+        self._U_cum.fill(0.0)
+        self._V_cum.fill(0.0)
 
         # Do the halo exchange for viscosity, as this needs to be interpolated
         # to the U and V grids. For that, information from the halos is used.
@@ -903,7 +979,7 @@ class Momentum:
         # current and next macrotime step) with the newly calculated depth-integrated
         # transport based on accumulated 2D transports (accumulated over the
         # current macrotimestep, and thus representative for its center).
-        self.transport_2d_momentum(
+        self._transport_2d_momentum(
             self.Ui, self.Vi, timestep, self.SxA, self.SyA, self.SxD, self.SyD, False
         )
         self.SxA.all_values[...] = (
@@ -920,7 +996,7 @@ class Momentum:
         )
 
         if self.apply_bottom_friction:
-            # Note: ru and rv have been updated by transport_2d_momentum, using
+            # Note: ru and rv have been updated by _transport_2d_momentum, using
             # accumulated transports Ui and Vi (representative for t=1/2, just like uk,
             # vk, rru, rrv). The associated tendencies of depth-integrated transport
             # are -ru*u1 and -rv*v1. Slow bottom friction (stress in Pa divided by
@@ -933,7 +1009,7 @@ class Momentum:
                 self.ustar2_by.all_values + self.rv.all_values * self.v1.all_values
             )
 
-    def transport_2d_momentum(
+    def _transport_2d_momentum(
         self,
         U: core.Array,
         V: core.Array,
@@ -1038,10 +1114,10 @@ class Momentum:
                 per actual velocity at the layer center on the V grid
             update_z0b: whether to iteratively update the hydrodynamic bottom roughness
         """
-        u.interp(self.u_V)
-        v.interp(self.v_U)
-        pygetm._pygetm.bottom_friction(u, self.v_U, DU, self.avmmol, ru, update_z0b)
-        pygetm._pygetm.bottom_friction(self.u_V, v, DV, self.avmmol, rv, update_z0b)
+        u_V = u.interp(v.grid._work)
+        v_U = v.interp(u.grid._work)
+        pygetm._pygetm.bottom_friction(u, v_U, DU, self.avmmol, ru, update_z0b)
+        pygetm._pygetm.bottom_friction(u_V, v, DV, self.avmmol, rv, update_z0b)
 
     def coriolis(self, U: core.Array, out: core.Array, x_direction: bool):
         """Calculate change in transport due to Coriolis force
@@ -1131,20 +1207,3 @@ class Momentum:
         tp3d.mirror()
 
         tp3d.update_halos()
-
-
-# # Expose all Fortran arrays that are a member of Momentum as read-only properties
-# # The originals are members with and underscore as prefix, and therefore not visible to
-# # the user. This ensures the user will not accidentally disconnect the Python variable
-# # from the underlying Fortran libraries/data
-# for membername in Momentum._all_fortran_arrays:
-#     attrs = Momentum._array_args.get(membername[1:], {})
-#     long_name = attrs.get("long_name")
-#     units = attrs.get("units")
-#     doc = ""
-#     if long_name is not None:
-#         doc = long_name
-#         if units:
-#             doc += f" ({units})"
-#     prop = property(operator.attrgetter(membername), doc=doc)
-#     setattr(Momentum, membername[1:], prop)

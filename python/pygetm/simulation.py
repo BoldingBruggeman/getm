@@ -885,8 +885,8 @@ class Simulation(BaseSimulation):
         self.open_boundaries.start(
             self.momentum.U,
             self.momentum.V,
-            self.momentum.uk,
-            self.momentum.vk,
+            self.momentum.uk if self.runtype > RunType.BAROTROPIC_2D else None,
+            self.momentum.vk if self.runtype > RunType.BAROTROPIC_2D else None,
             self._fields,
         )
         # Ensure U and V points at the land-water interface have non-zero water depth
