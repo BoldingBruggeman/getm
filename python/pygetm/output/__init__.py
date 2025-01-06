@@ -102,7 +102,7 @@ class File(operators.FieldCollection):
         seconds_passed: float,
         itimestep: int,
         time: Optional[cftime.datetime],
-        default_time_reference: Optional[cftime.datetime],
+        default_time_reference: Optional[cftime.datetime] = None,
     ):
         if (
             self.interval_units not in time_unit2seconds
@@ -113,7 +113,8 @@ class File(operators.FieldCollection):
                 f"For {self.interval_units} to be used, OutputManager.start should be"
                 " called with an actual cftime.datetime object."
             )
-        self.start_now(seconds_passed, time, default_time_reference)
+        self.add_coordinates()
+        self.start_now(seconds_passed, time, default_time_reference or time)
         if self.save_initial:
             self._logger.debug("Saving initial state")
             self.save_now(seconds_passed, time)
@@ -222,6 +223,23 @@ class OutputManager:
             if field.attrs.get("_part_of_state"):
                 file.request(field)
         return file
+
+    def dump(
+        self,
+        path: str,
+        *fields: Union[str, core.Array],
+        seconds_passed: float = 0.0,
+        time: Optional[cftime.datetime] = None,
+        **kwargs,
+    ):
+        kwargs.update(interval=-1, save_initial=False)
+        kwargs.setdefault("time_reference", self._time_reference)
+        file = netcdf.NetCDFFile(
+            self.fields, self._logger.getChild(path), path, rank=self.rank, **kwargs
+        )
+        file.request(*fields)
+        file.start(seconds_passed, 0, time)
+        file.close(seconds_passed, time)
 
     def start(
         self,
