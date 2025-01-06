@@ -232,7 +232,6 @@ class OutputManager:
         time: Optional[cftime.datetime] = None,
         **kwargs,
     ):
-        kwargs.update(interval=-1, save_initial=False)
         kwargs.setdefault("time_reference", self._time_reference)
         file = netcdf.NetCDFFile(
             self.fields, self._logger.getChild(path), path, rank=self.rank, **kwargs
