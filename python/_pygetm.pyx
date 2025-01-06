@@ -215,7 +215,7 @@ cdef class Advection:
 
         # Work array for layer heights that change during 3d advection
         # This is shared by the temporary column height that evolves similarly during 2d advection
-        self.h = numpy.empty((self.grid.nz_, self.grid.ny_, self.grid.nx_))
+        self.h = numpy.empty((max(self.grid.nz_, 1), self.grid.ny_, self.grid.nx_))
         self.D = self.h[0,...]
 
         # Store references to column height and layer thicknesses

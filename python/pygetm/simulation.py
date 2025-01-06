@@ -436,7 +436,6 @@ class Simulation(BaseSimulation):
         "rivers",
         "open_boundaries",
         "vertical_coordinates",
-        "D_T_half",
         "h_T_half",
         "depth",
     )
@@ -505,12 +504,17 @@ class Simulation(BaseSimulation):
             f"(i={i}, j={j}, bathymetric depth={depth:.3f} m)"
         )
 
-        if vertical_coordinates is None:
+        if runtype == RunType.BAROTROPIC_2D:
+            vertical_coordinates = None
+        elif vertical_coordinates is None:
+            self.logger.warn(
+                "Argument vertical_coordinates not provided; using a single layer"
+            )
             vertical_coordinates = pygetm.vertical_coordinates.Sigma(1)
         self.vertical_coordinates = vertical_coordinates
 
         self.T = domain.create_grids(
-            nz=1 if runtype == RunType.BAROTROPIC_2D else vertical_coordinates.nz,
+            nz=vertical_coordinates.nz if vertical_coordinates else None,
             halox=HALO,
             haloy=HALO,
             fields=self._fields,
@@ -536,14 +540,18 @@ class Simulation(BaseSimulation):
         self.T.z = self.T.array(
             name="zt",
             units="m",
-            long_name="elevation",
+            long_name="surface elevation",
             fill_value=FILL_VALUE,
-            attrs=dict(_part_of_state=True, _minimum=self.Dmin - self.T.H.all_values),
+            attrs=dict(
+                standard_name="sea_surface_height_above_geopotential_datum",
+                _part_of_state=True,
+                _minimum=self.Dmin - self.T.H.all_values,
+            ),
         )
         self.T.zo = self.T.array(
             name="zot",
             units="m",
-            long_name="elevation at previous microtimestep",
+            long_name="surface elevation at previous microtimestep",
             fill_value=FILL_VALUE,
             attrs=dict(_part_of_state=True),
         )
@@ -555,14 +563,14 @@ class Simulation(BaseSimulation):
             self.T.zin = self.T.array(
                 name="zint",
                 units="m",
-                long_name="elevation at macrotimestep",
+                long_name="surface elevation at macrotimestep",
                 fill_value=FILL_VALUE,
                 attrs=dict(_part_of_state=True),
             )
             self.T.zio = self.T.array(
                 name="ziot",
                 units="m",
-                long_name="elevation at previous macrotimestep",
+                long_name="surface elevation at previous macrotimestep",
                 fill_value=FILL_VALUE,
                 attrs=dict(_part_of_state=True),
             )
@@ -597,21 +605,23 @@ class Simulation(BaseSimulation):
         # which near land has valid values where UU/VV are masked
         self.U.ugrid.D.attrs["_mask_output"] = True
         self.V.vgrid.D.attrs["_mask_output"] = True
-        self.U.ugrid.hn.attrs["_mask_output"] = True
-        self.V.vgrid.hn.attrs["_mask_output"] = True
 
-        # Water depth and thicknesses on T grid that lag 1/2 time step behind tracer
-        # (i.e., they are in sync with U, V, X grids)
-        self.D_T_half = self.T.array(fill=np.nan)
-        self.h_T_half = self.T.array(fill=np.nan, z=CENTERS)
-        self.depth = self.T.array(
-            z=CENTERS,
-            name="pres",
-            units="dbar",
-            long_name="pressure",
-            fabm_standard_name="depth",
-            fill_value=FILL_VALUE,
-        )
+        if runtype > RunType.BAROTROPIC_2D:
+            self.U.ugrid.hn.attrs["_mask_output"] = True
+            self.V.vgrid.hn.attrs["_mask_output"] = True
+
+            # Thicknesses on T grid that lag 1/2 time step behind tracer
+            # (i.e., they are in sync with U, V, X grids)
+            self.h_T_half = self.T.array(fill=np.nan, z=CENTERS)
+
+            self.depth = self.T.array(
+                z=CENTERS,
+                name="pres",
+                units="dbar",
+                long_name="pressure",
+                fabm_standard_name="depth",
+                fill_value=FILL_VALUE,
+            )
 
         unmasked = self.T.mask != 0
         self.total_volume_ref = (self.T.H * self.T.area).global_sum(where=unmasked)
@@ -655,10 +665,18 @@ class Simulation(BaseSimulation):
 
         # Surface stresses interpolated to U and V grids
         self.tausx = self.U.array(
-            name="tausxu", fill_value=FILL_VALUE, attrs={"_mask_output": True}
+            name="tausxu",
+            units="Pa",
+            long_name="surface stress in x-direction",
+            fill_value=FILL_VALUE,
+            attrs={"_mask_output": True},
         )
         self.tausy = self.V.array(
-            name="tausyv", fill_value=FILL_VALUE, attrs={"_mask_output": True}
+            name="tausyv",
+            units="Pa",
+            long_name="surface stress in y-direction",
+            fill_value=FILL_VALUE,
+            attrs={"_mask_output": True},
         )
 
         self.fwf = self.T.array(
@@ -845,29 +863,35 @@ class Simulation(BaseSimulation):
             ]
             self.temp_sf = self.temp.isel(z=-1)
             self.salt_sf = self.salt.isel(z=-1)
+        else:
+            self.temp_sf = None
+            self.salt_sf = None
 
-            if internal_pressure is None:
-                internal_pressure = pygetm.internal_pressure.ShchepetkinMcwilliams()
-            internal_pressure.initialize(self.U, self.V)
-            self.logger.info(f"Internal pressure method: {internal_pressure!r}")
-            self.internal_pressure = internal_pressure
+        if runtype == RunType.BAROTROPIC_2D:
+            internal_pressure = None
+        elif runtype == RunType.BAROTROPIC_3D:
+            internal_pressure = pygetm.internal_pressure.Base()
+        elif internal_pressure is None:
+            internal_pressure = pygetm.internal_pressure.ShchepetkinMcwilliams()
+        self.internal_pressure = internal_pressure
+        if self.internal_pressure is not None:
+            self.logger.info(f"Internal pressure method: {self.internal_pressure!r}")
+            self.internal_pressure.initialize(self.U, self.V)
             self.delay_slow_ip = delay_slow_ip
             if delay_slow_ip:
                 self.momentum.SxB.attrs["_part_of_state"] = True
                 self.momentum.SyB.attrs["_part_of_state"] = True
-        else:
-            self.internal_pressure = pygetm.internal_pressure.Base()
-            self.internal_pressure.initialize(self.U, self.V)
-            self.temp_sf = None
-            self.salt_sf = None
 
-        self.vertical_coordinates.initialize(
-            self.T,
-            self.U,
-            self.V,
-            self.X,
-            logger=self.logger.getChild("vertical_coordinates"),
-        )
+        # Initialize vertical coordinates as very last step, so that the underlying
+        # logic can access all model fields (e.g., NN and SS for adaptive coordinates)
+        if self.vertical_coordinates is not None:
+            self.vertical_coordinates.initialize(
+                self.T,
+                self.U,
+                self.V,
+                self.X,
+                logger=self.logger.getChild("vertical_coordinates"),
+            )
 
         # Derive old and new elevations, water depths and thicknesses from current
         # surface elevation on T grid. This must be done after self.pres.saved is set
@@ -895,7 +919,8 @@ class Simulation(BaseSimulation):
         for grid in (self.U, self.V):
             edges = grid._water_contact & grid._land
             grid.D.all_values[edges] = FILL_VALUE
-            grid.hn.all_values[..., edges] = FILL_VALUE
+            if grid.hn is not None:
+                grid.hn.all_values[..., edges] = FILL_VALUE
 
         if self.fabm:
             self.fabm.start(self.macrotimestep, self.time)
@@ -1500,9 +1525,10 @@ class Simulation(BaseSimulation):
         # Update total water depth on advection grids. These must be 1/2 timestep
         # behind the T grid. That's already the case for the X grid, but for the T grid
         # we explicitly compute and use the average of old and new D.
-        _pygetm.elevation2depth(z_T_half, self.T.H, self.Dmin, self.D_T_half)
-        self.U.ugrid.D.all_values[:, :-1] = self.D_T_half.all_values[:, 1:]
-        self.V.vgrid.D.all_values[:-1, :] = self.D_T_half.all_values[1:, :]
+        D_T_half = self.T._work
+        _pygetm.elevation2depth(z_T_half, self.T.H, self.Dmin, D_T_half)
+        self.U.ugrid.D.all_values[:, :-1] = D_T_half.all_values[:, 1:]
+        self.V.vgrid.D.all_values[:-1, :] = D_T_half.all_values[1:, :]
         self.U.vgrid.D.all_values[:, :] = self.X.D.all_values[1:, 1:]
         self.V.ugrid.D.all_values[:, :] = self.U.vgrid.D.all_values
 
