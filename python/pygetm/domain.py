@@ -663,6 +663,8 @@ class Domain:
         t_postfix: str = "",
     ) -> core.Grid:
         if self.comm.rank == 0:
+            if self._H is None:
+                raise Exception("Water depth at rest (H) has not been provided")
             # We are the root node - update the global mask
             self.infer_UVX_masks2()
             self.open_boundaries.adjust_mask(self.mask)
