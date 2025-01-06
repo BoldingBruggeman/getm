@@ -53,7 +53,7 @@ class Density:
             SA.all_values,
             ct.all_values,
             p.all_values,
-            SA.grid.lat.all_values,
+            SA.grid._work.all_values,  # lat not used by nsquared
             out.all_values[1:-1, :, :],
         )
         return out
