@@ -157,6 +157,7 @@ class GVC(PerGrid):
             raise Exception(
                 "This GVC parameterization would always result in equidistant layers."
                 " If this is desired, use Sigma instead."
+                f" ddl={ddl}, ddu={ddu}, Dgamma={Dgamma} and gamma_surf={gamma_surf}."
             )
 
         self.Dgamma = Dgamma
@@ -200,10 +201,11 @@ class Adaptive(Base):
     def __init__(
         self,
         nz: int,
-        timestep: float = -1.0,
+        timestep: float,
+        *,
         cnpar: float = 1.0,
-        ddl: float = 0.0,
         ddu: float = 0.0,
+        ddl: float = 0.0,
         gamma_surf: bool = True,
         Dgamma: float = 0.0,
         csigma: float = -1.0,  # 0.01
@@ -236,8 +238,8 @@ class Adaptive(Base):
             nz: number of layers
             timestep: model baroclinic time step
             cnpar: Crank Nicolson implicitness parameter
-            ddl: zoom factor at bottom (0: no zooming, 2: strong zooming)
             ddu: zoom factor at surface (0: no zooming, 2: strong zooming)
+            ddl: zoom factor at bottom (0: no zooming, 2: strong zooming)
             gamma_surf: use layers of constant thickness `Dgamma/nz` at surface (otherwise, at bottom)
             Dgamma: water depth below which to use equal layer thicknesses
             decay: surface/bottom effect - decay by layer
@@ -276,7 +278,9 @@ class Adaptive(Base):
             raise Exception("timescale must be a positive value")
 
         if csigma > 0.0 and cgvc > 0.0:
-            warnings.warn(f"Overriding csigma={csigma} and use cgvc={cgvc}")
+            warnings.warn(
+                f"Both csigma and cgvc > 0: overriding csigma={csigma} using cgvc={cgvc}"
+            )
             csigma = -csigma
 
         super().__init__(nz)
@@ -350,7 +354,7 @@ class Adaptive(Base):
         # Should catch if illegal values are used
         self.nug.all_values[0, ...] = np.nan
 
-        self.gai = tgrid.array(
+        self.ga = tgrid.array(
             z=INTERFACES,
             attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
         )
@@ -367,18 +371,16 @@ class Adaptive(Base):
                 z=CENTERS,
                 attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
             )
-            self._gvc(tgrid.D[...], tgrid.hn[...])
+            self._gvc(tgrid.D.all_values, tgrid.hn.all_values)
 
         # Obtain additional fields used by adaptive coordinates
         # NN and SS should maybe be interpolated to centers
+        assert "NN" in tgrid.fields.keys()
         if "NN" in tgrid.fields.keys():
             self.NN = tgrid.fields["NN"]
-        else:
-            self.NN = tgrid.array(z=INTERFACES)
+        assert "SS" in tgrid.fields.keys()
         if "SS" in tgrid.fields.keys():
             self.SS = tgrid.fields["SS"]
-        else:
-            self.SS = tgrid.array(z=INTERFACES)
 
     def __call__(
         self,
@@ -420,7 +422,7 @@ class Adaptive(Base):
 
         _pygetm.update_adaptive(
             self.nug,
-            self.gai,
+            self.ga,
             self.NN.all_values,
             self.SS.all_values,
             self.decay,
@@ -457,11 +459,11 @@ class Adaptive(Base):
                 _pygetm.horizontal_filter(self.nug, self.hfilter)
 
         # now the grid diffusion field is ready to be applied
-        _pygetm.tridiagonal(self.nug, self.gai, self.cnpar, self.timestep)
+        _pygetm.tridiagonal(self.nug, self.ga, self.cnpar, self.timestep)
 
         # To get dga - that can be used to interpolate to
         # other grids for the calculation of layer heights
-        self.dga_t[...] = np.diff(self.gai[...], axis=0)
+        self.dga_t[...] = np.diff(self.ga[...], axis=0)
         self.dga_t.update_halos()
         return out
 

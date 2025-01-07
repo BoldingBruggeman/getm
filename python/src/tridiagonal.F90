@@ -56,14 +56,16 @@ subroutine c_tridiagonal(nx, ny, nz, halox, haloy, &
 
    call cpu_time(start_)
 #ifdef _USE_3D_
-    ! picked directly from Bjarnes code
-    ! consider to make it 1D?
+   ! picked directly from Bjarnes code
+   a2(:,:,kmax) = 1._c_double
+   a1(:,:,kmax) = 0._c_double
+   a4(:,:,kmax) = 0._c_double
+   x = 2._c_double*dt
    do k=1,kmax-1
       do j=jmin,jmax
          do i=imin,imax
             if (mask(i,j) < 1) cycle
 
-            x = 2._c_double*dt*nu(i,j,k)
             a1(i,j,k) = -x*nu(i,j,k)
             a3(i,j,k) = -x*nu(i,j,k+1)
             a2(i,j,k) = 1._c_double + x*nu(i,j,k) + x*nu(i,j,k+1)
@@ -74,9 +76,6 @@ subroutine c_tridiagonal(nx, ny, nz, halox, haloy, &
    a3(:,:,0) = 0._c_double
    a2(:,:,0) = 1._c_double
    a4(:,:,0) = -1._c_double
-   a2(:,:,kmax) = 1._c_double
-   a1(:,:,kmax) = 0._c_double
-   a4(:,:,kmax) = 0._c_double
 
    ! solve system
    do j=jmin,jmax
@@ -95,6 +94,13 @@ subroutine c_tridiagonal(nx, ny, nz, halox, haloy, &
          do k=1,kmax
             var(i,j,k)=qu(k)-ru(k)*var(i,j,k-1)
          end do
+
+         if (i == 50 .and. j == 1) then
+            do k=kmax,0,-1
+               !write(24,*) a1(i,j,k),a2(i,j,k),a3(i,j,k),a4(i,j,k)
+               write(24,*) nu(i,j,k),ru(k),qu(k),var(i,j,k)
+            end do
+         end if
       end do
    end do
 
