@@ -58,6 +58,7 @@ class TestOutput(unittest.TestCase):
             np.linspace(0, 100e3, 51),
             interfaces=True,
             f=0.0,
+            H=10.0,
             logger=pygetm.parallel.get_logger(level="ERROR"),
         )
         return Simulation(domain)

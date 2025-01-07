@@ -279,7 +279,7 @@ class Clamped(BoundaryCondition):
 
 class Flather(BoundaryCondition):
     def __init__(self, transport: bool = False):
-        self.update = self.update_transport if transport else self.update_velocity
+        self.transport = transport
 
     def get_updater(
         self,
@@ -288,7 +288,7 @@ class Flather(BoundaryCondition):
         bdy: np.ndarray,
     ):
         return functools.partial(
-            self.update,
+            self.update_transport if self.transport else self.update_velocity,
             array.all_values[boundary.slice_t],
             bdy,
             boundary.tp,

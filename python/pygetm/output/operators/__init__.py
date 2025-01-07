@@ -284,8 +284,11 @@ class FieldCollection:
                 self._updaters.setdefault(key, []).append(field.updater)
         self.fields[final_name] = field
         self.expression2name[field.expression] = final_name
-        field.coordinates = [self.require(f) for f in field.coords]
         return final_name
+
+    def add_coordinates(self):
+        for field in list(self.fields.values()):
+            field.coordinates.extend(self.require(f) for f in field.coords)
 
     def require(self, field: Base) -> str:
         """Ensure that the specified variable (or expression of variables) is included
@@ -495,13 +498,14 @@ class Slice(UnivariateTransform):
     __slots__ = "_slice"
 
     def __init__(self, source: Base):
-        xstart = source.halox
-        ystart = source.haloy
-        xstop = source.shape[-1] - source.halox
-        ystop = source.shape[-2] - source.haloy
-        shape = source.shape[:-2] + (ystop - ystart, xstop - xstart)
+        halos = {source.ndim - 1: source.halox, source.ndim - 2: source.haloy}
+        slices = []
+        for idim, l in enumerate(source.shape):
+            halo = halos.get(idim, 0)
+            slices.append(slice(halo, l - halo))
+        shape = [s.stop - s.start for s in slices]
         super().__init__(source, shape=tuple(shape), expression=source.expression)
-        self._slice = (Ellipsis, slice(ystart, ystop), slice(xstart, xstop))
+        self._slice = tuple(slices)
 
     def get(
         self, out: Optional[ArrayLike] = None, slice_spec: Tuple[int, ...] = ()

@@ -32,76 +32,40 @@ def _noop(*args, **kwargs):
 
 
 class Grid(_pygetm.Grid):
-    _coordinate_arrays = "x", "y", "lon", "lat"
-    _readonly_arrays = _coordinate_arrays + (
+    _domain_arrays = (
+        "x",
+        "y",
+        "lon",
+        "lat",
         "dx",
         "dy",
-        "idx",
-        "idy",
         "area",
-        "iarea",
         "cor",
-    )
-    _fortran_arrays = _readonly_arrays + (
         "H",
-        "D",
         "mask",
-        "hn",
-        "zc",
-        "zf",
-        "z0b",
         "z0b_min",
-        "alpha",
     )
-    _all_arrays = tuple(
-        [f"_{n}" for n in _fortran_arrays]
-        + [f"_{n}i" for n in _coordinate_arrays]
-        + [f"_{n}i_" for n in _coordinate_arrays]
-    )
-    __slots__ = _all_arrays + (
-        "type",
-        "ioffset",
-        "joffset",
-        "postfix",
-        "ugrid",
-        "vgrid",
-        "xgrid",
-        "_sin_rot",
-        "_cos_rot",
-        "rotation",
-        "Dclip",
-        "z",
-        "zo",
-        "zin",
-        "zio",
-        "ho",
-        "open_boundaries",
-        "input_manager",
-        "default_output_transforms",
-        "input_grid_mappers",
-        "rivers",
-        "overlap",
-        "_interpolators",
-        "rotated",
-        "_interior",
-        "_water_contact",
-        "_land",
-        "_land3d",
-        "_water",
-        "_water_nohalo",
-        "horizontal_coordinates",
-        "extra_output_coordinates",
-        "_mirrors",
-        "tiling",
-        "fields",
-        "mask3d",
-        "bottom_indices",
-        "_work",
-    )
+    _derived_metric_arrays = ("idx", "idy", "iarea")
+    _readonly_arrays = _domain_arrays + _derived_metric_arrays
+    _new_2d_arrays = ("D", "z0b", "alpha") + _derived_metric_arrays
+    _new_3d_arrays = ("hn", "zc", "zf")
+    _fortran_arrays = _domain_arrays + _new_2d_arrays + _new_3d_arrays
 
     _array_args = {
-        "x": dict(units="m", attrs=dict(_time_varying=False)),
-        "y": dict(units="m", attrs=dict(_time_varying=False)),
+        "x": dict(
+            units="m",
+            long_name="x-coordinate",
+            attrs=dict(
+                standard_name="projection_x_coordinate", axis="X", _time_varying=False
+            ),
+        ),
+        "y": dict(
+            units="m",
+            long_name="y-coordinate",
+            attrs=dict(
+                standard_name="projection_y_coordinate", axis="Y", _time_varying=False
+            ),
+        ),
         "lon": dict(
             units="degrees_east",
             long_name="longitude",
@@ -112,19 +76,40 @@ class Grid(_pygetm.Grid):
             long_name="latitude",
             attrs=dict(standard_name="latitude", axis="Y", _time_varying=False),
         ),
-        "dx": dict(units="m", attrs=dict(_time_varying=False)),
-        "dy": dict(units="m", attrs=dict(_time_varying=False)),
-        "idx": dict(units="m-1", attrs=dict(_time_varying=False)),
-        "idy": dict(units="m-1", attrs=dict(_time_varying=False)),
+        "dx": dict(
+            units="m",
+            long_name="cell length in x-direction",
+            attrs=dict(_time_varying=False),
+        ),
+        "dy": dict(
+            units="m",
+            long_name="cell length in y-direction",
+            attrs=dict(_time_varying=False),
+        ),
+        "idx": dict(
+            units="m-1",
+            long_name="inverse of cell length in x-direction",
+            attrs=dict(_time_varying=False),
+        ),
+        "idy": dict(
+            units="m-1",
+            long_name="inverse of cell length in y-direction",
+            attrs=dict(_time_varying=False),
+        ),
         "H": dict(
-            units="m", long_name="water depth at rest", attrs=dict(_time_varying=False)
+            units="m",
+            long_name="water depth at rest",
+            attrs=dict(
+                _time_varying=False,
+                standard_name="sea_floor_depth_below_ geopotential_datum",
+            ),
         ),
         "D": dict(
             units="m",
             long_name="water depth",
             attrs=dict(standard_name="sea_floor_depth_below_sea_surface"),
         ),
-        "mask": dict(attrs=dict(_time_varying=False), fill_value=0),
+        "mask": dict(long_name="mask", attrs=dict(_time_varying=False), fill_value=0),
         "area": dict(
             units="m2",
             long_name="cell area",
@@ -149,14 +134,14 @@ class Grid(_pygetm.Grid):
             units="m",
             long_name="height",
             attrs=dict(
-                axis="Z", positive="up", standard_name="height_above_mean_sea_level"
+                axis="Z", positive="up", standard_name="height_above_geopotential_datum"
             ),
         ),
         "zf": dict(
             units="m",
             long_name="interface height",
             attrs=dict(
-                axis="Z", positive="up", standard_name="height_above_mean_sea_level"
+                axis="Z", positive="up", standard_name="height_above_geopotential_datum"
             ),
         ),
         "z0b": dict(units="m", long_name="hydrodynamic bottom roughness"),
@@ -166,13 +151,57 @@ class Grid(_pygetm.Grid):
             attrs=dict(_time_varying=False),
         ),
         "alpha": dict(units="1", long_name="dampening"),
+        "rotation": dict(
+            units="rad",
+            long_name="grid rotation with respect to true North",
+            fill_value=np.nan,
+            attrs=dict(_time_varying=False),
+        ),
     }
+    _all_arrays = tuple(f"_{n}" for n in _array_args)
+    __slots__ = _all_arrays + (
+        "ioffset",
+        "joffset",
+        "postfix",
+        "ugrid",
+        "vgrid",
+        "xgrid",
+        "_sin_rot",
+        "_cos_rot",
+        "Dclip",
+        "z",
+        "zo",
+        "zin",
+        "zio",
+        "ho",
+        "open_boundaries",
+        "input_manager",
+        "default_output_transforms",
+        "input_grid_mappers",
+        "rivers",
+        "overlap",
+        "_interpolators",
+        "_interior",
+        "_water_contact",
+        "_land",
+        "_land3d",
+        "_water",
+        "_water_nohalo",
+        "horizontal_coordinates",
+        "extra_output_coordinates",
+        "_mirrors",
+        "tiling",
+        "fields",
+        "mask3d",
+        "bottom_indices",
+        "_work",
+    )
 
     def __init__(
         self,
         nx: int,
         ny: int,
-        nz: int,
+        nz: Optional[int] = None,
         *,
         halox: int = 0,
         haloy: int = 0,
@@ -188,7 +217,7 @@ class Grid(_pygetm.Grid):
         fields: Optional[Mapping[str, "Array"]] = None,
         tiling: Optional[parallel.Tiling] = None,
     ):
-        super().__init__(nx, ny, nz, halox, haloy, istart, jstart)
+        super().__init__(nx, ny, nz or 0, halox, haloy, istart, jstart)
         self.postfix = postfix
         self.ioffset = ioffset
         self.joffset = joffset
@@ -206,35 +235,37 @@ class Grid(_pygetm.Grid):
         self._mirrors: Mapping["Grid", Tuple[slice, slice]] = {}
         self.horizontal_coordinates: List["Array"] = []
         self.extra_output_coordinates = []
-        for name in self._fortran_arrays:
-            kwargs = dict(fill_value=FILL_VALUE)
-            kwargs.update(self._array_args[name])
-            array = Array(name=name + self.postfix, **kwargs)
-            setattr(self, f"_{name}", self.wrap(array, name.encode("ascii")))
-
-        self.rotation = Array.create(
-            grid=self,
-            dtype=self.x.dtype,
-            name="rotation" + self.postfix,
-            units="rad",
-            long_name="grid rotation with respect to true North",
-            fill_value=np.nan,
-            attrs=dict(_time_varying=False),
-        )
 
         self._work = self.array(fill_value=np.nan)
+
+    def create_array(self, name: str) -> Optional["Array"]:
+        assert name in self._array_args
+        if name in self._new_3d_arrays and not self.nz:
+            return None
+        kwargs = dict(fill_value=FILL_VALUE)
+        kwargs.update(self._array_args[name])
+        if name in self._fortran_arrays:
+            array = Array(name=name + self.postfix, **kwargs)
+            self.wrap(array, name.encode("ascii"))
+        else:
+            array = Array.create(grid=self, name=name + self.postfix, **kwargs)
+        setattr(self, f"_{name}", array)
+        return array
 
     def freeze(self):
         """Freeze all grid attributes. This will calculate derived metrics
         such as the inverse of cell height/width/area and initialize elevation
         and water depth. It subsequently makes most attributes read-only."""
+        for name in self._new_2d_arrays + self._new_3d_arrays:
+            self.create_array(name)
+        for name in self._all_arrays:
+            if not hasattr(self, name):
+                setattr(self, name, None)
+
         with np.errstate(divide="ignore"):
             self._iarea.all_values[...] = 1.0 / self._area.all_values
             self._idx.all_values[...] = 1.0 / self._dx.all_values
             self._idy.all_values[...] = 1.0 / self._dy.all_values
-
-        for name in self._readonly_arrays:
-            getattr(self, name).all_values.flags.writeable = False
 
         self._land = self.mask.all_values == 0
         self._water = ~self._land
@@ -243,25 +274,30 @@ class Grid(_pygetm.Grid):
         if not hasattr(self, "_water_contact"):
             self._water_contact = self._water
 
-        self.zc.all_values[...] = -self.H.all_values
-        self.zf.all_values[...] = -self.H.all_values
+        if self.nz:
+            # Initialize center and interface depth coordinates to coincide with
+            # bottom to ensure land points have a sensible value when plotting.
+            # For this, H should be valid also on land, where it then represents
+            # (negative) surface elevation. Thus, it needs to be done before H is
+            # masked on land below.
+            self.zc.all_values[...] = -self.H.all_values
+            self.zf.all_values[...] = -self.H.all_values
 
         self.H.all_values[self._land] = FILL_VALUE
         assert np.isfinite(self.H.all_values[self._water]).all()
         self.z0b_min.all_values[self._land] = FILL_VALUE
-        self.H.all_values.flags.writeable = False
-        self.z0b_min.all_values.flags.writeable = False
+
+        for name in self._readonly_arrays:
+            array = getattr(self, name, None)
+            if array is not None:
+                array.all_values.flags.writeable = False
+
         self.z0b.all_values[...] = self.z0b_min.all_values
 
         # Default water depth follows bathymetry (elevation=0)
         self.D.all_values[self._water] = self.H.all_values[self._water]
 
         self.Dclip = self.D
-
-        # Determine whether any grid points are rotated with respect to true North
-        # If that flag is False, it will allow us to skip potentially expensive
-        # rotation operations (`rotate` method)
-        self.rotated = self.rotation.all_values[self._water].any()
 
         for child in (self.ugrid, self.vgrid, self.xgrid):
             if child:
@@ -390,7 +426,7 @@ class Grid(_pygetm.Grid):
                 (northward velocity if the source is a geocentric velocity field)
             to_grid: rotate from geocentric to model coordinate system, not vice versa
         """
-        if not self.rotated:
+        if self._rotation is None:
             return u, v
         elif self._sin_rot is None:
             self._sin_rot = np.sin(self.rotation.all_values)
@@ -793,11 +829,11 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             **kwargs: additional keyword arguments passed to
                 :meth:`xarray.DataArray.plot`
         """
-        if "x" not in kwargs and "y" not in kwargs and self.grid.horizontal_coordinates:
+        kwargs.setdefault("shading", "auto")
+        if self.grid.horizontal_coordinates:
             x, y = self.grid.horizontal_coordinates
-            kwargs.update(x=x.name, y=y.name)
-        if "shading" not in kwargs:
-            kwargs["shading"] = "auto"
+            kwargs.setdefault("x", x.name)
+            kwargs.setdefault("y", y.name)
         return self.as_xarray(mask=mask).plot(**kwargs)
 
     def interp(
