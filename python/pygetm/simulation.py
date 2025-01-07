@@ -565,14 +565,14 @@ class Simulation(BaseSimulation):
                 units="m",
                 long_name="surface elevation at macrotimestep",
                 fill_value=FILL_VALUE,
-                attrs=dict(_part_of_state=True),
+                attrs=dict(_part_of_state=True, _time_varying=TimeVarying.MACRO),
             )
             self.T.zio = self.T.array(
                 name="ziot",
                 units="m",
                 long_name="surface elevation at previous macrotimestep",
                 fill_value=FILL_VALUE,
-                attrs=dict(_part_of_state=True),
+                attrs=dict(_part_of_state=True, _time_varying=TimeVarying.MACRO),
             )
 
             for grid in (self.T, self.U, self.V):
@@ -669,14 +669,14 @@ class Simulation(BaseSimulation):
             units="Pa",
             long_name="surface stress in x-direction",
             fill_value=FILL_VALUE,
-            attrs={"_mask_output": True},
+            attrs=dict(_mask_output=True),
         )
         self.tausy = self.V.array(
             name="tausyv",
             units="Pa",
             long_name="surface stress in y-direction",
             fill_value=FILL_VALUE,
-            attrs={"_mask_output": True},
+            attrs=dict(_mask_output=True),
         )
 
         self.fwf = self.T.array(
@@ -684,7 +684,7 @@ class Simulation(BaseSimulation):
             units="m s-1",
             long_name="freshwater flux",
             fill_value=FILL_VALUE,
-            attrs={"_mask_output": self.airsea.pe.attrs.get("_mask_output", False)},
+            attrs=dict(_mask_output=self.airsea.pe.attrs.get("_mask_output", False)),
         )
         self.fwf.fill(0.0)
 
@@ -700,6 +700,18 @@ class Simulation(BaseSimulation):
         self.tracer_totals: List[pygetm.tracer.TracerTotal] = []
 
         self.fabm = None
+
+        # Surface temperature (in-situ) and velocities are needed for all
+        # run types as they are used for air-sea exchange
+        self.sst = self.T.array(
+            name="sst",
+            units="degrees_Celsius",
+            long_name="sea surface temperature",
+            fill_value=FILL_VALUE,
+            attrs=dict(standard_name="sea_surface_temperature", _mask_output=True),
+        )
+        self.ssu = self.T.array(fill=0.0)
+        self.ssv = self.T.array(fill=0.0)
 
         if runtype > RunType.BAROTROPIC_2D:
             #: Provider of turbulent viscosity and diffusivity. This must inherit from
@@ -734,6 +746,7 @@ class Simulation(BaseSimulation):
                 units="m",
                 long_name="hydrodynamic roughness (surface)",
                 fill_value=FILL_VALUE,
+                attrs=dict(_time_varying=TimeVarying.MACRO),
             )
             self.z0s.fill(0.1)
 
@@ -777,17 +790,6 @@ class Simulation(BaseSimulation):
 
             self.ssu_U = self.momentum.uk.isel(z=-1)
             self.ssv_V = self.momentum.vk.isel(z=-1)
-
-        self.sst = self.T.array(
-            name="sst",
-            units="degrees_Celsius",
-            long_name="sea surface temperature",
-            fill_value=FILL_VALUE,
-            attrs=dict(standard_name="sea_surface_temperature", _mask_output=True),
-        )
-
-        self.ssu = self.T.array(fill=0.0)
-        self.ssv = self.T.array(fill=0.0)
 
         if radiation is None and runtype == RunType.BAROCLINIC:
             radiation = pygetm.radiation.TwoBand()
@@ -861,8 +863,15 @@ class Simulation(BaseSimulation):
                     long_name="heat",
                 ),
             ]
+
+            # Select surface fields for conservative temperature and absolute
+            # salinity, to be used to calculate in-situ surface temperature
             self.temp_sf = self.temp.isel(z=-1)
             self.salt_sf = self.salt.isel(z=-1)
+
+            # Surface temperature will be calculated from 3D temperature and salinity
+            # and therefore varies on baroclinic timestep only
+            self.sst.attrs.update(_time_varying=TimeVarying.MACRO)
         else:
             self.temp_sf = None
             self.salt_sf = None

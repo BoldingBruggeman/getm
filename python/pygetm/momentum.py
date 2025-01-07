@@ -8,7 +8,7 @@ from . import core
 from . import parallel
 from . import operators
 import pygetm._pygetm
-from .constants import FILL_VALUE, RunType, CENTERS, RHO0, INTERFACES
+from .constants import FILL_VALUE, RunType, CENTERS, RHO0, INTERFACES, TimeVarying
 
 
 class CoriolisScheme(enum.IntEnum):
@@ -405,14 +405,14 @@ class Momentum:
             units="m s-1",
             long_name="bottom drag coefficient multiplied by near-bottom velocity",
             fill_value=FILL_VALUE,
-            attrs=dict(_mask_output=True),
+            attrs=dict(_mask_output=True, _time_varying=TimeVarying.MACRO),
         )
         self.rrv = vgrid.array(
             name="rrv",
             units="m s-1",
             long_name="bottom drag coefficient multiplied by near-bottom velocity",
             fill_value=FILL_VALUE,
-            attrs=dict(_mask_output=True),
+            attrs=dict(_mask_output=True, _time_varying=TimeVarying.MACRO),
         )
 
         self.Ui = ugrid.array(
@@ -420,14 +420,18 @@ class Momentum:
             units="m2 s-1",
             long_name="depth-integrated velocity in x-direction averaged over previous macrotimestep",
             fill_value=FILL_VALUE,
-            attrs=dict(_part_of_state=True, _mask_output=True),
+            attrs=dict(
+                _part_of_state=True, _mask_output=True, _time_varying=TimeVarying.MACRO
+            ),
         )
         self.Vi = vgrid.array(
             name="Vi",
             units="m2 s-1",
             long_name="depth-integrated velocity in y-direction averaged over previous macrotimestep",
             fill_value=FILL_VALUE,
-            attrs=dict(_part_of_state=True, _mask_output=True),
+            attrs=dict(
+                _part_of_state=True, _mask_output=True, _time_varying=TimeVarying.MACRO
+            ),
         )
 
         self._U_cum = np.zeros_like(self.Ui.all_values)
@@ -436,14 +440,14 @@ class Momentum:
         self.udev = ugrid.array(
             name="udev",
             units="m s-1",
-            attrs=dict(_mask_output=True),
             fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True, _time_varying=TimeVarying.MACRO),
         )
         self.vdev = vgrid.array(
             name="vdev",
             units="m s-1",
-            attrs=dict(_mask_output=True),
             fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True, _time_varying=TimeVarying.MACRO),
         )
 
         self.uua3d = ugrid.ugrid.array(fill=np.nan, z=CENTERS)
@@ -455,21 +459,22 @@ class Momentum:
             name="ustar2_bx",
             long_name="tendency of depth-integrated x-velocity due to bottom friction",
             units="m2 s-2",
-            attrs=dict(_mask_output=True),
             fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True, _time_varying=TimeVarying.MACRO),
         )
         self.ustar2_by = vgrid.array(
             name="ustar2_by",
             long_name="tendency of depth-integrated y-velocity due to bottom friction",
             units="m2 s-2",
-            attrs=dict(_mask_output=True),
             fill_value=FILL_VALUE,
+            attrs=dict(_mask_output=True, _time_varying=TimeVarying.MACRO),
         )
         self.ustar_b = tgrid.array(
             name="ustar_b",
             units="m s-1",
             long_name="bottom shear velocity",
             fill_value=FILL_VALUE,
+            attrs=dict(_time_varying=TimeVarying.MACRO),
         )
         self.taub = tgrid.array(
             fill=0.0,
@@ -478,7 +483,7 @@ class Momentum:
             long_name="bottom shear stress",
             fill_value=FILL_VALUE,
             fabm_standard_name="bottom_stress",
-            attrs=dict(_mask_output=True),
+            attrs=dict(_mask_output=True, _time_varying=TimeVarying.MACRO),
         )
 
     def initialize(
