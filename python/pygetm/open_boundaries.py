@@ -706,21 +706,25 @@ class OpenBoundaries(Sequence[OpenBoundary]):
                 on_boundary=True, fill=grid.lat.all_values[self.j, self.i]
             )
 
-        # Vertical coordinates of open boundary points.
-        # These will be updated by indexing into the full zc and zf
-        # after every update of surface elevation/water depth/cell thickness
-        kwargs = dict(
-            fill_value=FILL_VALUE,
-            units="m",
-            on_boundary=True,
-            attrs=dict(
-                axis="Z", positive="up", standard_name="height_above_mean_sea_level"
-            ),
-        )
-        self.zc = grid.array(name="zc_bdy", z=CENTERS, long_name="height", **kwargs)
-        self.zf = grid.array(
-            name="zf_bdy", z=INTERFACES, long_name="interface height", **kwargs
-        )
+        if grid.nz:
+            # Vertical coordinates of open boundary points.
+            # These will be updated by indexing into the full zc and zf
+            # after every update of surface elevation/water depth/cell thickness
+            kwargs = dict(fill_value=FILL_VALUE, units="m", on_boundary=True)
+            self.zc = grid.array(
+                name="zc_bdy",
+                z=CENTERS,
+                long_name="height",
+                attrs=grid.zc.attrs,
+                **kwargs,
+            )
+            self.zf = grid.array(
+                name="zf_bdy",
+                z=INTERFACES,
+                long_name="interface height",
+                attrs=grid.zf.attrs,
+                **kwargs,
+            )
 
         # Prescribed depth-averaged or depth-integrated velocity at the open boundaries
         self.u = grid.array(name="u_bdy", on_boundary=True)
