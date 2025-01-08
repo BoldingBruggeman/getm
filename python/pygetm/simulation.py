@@ -1121,12 +1121,12 @@ class Simulation(BaseSimulation):
         update_3d = self.runtype > RunType.BAROTROPIC_2D and macro_active
         update_baroclinic = self.runtype == RunType.BAROCLINIC and macro_active
 
-        if update_3d:
-            # Determine transports across the open boundaries and related quantities
-            # that are used by active open boundary conditions (e.g., flow-dependent
-            # sponge)
-            self.open_boundaries.prepare_depth_explicit()
+        # Prepare prescribed open boundaries, colocated model fields, derived metrics
+        # For instance, rotate prescribed velocities, extract inward model velocities,
+        # and calculate derived quantities specific to some types of boundary condition.
+        self.open_boundaries.prepare(update_3d)
 
+        if update_3d:
             # Update tracer values at open boundaries. This must be done after
             # input_manager.update, but before diagnostics/forcing variables derived
             # from the tracers are calculated.

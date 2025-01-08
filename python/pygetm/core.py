@@ -31,6 +31,36 @@ def _noop(*args, **kwargs):
     pass
 
 
+class Rotator:
+    __slots__ = ("_sin", "_cos")
+
+    def __init__(self, rotation: npt.ArrayLike):
+        """Rotator for velocity fields (geocentric to model-centric and vice versa)
+
+        Args:
+            rotation: clockwise rotation of grid relative to true North
+        """
+        rotation = np.asarray(rotation)
+        self._sin = np.sin(rotation)
+        self._cos = np.cos(rotation)
+
+        # hardcode cos(0.5*pi)=0 to increase precision in 90 degree rotation tests
+        self._cos[rotation == 0.5 * np.pi] = 0.0
+
+    def __call__(
+        self, u: npt.ArrayLike, v: npt.ArrayLike, to_grid: bool = True
+    ) -> Tuple[npt.ArrayLike, npt.ArrayLike]:
+        if to_grid:
+            # clockwise
+            u_new = u * self._cos + v * self._sin
+            v_new = v * self._cos - u * self._sin
+        else:
+            # counterclockwise
+            u_new = u * self._cos - v * self._sin
+            v_new = u * self._sin + v * self._cos
+        return u_new, v_new
+
+
 class Grid(_pygetm.Grid):
     _domain_arrays = (
         "x",
@@ -166,8 +196,7 @@ class Grid(_pygetm.Grid):
         "ugrid",
         "vgrid",
         "xgrid",
-        "_sin_rot",
-        "_cos_rot",
+        "_rotator",
         "Dclip",
         "z",
         "zo",
@@ -229,8 +258,6 @@ class Grid(_pygetm.Grid):
         self.tiling = tiling
 
         self._interior = (Ellipsis, slice(haloy, haloy + ny), slice(halox, halox + nx))
-        self._sin_rot: Optional[np.ndarray] = None
-        self._cos_rot: Optional[np.ndarray] = None
         self._interpolators = {}
         self._mirrors: Mapping["Grid", Tuple[slice, slice]] = {}
         self.horizontal_coordinates: List["Array"] = []
@@ -266,6 +293,11 @@ class Grid(_pygetm.Grid):
             self._iarea.all_values[...] = 1.0 / self._area.all_values
             self._idx.all_values[...] = 1.0 / self._dx.all_values
             self._idy.all_values[...] = 1.0 / self._dy.all_values
+
+        if self._rotation is not None:
+            self._rotator = Rotator(self._rotation.all_values)
+        else:
+            self._rotator = None
 
         self._land = self.mask.all_values == 0
         self._water = ~self._land
@@ -426,18 +458,9 @@ class Grid(_pygetm.Grid):
                 (northward velocity if the source is a geocentric velocity field)
             to_grid: rotate from geocentric to model coordinate system, not vice versa
         """
-        if self._rotation is None:
+        if self._rotator is None:
             return u, v
-        elif self._sin_rot is None:
-            self._sin_rot = np.sin(self.rotation.all_values)
-            self._cos_rot = np.cos(self.rotation.all_values)
-
-            # hardcode cos(0.5*pi)=0 to increase precision in 90 degree rotation tests
-            self._cos_rot[self.rotation.all_values == 0.5 * np.pi] = 0
-        sin_rot = -self._sin_rot if to_grid else self._sin_rot
-        u_new = u * self._cos_rot - v * sin_rot
-        v_new = u * sin_rot + v * self._cos_rot
-        return u_new, v_new
+        return self._rotator(u, v, to_grid=to_grid)
 
     def array(self, *args, **kwargs) -> "Array":
         return Array.create(self, *args, **kwargs)

@@ -1040,12 +1040,29 @@ class Domain:
                 lat=tp(self._lat),
                 x=tp(self._x),
                 y=tp(self._y),
-                mask=tp(self._mask),
+                mask=np.minimum(tp(self._mask), 1),
                 H=tp(self._H),
                 z0=tp(self._z0),
                 f=tp(self._f),
             )
-        return Domain(self.ny, self.nx, **kwargs)
+        rotated_domain = Domain(self.ny, self.nx, **kwargs)
+        MAP = {
+            open_boundaries.Side.WEST: open_boundaries.Side.NORTH,
+            open_boundaries.Side.NORTH: open_boundaries.Side.EAST,
+            open_boundaries.Side.EAST: open_boundaries.Side.SOUTH,
+            open_boundaries.Side.SOUTH: open_boundaries.Side.WEST,
+        }
+        for b in self.open_boundaries:
+            mstart, mstop, l = b.mstart_glob, b.mstop_glob, b.l_glob
+            if b.side in (open_boundaries.Side.NORTH, open_boundaries.Side.SOUTH):
+                mstart, mstop = (self.nx - 1 - mstart, self.nx - 1 - mstop)
+            else:
+                l = self.nx - 1 - l
+            rotated_domain.open_boundaries.add_by_index(
+                MAP[b.side], l, mstart, mstop, type_2d=b.type_2d, type_3d=b.type_3d
+            )
+        rotated_domain.open_boundaries.sponge.tmrlx = self.open_boundaries.sponge.tmrlx
+        return rotated_domain
 
     def _map_rivers(self):
         assert self.comm.rank == 0
@@ -1161,13 +1178,13 @@ class Domain:
             x_X, y_X = x[::2, ::2], y[::2, ::2]
             for b in self.open_boundaries:
                 if b.side in (open_boundaries.Side.WEST, open_boundaries.Side.EAST):
-                    imin = b.l_glob
-                    imax = imin + 1
-                    jmin, jmax = b.mstart_glob, b.mstop_glob
+                    imin, imax = b.l_glob, b.l_glob + 1
+                    jmin = min(b.mstart_glob, b.mstop_glob - b.mstep)
+                    jmax = max(b.mstart_glob, b.mstop_glob - b.mstep) + 1
                 else:
-                    jmin = b.l_glob
-                    jmax = jmin + 1
-                    imin, imax = b.mstart_glob, b.mstop_glob
+                    jmin, jmax = b.l_glob, b.l_glob + 1
+                    imin = min(b.mstart_glob, b.mstop_glob - b.mstep)
+                    imax = max(b.mstart_glob, b.mstop_glob - b.mstep) + 1
                 x_b = x_X[jmin : jmax + 1, imin : imax + 1]
                 y_b = y_X[jmin : jmax + 1, imin : imax + 1]
                 if x_b.shape[1] == 2:

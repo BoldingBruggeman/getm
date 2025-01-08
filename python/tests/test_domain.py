@@ -304,8 +304,6 @@ class TestDomain(unittest.TestCase):
         with self.assertRaises(AssertionError):
             domain.open_boundaries.add_left_boundary("W", nx, 0, 10, t2d, t3d)
         with self.assertRaises(AssertionError):
-            domain.open_boundaries.add_left_boundary("W", 0, 10, 0, t2d, t3d)
-        with self.assertRaises(AssertionError):
             domain.open_boundaries.add_left_boundary("W", 0, -1, 10, t2d, t3d)
         with self.assertRaises(AssertionError):
             domain.open_boundaries.add_left_boundary("W", 0, 0, ny + 1, t2d, t3d)
@@ -326,6 +324,15 @@ class TestDomain(unittest.TestCase):
 
         domain.open_boundaries.add_top_boundary("N2", ny - 1, 1, 10, t2d, t3d)
         domain.open_boundaries.add_top_boundary("N2", ny - 1, 10, nx, t2d, t3d)
+
+        # Reverse order
+        domain.open_boundaries.add_left_boundary("E1", nx - 1, 10, 0, t2d, t3d)
+
+        # Cross with reverse
+        with self.assertRaises(Exception):
+            domain.open_boundaries.add_left_boundary("E1", nx - 1, ny - 1, 10, t2d, t3d)
+
+        domain.open_boundaries.add_left_boundary("E1", nx - 1, ny - 2, 10, t2d, t3d)
 
         domain.create_grids(10, halox=2, haloy=2, velocity_grids=2)
 

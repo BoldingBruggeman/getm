@@ -58,6 +58,7 @@ class OpenBoundary:
         self.l_glob = l
         self.mstart_glob = mstart
         self.mstop_glob = mstop
+        self.mstep = 1 if mstop > mstart else -1
         self.type_2d = type_2d
         self.type_3d = type_3d
         self.inflow_sign = 1.0 if side in (Side.WEST, Side.SOUTH) else -1.0
@@ -84,16 +85,16 @@ class OpenBoundary:
         self.mstop_ = self.mstop_glob - m_offset
         self.mstart = min(max(0, self.mstart_), m_max)
         self.mstop = min(max(0, self.mstop_), m_max)
-        if self.l < 0 or self.l >= l_max or self.mstop <= self.mstart:
+        if self.l < 0 or self.l >= l_max or self.mstart == self.mstop:
             # Boundary lies completely outside current subdomain. Record it anyway,
             # so we can later set up a global -> local map of open boundary points
             self.l, self.mstart, self.mstop = None, None, None
             return
 
-        self.np = self.mstop - self.mstart
+        mslice = slice(self.mstart, self.mstop, self.mstep)
+        ms = np.arange(self.mstart, self.mstop, self.mstep)
+        self.np = ms.size
         l = self.l
-        mslice = slice(self.mstart, self.mstop)
-        ms = np.arange(self.mstart, self.mstop)
         ls = np.full_like(ms, l)
         if side in (Side.WEST, Side.EAST):
             self.i, self.j = ls, ms
@@ -110,7 +111,7 @@ class OpenBoundary:
         l_inward = {Side.WEST: 1, Side.EAST: -1, Side.SOUTH: 1, Side.NORTH: -1}[
             self.side
         ]
-        mslice = slice(self.mstart, self.mstop)
+        mslice = slice(self.mstart, self.mstop, self.mstep)
         ldim = -1 if self.side in (Side.WEST, Side.EAST) else -2
         lstart = self.l + l_inward * start
         assert lstart >= 0 and lstart < values.shape[ldim]
@@ -419,6 +420,8 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         "z",
         "u",
         "v",
+        "u_rot",
+        "v_rot",
         "lon",
         "lat",
         "zc",
@@ -426,6 +429,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         "local_to_global",
         "_boundaries",
         "_frozen",
+        "_rotator",
         "sponge",
         "zero_gradient",
         "active",
@@ -488,17 +492,24 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         else:
             l_max, m_max = (self.ny, self.nx)
 
-        assert mstop > mstart and mstart >= 0 and mstop <= m_max
+        mstep = 1 if mstop > mstart else -1
+        assert mstart >= 0 and mstart < m_max
+        assert mstop - mstep > 0 and mstop - mstep < m_max
+        assert mstart != mstop
         assert l >= 0 and l < l_max
 
         if name is None:
             name = str(len(self._boundaries))
 
+        mmin = min(mstart, mstop - mstep)
+        mmax = max(mstart, mstop - mstep)
         for b in self._boundaries:
             current_along_y = b.side in (Side.WEST, Side.EAST)
             if along_y == current_along_y:
                 if l == b.l_glob:
-                    overlap = min(mstop, b.mstop_glob) - max(mstart, b.mstart_glob)
+                    ostart = max(mmin, min(b.mstart_glob, b.mstop_glob - b.mstep))
+                    ostop = min(mmax, max(b.mstart_glob, b.mstop_glob - b.mstep)) + 1
+                    overlap = ostop - ostart
                     if overlap > 0:
                         raise Exception(
                             f"New boundary {name} overlaps in {overlap} points"
@@ -506,10 +517,10 @@ class OpenBoundaries(Sequence[OpenBoundary]):
                         )
             else:
                 cross = (
-                    l >= b.mstart_glob
-                    and l < b.mstop_glob
-                    and b.l_glob >= mstart
-                    and b.l_glob < mstop
+                    l >= min(b.mstart_glob, b.mstop_glob - b.mstep)
+                    and l <= max(b.mstart_glob, b.mstop_glob - b.mstep)
+                    and b.l_glob >= mmin
+                    and b.l_glob <= mmax
                 )
                 if cross:
                     i, j = (l, b.l_glob) if along_y else (b.l_glob, l)
@@ -576,7 +587,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         tmask = mask[1::2, 1::2]
         for boundary in self._boundaries:
             l = boundary.l_glob
-            mslice = slice(boundary.mstart_glob, boundary.mstop_glob)
+            mslice = slice(boundary.mstart_glob, boundary.mstop_glob, boundary.mstep)
             np = boundary.mstop_glob - boundary.mstart_glob
             if boundary.side in (Side.WEST, Side.EAST):
                 bdy_mask = tmask[mslice, l]
@@ -628,7 +639,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         bdy_types_2d = {}
         for boundary in self._boundaries:
             if boundary.l is not None:
-                mskip = boundary.mstart - boundary.mstart_
+                mskip = (boundary.mstart - boundary.mstart_) // boundary.mstep
                 assert mskip >= 0
                 boundary.start = nbdyp
                 boundary.stop = nbdyp + boundary.np
@@ -653,7 +664,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
                 self.local_to_global.append(slice(start_glob, stop_glob))
                 side2count[boundary.side] += 1
                 self.active.append(boundary)
-            nbdyp_glob += boundary.mstop_ - boundary.mstart_
+            nbdyp_glob += (boundary.mstop_ - boundary.mstart_) // boundary.mstep
 
         # Number of open boundary points (local and global)
         self.np = nbdyp
@@ -687,7 +698,7 @@ class OpenBoundaries(Sequence[OpenBoundary]):
                 )
                 self.local_to_global = None
             else:
-                # This subdomain part of the open boundaries
+                # This subdomain includes part of the open boundaries
                 slices = ", ".join(
                     [f"[{s.start}:{s.stop}]" for s in self.local_to_global]
                 )
@@ -730,6 +741,15 @@ class OpenBoundaries(Sequence[OpenBoundary]):
         self.u = grid.array(name="u_bdy", on_boundary=True)
         self.v = grid.array(name="v_bdy", on_boundary=True)
 
+        if grid.rotation is not None and self.np > 0:
+            self._rotator = core.Rotator(grid.rotation.all_values[self.j, self.i])
+            self.u_rot = grid.array(name="u_rot_bdy", on_boundary=True)
+            self.v_rot = grid.array(name="v_rot_bdy", on_boundary=True)
+        else:
+            self._rotator = None
+            self.u_rot = self.u
+            self.v_rot = self.v
+
         self.velocity_3d_in = grid.array(z=CENTERS, on_boundary=True)
 
         self._frozen = True
@@ -755,11 +775,11 @@ class OpenBoundaries(Sequence[OpenBoundary]):
             # next subdomain and (b) the current boundary neighbors another boundary
             # We then only include points with mask value 3 (see "select" below).
             if boundary.side in (Side.WEST, Side.EAST):
-                j_velout = np.arange(max(boundary.j[0] - 1, 0), boundary.j[-1] + 1)
+                j_velout = np.arange(max(boundary.j.min() - 1, 0), boundary.j.max() + 1)
                 i_velout = np.full_like(j_velout, boundary.i[0])
                 mirror_mask = vmask[j_velout, i_velout]
             else:
-                i_velout = np.arange(max(boundary.i[0] - 1, 0), boundary.i[-1] + 1)
+                i_velout = np.arange(max(boundary.i.min() - 1, 0), boundary.i.max() + 1)
                 j_velout = np.full_like(i_velout, boundary.j[0])
                 mirror_mask = umask[j_velout, i_velout]
             select = mirror_mask == 3
@@ -818,9 +838,9 @@ class OpenBoundaries(Sequence[OpenBoundary]):
             if uk is not None:
                 boundary.vel = boundary.extract_uv_in(uk.all_values, vk.all_values)
             if boundary.side in (Side.EAST, Side.WEST):
-                boundary.flow_ext = self.u[boundary.slice_bdy]
+                boundary.flow_ext = self.u_rot[boundary.slice_bdy]
             else:
-                boundary.flow_ext = self.v[boundary.slice_bdy]
+                boundary.flow_ext = self.v_rot[boundary.slice_bdy]
             boundary.velocity_3d_in = self.velocity_3d_in.all_values[boundary.slice_bdy]
         for field in fields.values():
             if hasattr(field, "open_boundaries"):
@@ -846,11 +866,17 @@ class OpenBoundaries(Sequence[OpenBoundary]):
             assert i == self.np
         return indices
 
-    def prepare_depth_explicit(self):
-        """Determine 3D velocities across the open boundaries and allow each class
-        of open boundary condition to use these to calculate derived metrics."""
-        if self.velocity_3d_in.saved:
-            for boundary in self.active:
-                boundary.velocity_3d_in[:] = boundary.inflow_sign * boundary.vel.T
-        for bc in self.bcs:
-            bc.prepare_depth_explicit()
+    def prepare(self, macro_active: bool):
+        """Prepare open boundary forcing. This includes rotating prescribed velocity
+        fields, as well as extracting 3D velocities from which each class of
+        open boundary condition can calculate derived metrics."""
+        if self._rotator:
+            u_rot, v_rot = self._rotator(self.u.all_values, self.v.all_values)
+            self.u_rot.all_values[:] = u_rot
+            self.v_rot.all_values[:] = v_rot
+        if macro_active:
+            if self.velocity_3d_in.saved:
+                for boundary in self.active:
+                    boundary.velocity_3d_in[:] = boundary.inflow_sign * boundary.vel.T
+            for bc in self.bcs:
+                bc.prepare_depth_explicit()
