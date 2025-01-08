@@ -1034,13 +1034,18 @@ class Simulation(BaseSimulation):
             # current macrotimestep.
             self.add_freshwater_inputs(self.macrotimestep)
 
-            # Update 3D elevations and layer thicknesses. New elevation zin on T grid
-            # will match elevation at end of the microtimestep, thicknesses on T grid
-            # will match. Elevation and thicknesses on U/V grids will be
-            # 1/2 MACROtimestep behind, as they are calculated by averaging zio and zin.
-            # Old elevations zio and thicknesses ho will store the previous values of
-            # zin and hn, and thus are one macrotimestep behind new elevations zin and
-            # thicknesses hn.
+            # Update water depth D and layer thicknesses hn on all grids.
+            # On the T grid, these will be consistent with surface elevation
+            # at the end of the microtimestep, that is, with the result of
+            # the call to advance_surface_elevation called above.
+            # Water depth and thicknesses on U/V/X grids will be
+            # 1/2 MACROtimestep behind.
+            # On the T grid, the previous value of surface elevation and
+            # thicknesses will be stored in variables zio and ho, respectively.
+            # These will thus be a full macrotimestep behind, but do account
+            # for freshwater input over the past macrotimestep, as that was
+            # added to surface elevation and thicknesses by the call to
+            # add_freshwater_inputs above.
             self.update_depth(_3d=True, timestep=self.macrotimestep)
 
             # Update momentum from time=-1/2 to 1/2 of the macrotimestep, using forcing
@@ -1124,7 +1129,7 @@ class Simulation(BaseSimulation):
 
             # Update tracer values at open boundaries. This must be done after
             # input_manager.update, but before diagnostics/forcing variables derived
-            # from the tracers are calculated
+            # from the tracers are calculated.
             if self.open_boundaries.np:
                 for tracer in self.tracers:
                     tracer.open_boundaries.update()
@@ -1165,13 +1170,13 @@ class Simulation(BaseSimulation):
                 self.salt, self.temp, p=self.pres, out=self.NN
             )
 
-        # Update surface elevation z on U, V, X grids and water depth D on all grids
-        # This is based on old and new elevation (T grid) for the microtimestep.
-        # Thus, for grids lagging 1/2 a timestep behind (U, V, X grids), the elevations
-        # and water depths will be representative for 1/2 a MICROtimestep ago.
+        # Update water depth D on all grids.
+        # For grids lagging 1/2 a timestep behind (U, V, X grids), the
+        # water depths will be representative for 1/2 a MICROtimestep ago.
+        # They are calculated from old and new elevations on the T grid.
         # Note that T grid elevations at the open boundary have not yet been updated,
-        # so the derived elevations and water depths calculated here will not take
-        # those into account. This is intentional: it ensures that water depths on the
+        # so water depths calculated here will not take those into account.
+        # This is intentional: it ensures that water depths on the
         # U and V grids are in sync with the already-updated transports,
         # so that velocities can be calculated correctly.
         # The call to update_surface_elevation_boundaries is made later.
