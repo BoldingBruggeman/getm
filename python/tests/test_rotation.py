@@ -21,7 +21,7 @@ class TestRotation(unittest.TestCase):
         self.domain = north_sea.create_domain(
             self.setup_dir,
             use_boundaries=True,
-            use_rivers=False,
+            use_rivers=True,
             logger=pygetm.parallel.get_logger(level="ERROR"),
         )
 

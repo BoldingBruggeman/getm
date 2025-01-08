@@ -1061,6 +1061,14 @@ class Domain:
             rotated_domain.open_boundaries.add_by_index(
                 MAP[b.side], l, mstart, mstop, type_2d=b.type_2d, type_3d=b.type_3d
             )
+        for r in self.rivers.values():
+            if r.i_glob is not None and r.j_glob is not None:
+                rot_r = rotated_domain.rivers.add_by_index(
+                    r.name, r.j_glob, self.nx - 1 - r.i_glob
+                )
+            for att in ("original_name", "split", "zl", "zu"):
+                if hasattr(r, att):
+                    setattr(rot_r, att, getattr(r, att))
         rotated_domain.open_boundaries.sponge.tmrlx = self.open_boundaries.sponge.tmrlx
         return rotated_domain
 
