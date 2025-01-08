@@ -180,56 +180,56 @@ class Momentum:
         self.SxA = ugrid.array(
             name="SxA",
             units="m-2 s-2",
-            long_name="slow advection in x-direction",
+            long_name="tendency of depth-integrated x-velocity due to slow advection",
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
         self.SyA = vgrid.array(
             name="SyA",
             units="m-2 s-2",
-            long_name="slow advection in y-direction",
+            long_name="tendency of depth-integrated y-velocity due to slow advection",
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
         self.SxB = ugrid.array(
             name="SxB",
             units="m-2 s-2",
-            long_name="depth-integrated internal pressure in x-direction",
+            long_name="tendency of depth-integrated x-velocity due to internal pressure",
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
         self.SyB = vgrid.array(
             name="SyB",
             units="m-2 s-2",
-            long_name="depth-integrated internal pressure in y-direction",
+            long_name="tendency of depth-integrated y-velocity due to internal pressure",
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
         self.SxD = ugrid.array(
             name="SxD",
             units="m-2 s-2",
-            long_name="slow diffusion in x-direction",
+            long_name="tendency of depth-integrated x-velocity due to slow diffusion",
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
         self.SyD = vgrid.array(
             name="SyD",
             units="m-2 s-2",
-            long_name="slow diffusion in y-direction",
+            long_name="tendency of depth-integrated y-velocity due to slow diffusion",
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
         self.SxF = ugrid.array(
             name="SxF",
             units="m-2 s-2",
-            long_name="slow bottom friction in x-direction",
+            long_name="tendency of depth-integrated x-velocity due to slow bottom friction",
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
         self.SyF = vgrid.array(
             name="SyF",
             units="m-2 s-2",
-            long_name="slow bottom friction in y-direction",
+            long_name="tendency of depth-integrated y-velocity due to slow bottom friction",
             fill_value=FILL_VALUE,
             attrs=dict(_mask_output=True),
         )
