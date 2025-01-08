@@ -215,7 +215,7 @@ class Sponge(BoundaryCondition):
         if self.tmrlx:
             sp[mask == 0] = 0.0  # only include water points
             w = sp / sp.sum(axis=1, keepdims=True)
-            rlxcoef = self.rlxcoef.all_values[boundary.slice_bdy]
+            rlxcoef = self.rlxcoef.all_values[boundary.slice_bdy].T
         else:
             w = None
             rlxcoef = None
@@ -225,7 +225,7 @@ class Sponge(BoundaryCondition):
             self.update_boundary,
             array.all_values[boundary.slice_t],
             boundary.extract_inward(array.all_values, start=1, stop=n + 1),
-            bdy,
+            bdy.T,
             sp,
             rlxcoef,
             w,
@@ -237,17 +237,31 @@ class Sponge(BoundaryCondition):
         sponge_values: np.ndarray,
         bdy_values: np.ndarray,
         sp: np.ndarray,
-        rlxcoef: np.ndarray,
+        rlxcoef: Optional[np.ndarray],
         w: Optional[np.ndarray],
     ):
+        """Update model values at open boundary and in sponge zone,
+        for a single model variable and single open boundary.
+
+        Args:
+            values: current model values at the open boundary (nz x nbdy)
+            sponge_values: current model values in the sponge zone
+                (inward from open boundary). (nz x nbdy x nsponge)
+            bdy_values: prescribed values at open boundary (nz x nbdy)
+            sp: fraction of model values in sponge zone to be replaced by
+                prescribed values (decreasing inward from boundary) (nbdy x nsponge)
+            rlxcoef: fraction of model values at the open boundary to be taken
+                from prescribed values. The remainder will be based on a
+                weighted mean over the sponge. (nz x nbdy)
+            w: weight for sponge mean used as part of new model values at the
+                open boundary. (nbdy x nsponge)
+        """
         if w is not None:
             # note: where=w != 0.0 is used to avoid mixing in NaNs from areas where w=0
-            sponge_mean = (w * sponge_values).sum(axis=-1, where=w != 0.0).T
+            sponge_mean = (w * sponge_values).sum(axis=-1, where=w != 0.0)
             bdy_values = rlxcoef * bdy_values + (1.0 - rlxcoef) * sponge_mean
-        bdy_values = bdy_values.T
-        blend = sp * bdy_values[..., np.newaxis] + (1.0 - sp) * sponge_values
-        sponge_values[...] = blend
         values[...] = bdy_values
+        sponge_values += sp * (bdy_values[..., np.newaxis] - sponge_values)
 
 
 class ZeroGradient(BoundaryCondition):
