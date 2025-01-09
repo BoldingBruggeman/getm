@@ -438,29 +438,28 @@ class UnivariateTransformWithData(UnivariateTransform):
 
 
 class Gather(UnivariateTransform):
-    __slots__ = "global_values", "tiling", "_slice", "_gather"
+    __slots__ = "root_has_global_values", "_slice", "_gather"
 
     def __init__(self, source: Base, gatherer, local_slice, global_shape):
         super().__init__(source, shape=global_shape, expression=source.expression)
-        self.global_values = None
-        if isinstance(source, Field):
-            if "_global_values" in source.array.attrs and not source.time_varying:
-                self.global_values = source.array.attrs["_global_values"]
+        self.root_has_global_values = (
+            isinstance(source, Field) and "_global_values" in source.array.attrs
+        )
         self._slice = local_slice
         self._gather = gatherer
 
     def get(
         self, out: Optional[ArrayLike] = None, slice_spec: Tuple[int, ...] = ()
     ) -> ArrayLike:
-        # Get data for global array
-        # If we have access to the full global field (root rank only), use that,
-        # as gathering from subdomains may leave gaps.
-        # Nevertheless we cannot skip the gather in that case,
-        # because all non-root ranks will call gather anyway.
-        local_interior = self._source.get()[self._slice]
-        out = self._gather(local_interior, out, slice_spec)
-        if self.global_values is not None:
-            out[slice_spec] = self.global_values
+        if self.root_has_global_values:
+            global_values = self._source.array.attrs["_global_values"]
+            if global_values is not None:
+                if out is None:
+                    return global_values
+                out[slice_spec] = global_values
+        else:
+            local_interior = self._source.get()[self._slice]
+            out = self._gather(local_interior, out, slice_spec)
         return out
 
     @property

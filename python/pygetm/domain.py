@@ -824,6 +824,8 @@ class Domain:
                     -istart_glob : nx_glob - istart_glob,
                 ]
                 assert target.attrs["_global_values"].shape == (ny_glob, nx_glob)
+            else:
+                target.attrs["_global_values"] = None
 
             grid.tiling.comm.Scatter(sendbuf, target.all_values)
             if self.periodic_x or self.periodic_y:
