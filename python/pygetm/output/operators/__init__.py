@@ -72,11 +72,12 @@ class Base:
     def default_name(self) -> str:
         raise NotImplementedError
 
-    def gather(self, tiling: pygetm.parallel.Tiling) -> "Base":
-        if tiling.n == 1:
-            return Slice(self)
-        else:
-            return Gather(self, tiling)
+    def gather(self) -> "Base":
+        gatherer, local_slice, global_shape = self.get_gather_info()
+        return Gather(self, gatherer, local_slice, global_shape)
+
+    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
+        return NotImplementedError
 
     @property
     def updatable(self) -> bool:
@@ -98,18 +99,6 @@ class Base:
             return self.grid._land3d
         return self.grid._land
 
-    @property
-    def halox(self) -> int:
-        if self.grid is None:
-            raise NotImplementedError()
-        return self.grid.halox
-
-    @property
-    def haloy(self) -> int:
-        if self.grid is None:
-            raise NotImplementedError()
-        return self.grid.haloy
-
 
 class WrappedArray(Base):
     __slots__ = ("_name", "values")
@@ -121,8 +110,8 @@ class WrappedArray(Base):
         self._name = name
         self.values = values
 
-    def gather(self, tiling: pygetm.parallel.Tiling) -> Base:
-        return self
+    def gather(self) -> Base:
+        return self  # wrapped array is assumed identical on all subdomains
 
     @property
     def default_name(self) -> str:
@@ -258,7 +247,7 @@ class FieldCollection:
             if time_average or mask_current or grid:
                 field = Mask(field)
             if not self.sub:
-                field = field.gather(source_grid.tiling)
+                field = field.gather()
             for tf in source_grid.default_output_transforms:
                 field = tf(field)
             names.append(self._add_field(field, name, generate_unique_name))
@@ -353,6 +342,11 @@ class Field(Base):
             out[slice_spec] = self.array.all_values
             return out
 
+    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
+        return self.array.grid.get_gather_info(
+            self.array.shape, self.array.on_boundary, self.dtype, self.fill_value
+        )
+
     @property
     def coords(self) -> Iterable[Base]:
         if self.array.ndim >= 2 and not self.array.on_boundary:
@@ -376,14 +370,6 @@ class Field(Base):
     @property
     def grid(self) -> pygetm.core.Grid:
         return self.array.grid
-
-    @property
-    def halox(self) -> int:
-        return 0 if self.array.on_boundary else self.grid.halox
-
-    @property
-    def haloy(self) -> int:
-        return 0 if self.array.on_boundary else self.grid.haloy
 
 
 class UnivariateTransform(Base):
@@ -430,6 +416,9 @@ class UnivariateTransform(Base):
     def default_name(self) -> str:
         return self._source.default_name
 
+    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
+        return self._source.get_gather_info()
+
 
 class UnivariateTransformWithData(UnivariateTransform):
     __slots__ = "values"
@@ -451,26 +440,14 @@ class UnivariateTransformWithData(UnivariateTransform):
 class Gather(UnivariateTransform):
     __slots__ = "global_values", "tiling", "_slice", "_gather"
 
-    def __init__(self, source: Base, tiling: pygetm.parallel.Tiling):
-        self.tiling = tiling
-        nx = tiling.nx_glob + source.shape[-1] - 2 * source.halox - tiling.nx_sub
-        ny = tiling.ny_glob + source.shape[-2] - 2 * source.haloy - tiling.ny_sub
-        shape = source.shape[:-2] + (ny, nx)
-        super().__init__(source, shape=shape, expression=source.expression)
+    def __init__(self, source: Base, gatherer, local_slice, global_shape):
+        super().__init__(source, shape=global_shape, expression=source.expression)
         self.global_values = None
         if isinstance(source, Field):
             if "_global_values" in source.array.attrs and not source.time_varying:
                 self.global_values = source.array.attrs["_global_values"]
-        overlap = 0 if source.grid is None else source.grid.overlap
-        xstart = source.halox
-        ystart = source.haloy
-        xstop = source.shape[-1] - source.halox
-        ystop = source.shape[-2] - source.haloy
-        local_shape = source.shape[:-2] + (ystop - ystart, xstop - xstart)
-        self._slice = (Ellipsis, slice(ystart, ystop), slice(xstart, xstop))
-        self._gather = pygetm.parallel.Gather(
-            self.tiling, local_shape, self.dtype, overlap=overlap
-        )
+        self._slice = local_slice
+        self._gather = gatherer
 
     def get(
         self, out: Optional[ArrayLike] = None, slice_spec: Tuple[int, ...] = ()
@@ -480,7 +457,8 @@ class Gather(UnivariateTransform):
         # as gathering from subdomains may leave gaps.
         # Nevertheless we cannot skip the gather in that case,
         # because all non-root ranks will call gather anyway.
-        out = self._gather(self._source.get()[self._slice], out, slice_spec)
+        local_interior = self._source.get()[self._slice]
+        out = self._gather(local_interior, out, slice_spec)
         if self.global_values is not None:
             out[slice_spec] = self.global_values
         return out
@@ -488,42 +466,7 @@ class Gather(UnivariateTransform):
     @property
     def coords(self) -> Iterable[Base]:
         for c in self._source.coords:
-            yield c.gather(self.tiling)
-
-    @property
-    def grid(self) -> None:
-        return None
-
-
-class Slice(UnivariateTransform):
-    __slots__ = "_slice"
-
-    def __init__(self, source: Base):
-        halos = {source.ndim - 1: source.halox, source.ndim - 2: source.haloy}
-        slices = []
-        for idim, l in enumerate(source.shape):
-            halo = halos.get(idim, 0)
-            slices.append(slice(halo, l - halo))
-        shape = [s.stop - s.start for s in slices]
-        super().__init__(source, shape=tuple(shape), expression=source.expression)
-        self._slice = tuple(slices)
-
-    def get(
-        self, out: Optional[ArrayLike] = None, slice_spec: Tuple[int, ...] = ()
-    ) -> ArrayLike:
-        values = self._source.get()[self._slice]
-        if out is None:
-            return values
-        else:
-            out[slice_spec] = values
-            return out
-
-    @property
-    def coords(self) -> Iterable[Base]:
-        for c in self._source.coords:
-            if c.shape[-2:] == self._source.shape[-2:]:
-                c = Slice(c)
-            yield c
+            yield c.gather()
 
     @property
     def grid(self) -> None:
@@ -647,6 +590,11 @@ class Regrid(UnivariateTransformWithData):
         if self._z:
             yield Field(self._grid.zf if self._z == INTERFACES else self._grid.zc)
 
+    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
+        gatherer, local_slice, global_shape = self._source.get_gather_info()
+        global_shape = self.shape[:-2] + global_shape[-2:]
+        return gatherer, local_slice, global_shape
+
 
 class InterpZ(UnivariateTransformWithData):
     __slots__ = ("z_src", "z_tgt", "z_dim")
@@ -677,3 +625,8 @@ class InterpZ(UnivariateTransformWithData):
             if c.attrs.get("axis") == "Z":
                 c = WrappedArray(self.z_tgt, self.z_dim, (self.z_dim,))
             yield c
+
+    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
+        gatherer, local_slice, global_shape = self._source.get_gather_info()
+        global_shape = self.shape[:-2] + global_shape[-2:]
+        return gatherer, local_slice, global_shape
