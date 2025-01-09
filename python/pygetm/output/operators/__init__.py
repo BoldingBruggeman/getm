@@ -330,13 +330,14 @@ class Field(Base):
         default_time_varying = TimeVarying.MACRO if array.z else TimeVarying.MICRO
         time_varying = array.attrs.get("_time_varying", default_time_varying)
         shape = list(self.array.shape)
-        if not array.on_boundary:
+        if array.ndim >= 2 and not array.on_boundary:
             shape[-1] += 2 * array.grid.halox
             shape[-2] += 2 * array.grid.haloy
+        dims = grid2dims(array.grid, array.z, array.on_boundary) if shape else ()
         super().__init__(
             array.name,
             tuple(shape),
-            grid2dims(array.grid, array.z, array.on_boundary),
+            dims,
             dtype or array.dtype,
             array.fill_value,
             time_varying,
@@ -354,7 +355,7 @@ class Field(Base):
 
     @property
     def coords(self) -> Iterable[Base]:
-        if not self.array.on_boundary:
+        if self.array.ndim >= 2 and not self.array.on_boundary:
             for array in self.grid.horizontal_coordinates:
                 yield Field(array)
             if self.z:
