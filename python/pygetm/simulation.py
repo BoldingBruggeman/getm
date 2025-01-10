@@ -265,7 +265,8 @@ class BaseSimulation:
 
         # Verify all fields have finite values. Do this after self.output_manager.start
         # so the user can diagnose issues by reviewing the output
-        self.check_finite()
+        if not self.check_finite(dump=False):
+            raise Exception("Initial state or forcing is invalid")
 
         # Record true start time for performance analysis
         self._start_time = timeit.default_timer()
@@ -318,7 +319,8 @@ class BaseSimulation:
         self.output_manager.save(self.timestep * self.istep, self.istep, self.time)
 
         if check_finite:
-            self.check_finite(macro_active)
+            if not self.check_finite(macro_active):
+                raise Exception("Non-finite values found")
 
     def _advance_state(self, macro_active: bool):
         pass
@@ -341,7 +343,7 @@ class BaseSimulation:
         self.logger.info(f"Time spent in main loop: {nsecs:.3f} s")
         self.output_manager.close(self.timestep * self.istep, self.time)
 
-    def check_finite(self, macro_active: bool = True):
+    def check_finite(self, macro_active: bool = True, dump: bool = True) -> bool:
         """Verify that all fields available for output contain finite values.
         Fields with non-finite values are reported in the log as error messages.
         Finally, if any non-finite values were found, an exception is raised.
@@ -349,8 +351,8 @@ class BaseSimulation:
         Args:
             macro_active: also check fields updated on the 3d (macro) timestep
         """
-        nbad = 0
-        for field in self._fields.values():
+        bad_fields: List[str] = []
+        for name, field in self._fields.items():
             default_time_varying = TimeVarying.MACRO if field.z else TimeVarying.MICRO
             time_varying = field.attrs.get("_time_varying", default_time_varying)
             if field.ndim == 0 or (
@@ -363,18 +365,33 @@ class BaseSimulation:
                 unmasked = np.isin(field.grid.mask.values, (1, 2))
             unmasked = np.broadcast_to(unmasked, field.shape)
             if not finite.all(where=unmasked):
-                nbad += 1
+                bad_fields.append(name)
                 unmasked_count = unmasked.sum()
                 bad_count = unmasked_count - finite.sum(where=unmasked)
                 self.logger.error(
-                    f"Field {field.name} has {bad_count} non-finite values"
+                    f"Field {name} has {bad_count} non-finite values"
                     f" (out of {unmasked_count} unmasked values)."
                 )
-        if nbad:
-            raise Exception(
-                f"Non-finite values found in {nbad} fields"
-                f" at istep={self.istep}, time={self.time}"
+        nsub = np.empty((self.tiling.n,), dtype=int)
+        nsub[self.tiling.rank] = len(bad_fields)
+        self.tiling.comm.Allgather(parallel.MPI.IN_PLACE, nsub)
+        fail = nsub.any()
+        if fail:
+            sublist = ", ".join(f"{i} ({n})" for i, n in enumerate(nsub) if n > 0)
+            self.logger.error(
+                f"Non-finite values found in {(nsub > 0).sum()} subdomains"
+                f" at istep={self.istep}, time={self.time}."
+                f" Affected subdomains: {sublist}"
             )
+            if dump:
+                all_bad_fields = self.tiling.comm.allreduce(bad_fields)
+                assert all_bad_fields
+                dump_fields = set(all_bad_fields)
+                dump_fields = [f for f in self._fields.values() if f.ndim]
+                dump_file = f"{parallel.LOGFILE_PREFIX}dump.nc"
+                self.logger.info(f"Dumping {len(dump_fields)} fields to {dump_file}")
+                self.output_manager.dump(dump_file, *dump_fields)
+        return not fail
 
     def _summarize_profiling_result(self, ps: pstats.Stats):
         pass
