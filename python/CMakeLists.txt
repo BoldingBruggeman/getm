@@ -10,7 +10,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Use solution folders in IDEs
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-if (MSVC)
+if (WIN32 AND "${CMAKE_Fortran_COMPILER_ID}" STREQUAL "Intel")
   add_compile_options(/libs:static)
 endif()
 
