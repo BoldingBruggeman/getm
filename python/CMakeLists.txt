@@ -42,7 +42,6 @@ add_dependencies(pip_install otps2_wheel pygsw_wheel)
 add_subdirectory(../src/memory memory)
 add_subdirectory(../src/domain domain)
 add_subdirectory(../src/operators operators)
-add_subdirectory(../src/dynamics dynamics)
 
 add_library(cgetm
   src/wrapper.F90
@@ -53,7 +52,7 @@ add_library(cgetm
   src/internal_pressure.F90
 )
 
-target_link_libraries(cgetm getm_domain getm_operators getm_dynamics)
+target_link_libraries(cgetm getm_domain getm_operators)
 
 add_custom_command(OUTPUT _pygetm.c
   COMMENT "Creating ${CMAKE_CURRENT_BINARY_DIR}/_pygetm.c from ${CMAKE_CURRENT_SOURCE_DIR}/_pygetm.pyx"

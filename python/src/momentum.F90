@@ -1,8 +1,7 @@
 module c_momentum
 
    use iso_c_binding, only: c_int, c_double
-   use getm_momentum, only: rho0, kappa
-   use getm_domain, only: g
+   use pygetm, only: rho0, kappa, g
 
    implicit none
 
