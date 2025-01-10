@@ -89,6 +89,7 @@ class BaseSimulation:
         "report_totals",
         "_start_time",
         "_profile",
+        "_cached_check_finite_info",
     )
 
     def __init__(
@@ -118,6 +119,7 @@ class BaseSimulation:
 
         self.default_time_reference: Optional[cftime.datetime] = None
         self._initialized_variables = set()
+        self._cached_check_finite_info = None
 
     def __getitem__(self, key: str) -> core.Array:
         return self.output_manager.fields[key]
@@ -351,25 +353,38 @@ class BaseSimulation:
         Args:
             macro_active: also check fields updated on the 3d (macro) timestep
         """
+
+        def _collect_info():
+            microchecks = []
+            macrochecks = []
+            for field in self._fields.values():
+                if field.ndim == 0:
+                    continue
+                unmasked = True
+                if not field.on_boundary:
+                    unmasked = np.isin(field.grid.mask.values, (1, 2))
+                unmasked = np.broadcast_to(unmasked, field.shape)
+                default_time_varying = (
+                    TimeVarying.MACRO if field.z else TimeVarying.MICRO
+                )
+                time_varying = field.attrs.get("_time_varying", default_time_varying)
+                if time_varying == TimeVarying.MICRO:
+                    microchecks.append((field, unmasked))
+                macrochecks.append((field, unmasked))
+            return (microchecks, macrochecks)
+
+        if self._cached_check_finite_info is None:
+            self._cached_check_finite_info = _collect_info()
+        checklist = self._cached_check_finite_info[1 if macro_active else 0]
         bad_fields: List[str] = []
-        for name, field in self._fields.items():
-            default_time_varying = TimeVarying.MACRO if field.z else TimeVarying.MICRO
-            time_varying = field.attrs.get("_time_varying", default_time_varying)
-            if field.ndim == 0 or (
-                time_varying == TimeVarying.MACRO and not macro_active
-            ):
-                continue
+        for field, unmasked in checklist:
             finite = np.isfinite(field.values)
-            unmasked = True
-            if not field.on_boundary:
-                unmasked = np.isin(field.grid.mask.values, (1, 2))
-            unmasked = np.broadcast_to(unmasked, field.shape)
             if not finite.all(where=unmasked):
-                bad_fields.append(name)
+                bad_fields.append(field.name)
                 unmasked_count = unmasked.sum()
                 bad_count = unmasked_count - finite.sum(where=unmasked)
                 self.logger.error(
-                    f"Field {name} has {bad_count} non-finite values"
+                    f"Field {field.name} has {bad_count} non-finite values"
                     f" (out of {unmasked_count} unmasked values)."
                 )
         nsub = np.empty((self.tiling.n,), dtype=int)
