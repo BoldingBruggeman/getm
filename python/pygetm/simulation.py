@@ -406,6 +406,7 @@ class BaseSimulation:
                 dump_file = f"{parallel.LOGFILE_PREFIX}dump.nc"
                 self.logger.info(f"Dumping {len(dump_fields)} fields to {dump_file}")
                 self.output_manager.dump(dump_file, *dump_fields)
+            self.tiling.comm.Barrier()
         return not fail
 
     def _summarize_profiling_result(self, ps: pstats.Stats):
