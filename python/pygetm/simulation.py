@@ -1529,7 +1529,7 @@ class Simulation(BaseSimulation):
 
         # Update total water depth D on T grid
         # This is the only grid where we track raw depth (possibly < Dmin)
-        # as well as clipped depth max(D, Dmin). On other grids w only track
+        # as well as clipped depth max(D, Dmin). On other grids we only track
         # clipped depth.
         _pygetm.elevation2depth(z_T, self.T.H, -1000.0, self.T.D)
         np.maximum(self.T.D.all_values, self.Dmin, out=self.T.Dclip.all_values)
