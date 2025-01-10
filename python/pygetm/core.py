@@ -607,7 +607,9 @@ class Grid(_pygetm.Grid):
                 self.tiling.comm, self.open_boundaries, shape[1:], dtype
             )
         else:
-            gatherer = parallel.Gather(self.tiling, shape, dtype, fill_value=fill_value)
+            gatherer = parallel.Gather(
+                self.tiling, shape, dtype, fill_value=fill_value, overlap=self.overlap
+            )
 
         return gatherer, interior_slice, global_shape
 
