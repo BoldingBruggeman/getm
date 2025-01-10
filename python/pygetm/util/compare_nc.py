@@ -18,7 +18,8 @@ def compare(
     def load(slc=(Ellipsis,)):
         values1 = ncvar1[slc]
         values2 = ncvar2[slc]
-        if rotate and ncvar1.ndim >= 2:
+        ndim = len([d for d in ncvar1.dimensions if d not in ("z", "zi", "time")])
+        if rotate and ndim >= 2:
             values2 = np.swapaxes(values2, -1, -2)[..., ::-1, :]
             if ncvar1.dimensions[-2:] == ("yv", "xv") and ncvar2.dimensions[-2:] == (
                 "yu",
@@ -26,8 +27,8 @@ def compare(
             ):
                 values1 = values1[..., :-1, :]
                 values2 = values2[..., 1:, :]
-            if name in flip:
-                values2 = -values2
+        if rotate and name in flip:
+            values2 = -values2
         return np.ma.masked_invalid(values1), np.ma.masked_invalid(values2)
 
     with netCDF4.Dataset(path1) as nc1, netCDF4.Dataset(path2) as nc2:

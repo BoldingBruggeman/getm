@@ -89,6 +89,7 @@ class BaseSimulation:
         "report_totals",
         "_start_time",
         "_profile",
+        "_cached_check_finite_info",
     )
 
     def __init__(
@@ -118,6 +119,7 @@ class BaseSimulation:
 
         self.default_time_reference: Optional[cftime.datetime] = None
         self._initialized_variables = set()
+        self._cached_check_finite_info = None
 
     def __getitem__(self, key: str) -> core.Array:
         return self.output_manager.fields[key]
@@ -265,7 +267,8 @@ class BaseSimulation:
 
         # Verify all fields have finite values. Do this after self.output_manager.start
         # so the user can diagnose issues by reviewing the output
-        self.check_finite()
+        if not self.check_finite(dump=False):
+            raise Exception("Initial state or forcing is invalid")
 
         # Record true start time for performance analysis
         self._start_time = timeit.default_timer()
@@ -318,7 +321,8 @@ class BaseSimulation:
         self.output_manager.save(self.timestep * self.istep, self.istep, self.time)
 
         if check_finite:
-            self.check_finite(macro_active)
+            if not self.check_finite(macro_active):
+                raise Exception("Non-finite values found")
 
     def _advance_state(self, macro_active: bool):
         pass
@@ -341,7 +345,7 @@ class BaseSimulation:
         self.logger.info(f"Time spent in main loop: {nsecs:.3f} s")
         self.output_manager.close(self.timestep * self.istep, self.time)
 
-    def check_finite(self, macro_active: bool = True):
+    def check_finite(self, macro_active: bool = True, dump: bool = True) -> bool:
         """Verify that all fields available for output contain finite values.
         Fields with non-finite values are reported in the log as error messages.
         Finally, if any non-finite values were found, an exception is raised.
@@ -349,32 +353,61 @@ class BaseSimulation:
         Args:
             macro_active: also check fields updated on the 3d (macro) timestep
         """
-        nbad = 0
-        for field in self._fields.values():
-            default_time_varying = TimeVarying.MACRO if field.z else TimeVarying.MICRO
-            time_varying = field.attrs.get("_time_varying", default_time_varying)
-            if field.ndim == 0 or (
-                time_varying == TimeVarying.MACRO and not macro_active
-            ):
-                continue
+
+        def _collect_info():
+            microchecks = []
+            macrochecks = []
+            for field in self._fields.values():
+                if field.ndim == 0:
+                    continue
+                unmasked = True
+                if not field.on_boundary:
+                    unmasked = np.isin(field.grid.mask.values, (1, 2))
+                unmasked = np.broadcast_to(unmasked, field.shape)
+                default_time_varying = (
+                    TimeVarying.MACRO if field.z else TimeVarying.MICRO
+                )
+                time_varying = field.attrs.get("_time_varying", default_time_varying)
+                if time_varying == TimeVarying.MICRO:
+                    microchecks.append((field, unmasked))
+                macrochecks.append((field, unmasked))
+            return (microchecks, macrochecks)
+
+        if self._cached_check_finite_info is None:
+            self._cached_check_finite_info = _collect_info()
+        checklist = self._cached_check_finite_info[1 if macro_active else 0]
+        bad_fields: List[str] = []
+        for field, unmasked in checklist:
             finite = np.isfinite(field.values)
-            unmasked = True
-            if not field.on_boundary:
-                unmasked = np.isin(field.grid.mask.values, (1, 2))
-            unmasked = np.broadcast_to(unmasked, field.shape)
             if not finite.all(where=unmasked):
-                nbad += 1
+                bad_fields.append(field.name)
                 unmasked_count = unmasked.sum()
                 bad_count = unmasked_count - finite.sum(where=unmasked)
                 self.logger.error(
                     f"Field {field.name} has {bad_count} non-finite values"
                     f" (out of {unmasked_count} unmasked values)."
                 )
-        if nbad:
-            raise Exception(
-                f"Non-finite values found in {nbad} fields"
-                f" at istep={self.istep}, time={self.time}"
+        nsub = np.empty((self.tiling.n,), dtype=int)
+        nsub[self.tiling.rank] = len(bad_fields)
+        self.tiling.comm.Allgather(parallel.MPI.IN_PLACE, nsub)
+        fail = nsub.any()
+        if fail:
+            sublist = ", ".join(f"{i} ({n})" for i, n in enumerate(nsub) if n > 0)
+            self.logger.error(
+                f"Non-finite values found in {(nsub > 0).sum()} subdomains"
+                f" at istep={self.istep}, time={self.time}."
+                f" Affected subdomains: {sublist}"
             )
+            if dump:
+                all_bad_fields = self.tiling.comm.allreduce(bad_fields)
+                assert all_bad_fields
+                dump_fields = set(all_bad_fields)
+                dump_fields = [f for f in self._fields.values() if f.ndim]
+                dump_file = f"{parallel.LOGFILE_PREFIX}dump.nc"
+                self.logger.info(f"Dumping {len(dump_fields)} fields to {dump_file}")
+                self.output_manager.dump(dump_file, *dump_fields)
+            self.tiling.comm.Barrier()
+        return not fail
 
     def _summarize_profiling_result(self, ps: pstats.Stats):
         pass
@@ -565,14 +598,14 @@ class Simulation(BaseSimulation):
                 units="m",
                 long_name="surface elevation at macrotimestep",
                 fill_value=FILL_VALUE,
-                attrs=dict(_part_of_state=True),
+                attrs=dict(_part_of_state=True, _time_varying=TimeVarying.MACRO),
             )
             self.T.zio = self.T.array(
                 name="ziot",
                 units="m",
                 long_name="surface elevation at previous macrotimestep",
                 fill_value=FILL_VALUE,
-                attrs=dict(_part_of_state=True),
+                attrs=dict(_part_of_state=True, _time_varying=TimeVarying.MACRO),
             )
 
             for grid in (self.T, self.U, self.V):
@@ -669,14 +702,14 @@ class Simulation(BaseSimulation):
             units="Pa",
             long_name="surface stress in x-direction",
             fill_value=FILL_VALUE,
-            attrs={"_mask_output": True},
+            attrs=dict(_mask_output=True),
         )
         self.tausy = self.V.array(
             name="tausyv",
             units="Pa",
             long_name="surface stress in y-direction",
             fill_value=FILL_VALUE,
-            attrs={"_mask_output": True},
+            attrs=dict(_mask_output=True),
         )
 
         self.fwf = self.T.array(
@@ -684,7 +717,7 @@ class Simulation(BaseSimulation):
             units="m s-1",
             long_name="freshwater flux",
             fill_value=FILL_VALUE,
-            attrs={"_mask_output": self.airsea.pe.attrs.get("_mask_output", False)},
+            attrs=dict(_mask_output=self.airsea.pe.attrs.get("_mask_output", False)),
         )
         self.fwf.fill(0.0)
 
@@ -700,6 +733,18 @@ class Simulation(BaseSimulation):
         self.tracer_totals: List[pygetm.tracer.TracerTotal] = []
 
         self.fabm = None
+
+        # Surface temperature (in-situ) and velocities are needed for all
+        # run types as they are used for air-sea exchange
+        self.sst = self.T.array(
+            name="sst",
+            units="degrees_Celsius",
+            long_name="sea surface temperature",
+            fill_value=FILL_VALUE,
+            attrs=dict(standard_name="sea_surface_temperature", _mask_output=True),
+        )
+        self.ssu = self.T.array(fill=0.0)
+        self.ssv = self.T.array(fill=0.0)
 
         if runtype > RunType.BAROTROPIC_2D:
             #: Provider of turbulent viscosity and diffusivity. This must inherit from
@@ -734,6 +779,7 @@ class Simulation(BaseSimulation):
                 units="m",
                 long_name="hydrodynamic roughness (surface)",
                 fill_value=FILL_VALUE,
+                attrs=dict(_time_varying=TimeVarying.MACRO),
             )
             self.z0s.fill(0.1)
 
@@ -777,17 +823,6 @@ class Simulation(BaseSimulation):
 
             self.ssu_U = self.momentum.uk.isel(z=-1)
             self.ssv_V = self.momentum.vk.isel(z=-1)
-
-        self.sst = self.T.array(
-            name="sst",
-            units="degrees_Celsius",
-            long_name="sea surface temperature",
-            fill_value=FILL_VALUE,
-            attrs=dict(standard_name="sea_surface_temperature", _mask_output=True),
-        )
-
-        self.ssu = self.T.array(fill=0.0)
-        self.ssv = self.T.array(fill=0.0)
 
         if radiation is None and runtype == RunType.BAROCLINIC:
             radiation = pygetm.radiation.TwoBand()
@@ -861,8 +896,15 @@ class Simulation(BaseSimulation):
                     long_name="heat",
                 ),
             ]
+
+            # Select surface fields for conservative temperature and absolute
+            # salinity, to be used to calculate in-situ surface temperature
             self.temp_sf = self.temp.isel(z=-1)
             self.salt_sf = self.salt.isel(z=-1)
+
+            # Surface temperature will be calculated from 3D temperature and salinity
+            # and therefore varies on baroclinic timestep only
+            self.sst.attrs.update(_time_varying=TimeVarying.MACRO)
         else:
             self.temp_sf = None
             self.salt_sf = None
@@ -1025,13 +1067,18 @@ class Simulation(BaseSimulation):
             # current macrotimestep.
             self.add_freshwater_inputs(self.macrotimestep)
 
-            # Update 3D elevations and layer thicknesses. New elevation zin on T grid
-            # will match elevation at end of the microtimestep, thicknesses on T grid
-            # will match. Elevation and thicknesses on U/V grids will be
-            # 1/2 MACROtimestep behind, as they are calculated by averaging zio and zin.
-            # Old elevations zio and thicknesses ho will store the previous values of
-            # zin and hn, and thus are one macrotimestep behind new elevations zin and
-            # thicknesses hn.
+            # Update water depth D and layer thicknesses hn on all grids.
+            # On the T grid, these will be consistent with surface elevation
+            # at the end of the microtimestep, that is, with the result of
+            # the call to advance_surface_elevation called above.
+            # Water depth and thicknesses on U/V/X grids will be
+            # 1/2 MACROtimestep behind.
+            # On the T grid, the previous value of surface elevation and
+            # thicknesses will be stored in variables zio and ho, respectively.
+            # These will thus be a full macrotimestep behind, but do account
+            # for freshwater input over the past macrotimestep, as that was
+            # added to surface elevation and thicknesses by the call to
+            # add_freshwater_inputs above.
             self.update_depth(_3d=True, timestep=self.macrotimestep)
 
             # Update momentum from time=-1/2 to 1/2 of the macrotimestep, using forcing
@@ -1107,15 +1154,15 @@ class Simulation(BaseSimulation):
         update_3d = self.runtype > RunType.BAROTROPIC_2D and macro_active
         update_baroclinic = self.runtype == RunType.BAROCLINIC and macro_active
 
-        if update_3d:
-            # Determine transports across the open boundaries and related quantities
-            # that are used by active open boundary conditions (e.g., flow-dependent
-            # sponge)
-            self.open_boundaries.prepare_depth_explicit()
+        # Prepare prescribed open boundaries, colocated model fields, derived metrics
+        # For instance, rotate prescribed velocities, extract inward model velocities,
+        # and calculate derived quantities specific to some types of boundary condition.
+        self.open_boundaries.prepare(update_3d)
 
+        if update_3d:
             # Update tracer values at open boundaries. This must be done after
             # input_manager.update, but before diagnostics/forcing variables derived
-            # from the tracers are calculated
+            # from the tracers are calculated.
             if self.open_boundaries.np:
                 for tracer in self.tracers:
                     tracer.open_boundaries.update()
@@ -1156,13 +1203,13 @@ class Simulation(BaseSimulation):
                 self.salt, self.temp, p=self.pres, out=self.NN
             )
 
-        # Update surface elevation z on U, V, X grids and water depth D on all grids
-        # This is based on old and new elevation (T grid) for the microtimestep.
-        # Thus, for grids lagging 1/2 a timestep behind (U, V, X grids), the elevations
-        # and water depths will be representative for 1/2 a MICROtimestep ago.
+        # Update water depth D on all grids.
+        # For grids lagging 1/2 a timestep behind (U, V, X grids), the
+        # water depths will be representative for 1/2 a MICROtimestep ago.
+        # They are calculated from old and new elevations on the T grid.
         # Note that T grid elevations at the open boundary have not yet been updated,
-        # so the derived elevations and water depths calculated here will not take
-        # those into account. This is intentional: it ensures that water depths on the
+        # so water depths calculated here will not take those into account.
+        # This is intentional: it ensures that water depths on the
         # U and V grids are in sync with the already-updated transports,
         # so that velocities can be calculated correctly.
         # The call to update_surface_elevation_boundaries is made later.

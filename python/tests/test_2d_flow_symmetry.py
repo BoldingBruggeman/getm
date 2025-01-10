@@ -17,24 +17,25 @@ class TestFlowSymmetry(unittest.TestCase):
         mirrored: bool = True,
         axis: int = 0,
     ) -> bool:
-        field = field.gather()
-        if field is None:
+        global_values = field.gather()
+        global_mask = field.grid.mask.gather() == 0
+        if global_values is None:
             # Not root node
             return True
 
-        slicespec = [slice(None)] * field.ndim
+        slicespec = [slice(None)] * global_values.ndim
         if field.grid.ioffset == 2:
             slicespec[-1] = slice(None, -1)
         elif field.grid.joffset == 2:
             slicespec[-2] = slice(None, -1)
-        field = field.ma[tuple(slicespec)]
-        flipspec = [slice(None)] * field.ndim
+        global_values = np.ma.array(global_values, mask=global_mask)[tuple(slicespec)]
+        flipspec = [slice(None)] * global_values.ndim
         flipspec[axis] = slice(None, None, -1)
 
         scale = -1.0 if mirrored else 1.0
-        diff = field - scale * field[tuple(flipspec)]
+        diff = global_values - scale * global_values[tuple(flipspec)]
         asym = diff.max() - diff.min()
-        ran = field.max() - field.min()
+        ran = global_values.max() - global_values.min()
         self.assertLess(
             asym, ran * rtol + atol, "Asymmetry in %s: %s" % (name, asym / ran)
         )

@@ -20,13 +20,13 @@ class TestRotation(unittest.TestCase):
         self.setup_dir = os.path.join(setups_dir, "NorthSea")
         self.domain = north_sea.create_domain(
             self.setup_dir,
-            use_boundaries=False,
-            use_rivers=False,
+            use_boundaries=True,
+            use_rivers=True,
             logger=pygetm.parallel.get_logger(level="ERROR"),
         )
 
     def test_2d(self):
-        outputs = "u1", "v1", "zt", "U", "V"
+        outputs = ("u1", "v1", "zt", "U", "V", "u_bdy", "v_bdy", "zt_bdy")
         stop = cftime.datetime(2006, 1, 3)
         name_map = {
             "u1": "v1",

@@ -31,6 +31,74 @@ def _noop(*args, **kwargs):
     pass
 
 
+class Rotator:
+    __slots__ = ("_sin", "_cos")
+
+    def __init__(self, rotation: npt.ArrayLike):
+        """Rotator for velocity fields (geocentric to model-centric and vice versa)
+
+        Args:
+            rotation: clockwise rotation of grid relative to true North
+        """
+        rotation = np.asarray(rotation)
+        self._sin = np.sin(rotation)
+        self._cos = np.cos(rotation)
+
+        # hardcode cos(0.5*pi)=0 to increase precision in 90 degree rotation tests
+        self._cos[rotation == 0.5 * np.pi] = 0.0
+
+    def __call__(
+        self, u: npt.ArrayLike, v: npt.ArrayLike, to_grid: bool = True
+    ) -> Tuple[npt.ArrayLike, npt.ArrayLike]:
+        if to_grid:
+            # clockwise
+            u_new = u * self._cos + v * self._sin
+            v_new = v * self._cos - u * self._sin
+        else:
+            # counterclockwise
+            u_new = u * self._cos - v * self._sin
+            v_new = u * self._sin + v * self._cos
+        return u_new, v_new
+
+
+class BoundaryGatherer:
+    def __init__(self, comm, open_boundaries, shape, dtype):
+        self.np_bdy = self.indices = self.work1 = self.work2 = self.count = None
+
+        # Gather the number of open boundary points in each subdomain
+        np_local = np.array(open_boundaries.np, dtype=int)
+        if comm.rank == 0:
+            self.np_bdy = np.empty((comm.size,), dtype=int)
+        comm.Gather(np_local, self.np_bdy)
+
+        # Gather the global indices of open boundary points from each subdomain
+        if comm.rank == 0:
+            self.indices = np.empty((self.np_bdy.sum(),), dtype=int)
+        comm.Gatherv(
+            open_boundaries.local_to_global_indices, (self.indices, self.np_bdy)
+        )
+        if comm.rank == 0:
+            assert frozenset(self.indices) == frozenset(range(open_boundaries.np_glob))
+            self.work1 = np.empty((self.np_bdy.sum(),) + shape, dtype=dtype)
+            self.work2 = np.empty((open_boundaries.np_glob,) + shape, dtype=dtype)
+            self.count = self.np_bdy * self.work2[0].size
+
+        self._Gatherv = comm.Gatherv
+
+    def __call__(
+        self, locvalues, globvalues: Optional[np.ndarray] = None, globslice=()
+    ):
+        # Gather the values at the open boundary points from each subdomain
+        self._Gatherv(locvalues, (self.work1, self.count))
+
+        if self.work1 is not None:
+            self.work2[self.indices, ...] = self.work1
+            if globvalues is not None:
+                globvalues[globslice] = self.work2
+                return globvalues
+        return self.work2
+
+
 class Grid(_pygetm.Grid):
     _domain_arrays = (
         "x",
@@ -166,8 +234,7 @@ class Grid(_pygetm.Grid):
         "ugrid",
         "vgrid",
         "xgrid",
-        "_sin_rot",
-        "_cos_rot",
+        "_rotator",
         "Dclip",
         "z",
         "zo",
@@ -229,8 +296,6 @@ class Grid(_pygetm.Grid):
         self.tiling = tiling
 
         self._interior = (Ellipsis, slice(haloy, haloy + ny), slice(halox, halox + nx))
-        self._sin_rot: Optional[np.ndarray] = None
-        self._cos_rot: Optional[np.ndarray] = None
         self._interpolators = {}
         self._mirrors: Mapping["Grid", Tuple[slice, slice]] = {}
         self.horizontal_coordinates: List["Array"] = []
@@ -266,6 +331,11 @@ class Grid(_pygetm.Grid):
             self._iarea.all_values[...] = 1.0 / self._area.all_values
             self._idx.all_values[...] = 1.0 / self._dx.all_values
             self._idy.all_values[...] = 1.0 / self._dy.all_values
+
+        if self._rotation is not None:
+            self._rotator = Rotator(self._rotation.all_values)
+        else:
+            self._rotator = None
 
         self._land = self.mask.all_values == 0
         self._water = ~self._land
@@ -426,18 +496,9 @@ class Grid(_pygetm.Grid):
                 (northward velocity if the source is a geocentric velocity field)
             to_grid: rotate from geocentric to model coordinate system, not vice versa
         """
-        if self._rotation is None:
+        if self._rotator is None:
             return u, v
-        elif self._sin_rot is None:
-            self._sin_rot = np.sin(self.rotation.all_values)
-            self._cos_rot = np.cos(self.rotation.all_values)
-
-            # hardcode cos(0.5*pi)=0 to increase precision in 90 degree rotation tests
-            self._cos_rot[self.rotation.all_values == 0.5 * np.pi] = 0
-        sin_rot = -self._sin_rot if to_grid else self._sin_rot
-        u_new = u * self._cos_rot - v * sin_rot
-        v_new = u * sin_rot + v * self._cos_rot
-        return u_new, v_new
+        return self._rotator(u, v, to_grid=to_grid)
 
     def array(self, *args, **kwargs) -> "Array":
         return Array.create(self, *args, **kwargs)
@@ -500,6 +561,57 @@ class Grid(_pygetm.Grid):
         idx = np.nanargmin(dist)
         j, i = np.unravel_index(idx, dist.shape)
         return j + local_slice[-2].start, i + local_slice[-1].start
+
+    def get_gather_info(
+        self,
+        shape: Tuple[int, ...],
+        on_boundary: bool,
+        dtype: npt.DTypeLike,
+        fill_value,
+    ):
+        def gather_serial(
+            locvalues, globvalues: Optional[np.ndarray] = None, globslice=()
+        ):
+            if globvalues is not None:
+                globvalues[globslice] = locvalues
+                return globvalues
+            return locvalues
+
+        if not shape:
+            # scalar field (e.g., river flow or loading)
+            global_shape = ()
+            interior_slice = ()
+        elif on_boundary:
+            # boundary field
+            global_shape = (self.open_boundaries.np_glob,) + shape[1:]
+            interior_slice = (slice(None),) * len(shape)
+        else:
+            # field with trailing y, x dimensions
+            nx = self.tiling.nx_glob + self.overlap
+            ny = self.tiling.ny_glob + self.overlap
+            global_shape = shape[:-2] + (ny, nx)
+
+            xslice = slice(self.halox, shape[-1] + self.halox)
+            yslice = slice(self.haloy, shape[-2] + self.haloy)
+            interior_slice = (Ellipsis, yslice, xslice)
+
+        if self.tiling.n == 1:
+            return gather_serial, interior_slice, global_shape
+
+        if not shape:
+            # scalar field (e.g., river flow or loading)
+            raise NotImplementedError()
+        elif on_boundary:
+            # boundary field
+            gatherer = BoundaryGatherer(
+                self.tiling.comm, self.open_boundaries, shape[1:], dtype
+            )
+        else:
+            gatherer = parallel.Gather(
+                self.tiling, shape, dtype, fill_value=fill_value, overlap=self.overlap
+            )
+
+        return gatherer, interior_slice, global_shape
 
 
 for membername in Grid._all_arrays:
@@ -666,53 +778,18 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             )
         self._scatter(global_data)
 
-    def gather(self, out: Optional["Array"] = None, slice_spec=()):
-        if self.grid.tiling.n == 1:
-            if out is not None:
-                out[slice_spec + (Ellipsis,)] = self.values
-            return self
+    def gather(self, out: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
         if self._gather is None:
-            self._gather = parallel.Gather(
-                self.grid.tiling,
-                self.values.shape,
-                self.dtype,
-                fill_value=self._fill_value,
+            gatherer, _, _ = self.grid.get_gather_info(
+                self.shape, self.on_boundary, self.dtype, self._fill_value
             )
-        result = self._gather(
-            self.values,
-            out.values if isinstance(out, Array) else out,
-            slice_spec=slice_spec,
-        )
-        if result is not None and out is None:
-            out = self.grid.domain.glob.grids[self.grid.type].array(dtype=self.dtype)
-            out[...] = result
-        return out
+            self._gather = functools.partial(gatherer, self.values)
+        return self._gather(out)
 
     def allgather(self) -> np.ndarray:
         if self.grid.tiling.n == 1:
             return self.values
-        if self.on_boundary:
-            comm = self.grid.tiling.comm
-            open_boundaries = self.grid.open_boundaries
-
-            # Gather the number of open boundary points in each subdomain
-            np_bdy = np.empty((comm.size,), dtype=int)
-            np_local = np.array(self.grid.open_boundaries.np, dtype=int)
-            comm.Allgather(np_local, np_bdy)
-
-            # Gather the global indices of open boundary points from each subdomain
-            indices = np.empty((np_bdy.sum(),), dtype=int)
-            comm.Allgatherv(open_boundaries.local_to_global_indices, (indices, np_bdy))
-            assert frozenset(indices) == frozenset(range(open_boundaries.np_glob))
-
-            # Gather the values at the open boundary points from each subdomain
-            values = np.empty((np_bdy.sum(),), dtype=self.values.dtype)
-            comm.Allgatherv(self.values, (values, np_bdy))
-
-            # Map retrieved values to the appropriate indices in the global array
-            all_values = np.empty((open_boundaries.np_glob,), dtype=values.dtype)
-            all_values[indices] = values
-            return all_values
+        return self.grid.tiling.comm.Bcast(self.gather())
 
     def global_sum(
         self,
@@ -726,9 +803,7 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             if where is not None:
                 where = where.gather()
             if all is not None:
-                return all.values.sum(
-                    where=np._NoValue if where is None else where.values
-                )
+                return all.sum(where=np._NoValue if where is None else where)
         else:
             local_sum = self.values.sum(
                 where=np._NoValue if where is None else where.values
