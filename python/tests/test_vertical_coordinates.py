@@ -90,7 +90,7 @@ class TestAdaptive(unittest.TestCase):
 
         # print(csigma, cgvc, ddl, ddu)
 
-        grid.zo = grid.array(fill_value=0.0)
+        #grid.zo = grid.array(fill_value=0.0)
         grid.array(name="NN", fill_value=0.0, z=INTERFACES)
         grid.array(name="SS", fill_value=0.0, z=INTERFACES)
 

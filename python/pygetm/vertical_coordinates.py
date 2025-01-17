@@ -5,9 +5,10 @@ import warnings
 import numpy as np
 import numpy.typing as npt
 
-from .constants import CENTERS, INTERFACES
-from . import _pygetm
+from .constants import CENTERS, INTERFACES, TimeVarying, ZERO_GRADIENT
 from . import core
+from . import _pygetm
+from .open_boundaries import ArrayOpenBoundaries
 
 
 class Base:
@@ -196,7 +197,19 @@ class GVC(PerGrid):
 
 
 class Adaptive(Base):
-    """Adaptive coordinates"""
+    """
+    Adaptive coordinates
+
+    Known issues:
+
+    1: initialse self.Do correctly - if from restart read it else set it to D (Dclip)
+       but that require knowledge if it is a restart
+    2: Dclip does not seem to be available when initialize is called - check around line 396
+    3: use zero-gradient boundary for ga - this implies changes in cycle statements in
+       .../src/vertical_adaptive.F90 and .../src/tridiagonal.F90 - in this file seach for
+       self.ga.open_boundaries
+    4: 
+    """
 
     def __init__(
         self,
@@ -340,7 +353,11 @@ class Adaptive(Base):
         self.logger.info(f"Initialize Adaptive coordinates")
 
         self.other_grids = other_grids
-        self.dga_t = tgrid.array(z=CENTERS)
+        self.dga_t = tgrid.array(
+            name="dga",
+            z=CENTERS,
+            attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
+        )
         self.dga_other = tuple(grid.array(z=CENTERS) for grid in other_grids)
 
         self.tgrid = tgrid
@@ -352,12 +369,38 @@ class Adaptive(Base):
             attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
         )
         # Should catch if illegal values are used
-        self.nug.all_values[0, ...] = np.nan
+        # self.nug.all_values[0, ...] = np.nan
+        # ERROR:root:Field nug has 5968 non-finite values (out of 185008 unmasked values).
+        self.nug.all_values[0, ...] = -999.0
 
         self.ga = tgrid.array(
+            name="ga",
+            long_name="gamma coordinate",
             z=INTERFACES,
             attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
         )
+        if False:
+            self.ga.open_boundaries = ArrayOpenBoundaries(self.ga, type=ZERO_GRADIENT)
+
+        self.Do = tgrid.array(
+            name="Do",
+            units="m",
+            long_name="elevation at previous macro time step",
+            attrs=dict(
+                _part_of_state=True,
+                _require_halos=True,
+                _time_varying=TimeVarying.MACRO,
+                _mask_output=True,
+            ),
+        )
+        if True:
+           self.Do[...] = tgrid.D[...]
+        else:
+           self.Do[...] = tgrid.Dclip[...]
+           print(tgrid.D.values)
+           print(tgrid.Dclip.values)
+           print(self.Do.values)
+           quit()
 
         if self.csigma > 0.0:
             # this is only needed if we are not starting from a restart in which case
@@ -371,16 +414,15 @@ class Adaptive(Base):
                 z=CENTERS,
                 attrs=dict(_require_halos=True, _time_varying=True, _mask_output=True),
             )
-            self._gvc(tgrid.D.all_values, tgrid.hn.all_values)
+            self._gvc(tgrid.Dclip.all_values, tgrid.hn.all_values)
 
         # Obtain additional fields used by adaptive coordinates
         # NN and SS should maybe be interpolated to centers
         assert "NN" in tgrid.fields.keys()
-        if "NN" in tgrid.fields.keys():
-            self.NN = tgrid.fields["NN"]
+        self.NN = tgrid.fields["NN"]
         assert "SS" in tgrid.fields.keys()
-        if "SS" in tgrid.fields.keys():
-            self.SS = tgrid.fields["SS"]
+        self.SS = tgrid.fields["SS"]
+
 
     def __call__(
         self,
@@ -409,11 +451,13 @@ class Adaptive(Base):
             self.nug[1:, ...] = self.csigma
         else:
             self.nug.all_values[...] = np.nan
+            self.nug.all_values[...] = -999.0
 
         # Here we need to have hn_gvc - and the scaling has to depend
         # on the value of gamma_surf - needs fix
         if self.cgvc > 0:
-            self._gvc(self.tgrid.D[...], self.hn_gvc[...])
+            #self._gvc(self.tgrid.D.all_values, self.hn_gvc.all_values)
+            self._gvc(D, self.hn_gvc.all_values)
             self.nug[1:, :, :] = self.cgvc * (
                 np.divide(self.hn_gvc[-1, :, :], self.hn_gvc[:, :, :])
             )
@@ -423,6 +467,7 @@ class Adaptive(Base):
         _pygetm.update_adaptive(
             self.nug,
             self.ga,
+            self.Do.all_values,
             self.NN.all_values,
             self.SS.all_values,
             self.decay,
@@ -443,6 +488,9 @@ class Adaptive(Base):
             self.hmin,
         )
         # all contributions to nug are now added
+        #print('ho ',self.tgrid.ho.values)
+        #print('hn ',self.tgrid.hn.values)
+        #quit()
 
         # apply diffusion timescale
         self.nug[...] /= self.timescale
@@ -461,13 +509,35 @@ class Adaptive(Base):
         # now the grid diffusion field is ready to be applied
         _pygetm.tridiagonal(self.nug, self.ga, self.cnpar, self.timestep)
 
+        # assure consistent ga on boundaries
+        if False:
+            self.ga.open_boundaries.update()
+
         # To get dga - that can be used to interpolate to
         # other grids for the calculation of layer heights
         self.dga_t[...] = np.diff(self.ga[...], axis=0)
+        if False:
+            print("Values less than 0 =", self.dga_t[...][self.dga_t[...] < 0.0])
+            print("Their indices are ", np.nonzero(self.dga_t[...] < 0.0))
+        if False:
+            print("AAAA0 ", self.nug[:, 32, 53])
+            print("AAAA1 ", self.ga[:, 32, 53])
+            print("AAAA2 ", self.dga_t[:, 32, 53])
+            print("AAAA3 ", np.sum(self.dga_t[:, 32, 53]))
+
+        # np.where(self.dga_t < 0, self.dga_t, 0)
         self.dga_t.update_halos()
+
+        self.Do[...] = self.tgrid.Dclip[...]
+        #print(self.Do.shape, D.shape)
+        #self.Do[...] = D[...]
+
         return out
 
     def update(self, timestep: float):
+        # This should maybe be done differently - and how to pass the mask - e.g. mask or _water
+        self.__call__(self.tgrid.D.all_values, self.tgrid.hn.all_values)
+
         # Interpolate dga from T grid to other grids
         for dga in self.dga_other:
             self.dga_t.interp(dga)

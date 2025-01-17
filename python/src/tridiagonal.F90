@@ -64,6 +64,7 @@ subroutine c_tridiagonal(nx, ny, nz, halox, haloy, &
    do k=1,kmax-1
       do j=jmin,jmax
          do i=imin,imax
+            !if (mask(i,j) /= 1) cycle
             if (mask(i,j) < 1) cycle
 
             a1(i,j,k) = -x*nu(i,j,k)
@@ -80,6 +81,7 @@ subroutine c_tridiagonal(nx, ny, nz, halox, haloy, &
    ! solve system
    do j=jmin,jmax
       do i=imin,imax
+         !if (mask(i,j) /= 1) cycle
          if (mask(i,j) < 1) cycle
 
          ru(kmax)=a1(i,j,kmax)/a2(i,j,kmax)
@@ -91,16 +93,22 @@ subroutine c_tridiagonal(nx, ny, nz, halox, haloy, &
          qu(0)=(a4(i,j,0)-a3(i,j,0)*qu(1)) &
                    /(a2(i,j,0)-a3(i,j,0)*ru(1))
          var(i,j,0)=qu(0)
+         var(i,j,0) = -1._c_double
          do k=1,kmax
             var(i,j,k)=qu(k)-ru(k)*var(i,j,k-1)
          end do
-
+         if (var(i,j,kmax) > 0._c_double) then
+            write(89,*) i,j,k,var(i,j,kmax)
+         end if
+         !var(i,j,kmax) = 0._c_double
+#if 0
          if (i == 50 .and. j == 1) then
             do k=kmax,0,-1
                !write(24,*) a1(i,j,k),a2(i,j,k),a3(i,j,k),a4(i,j,k)
                write(24,*) nu(i,j,k),ru(k),qu(k),var(i,j,k)
             end do
          end if
+#endif
       end do
    end do
 
@@ -113,12 +121,13 @@ subroutine c_tridiagonal(nx, ny, nz, halox, haloy, &
    a3(0) = 0._c_double
    a2(0) = 1._c_double
    a4(0) = -1._c_double
+   x = 2._c_double*dt
    do j=jmin,jmax
       do i=imin,imax
-         if (mask(i,j) < 1) cycle
+         !if (mask(i,j) /= 1) cycle
+         if (mask(i,j) /= 1) cycle
 
          do k=1,kmax-1
-            x = 2._c_double*dt*nu(i,j,k)
             a1(k) = -x*nu(i,j,k)
             a3(k) = -x*nu(i,j,k+1)
             a2(k) = 1._c_double + x*nu(i,j,k) + x*nu(i,j,k+1)
@@ -134,9 +143,10 @@ subroutine c_tridiagonal(nx, ny, nz, halox, haloy, &
          end do
          qu(0)=(a4(0)-a3(0)*qu(1))/(a2(0)-a3(0)*ru(1))
          var(i,j,0)=qu(0)
-         do k=1,kmax
+         do k=1,kmax-1
             var(i,j,k)=qu(k)-ru(k)*var(i,j,k-1)
          end do
+         var(i,j,kmax) = 0._c_double
       end do
    end do
 #endif

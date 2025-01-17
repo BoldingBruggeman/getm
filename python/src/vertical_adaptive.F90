@@ -41,7 +41,7 @@ module m_adaptive
 contains
 
 subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
-                             mask, H, D, zo, &
+                             mask, H, Do, D, &
                              ho, NN, SS, nu, &
                              decay, hpow, &
                              chsurf, hsurf, &
@@ -60,11 +60,11 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
 #define _2D_  -halox+1:nx+halox,-haloy+1:ny+haloy
    integer(c_int), intent(in) :: mask(_2D_)
    real(c_double), intent(in) :: H(_2D_)
+   real(c_double), intent(in) :: Do(_2D_)
    real(c_double), intent(in) :: D(_2D_)
-   real(c_double), intent(in) :: zo(_2D_)
    real(c_double), intent(in) :: ho(_2D_,nz)
-   real(c_double), intent(in) :: NN(_2D_,0-nz)
-   real(c_double), intent(in) :: SS(_2D_,0-nz)
+   real(c_double), intent(in) :: NN(_2D_,0:nz)
+   real(c_double), intent(in) :: SS(_2D_,0:nz)
    real(c_double), intent(inout) :: nu(_2D_,0:nz)
    real(c_double), intent(inout) :: ga(_2D_,0:nz)
 #undef _2D_
@@ -107,6 +107,7 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
 
       do j=jmin,jmax
          do i=imin,imax
+            !if (mask(i,j) /= 1 ) cycle
             if (mask(i,j) < 1 ) cycle
 
             ! surface
@@ -163,9 +164,10 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
    ! set up ratio between old and new layer heights
    do j=jmin,jmax
       do i=imin,imax
+         !if (mask(i,j) /= 1 ) cycle
          if (mask(i,j) < 1 ) cycle
 
-         haux(i,j,:)=D(i,j)/(H(i,j)+zo(i,j))*ho(i,j,:)
+         haux(i,j,:)=D(i,j)*ho(i,j,:)/Do(i,j)
       end do
    end do
 
@@ -183,7 +185,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
 
       do j=imin,jmax
          do i=imin,imax
-            if (mask(i,j) < 1) cycle
+            !if (mask(i,j) /= 1) cycle
+            if (mask(i,j) < 1 ) cycle
 
             relh(:)=haux(i,j,:)*ihmax(i,j,interior)-0.5_rk
             do k=1,kmax
@@ -207,7 +210,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
 
       do j=jmin,jmax
          do i=imin,imax
-            if (mask(i,j) < 1) cycle
+            !if (mask(i,j) /= 1) cycle
+            if (mask(i,j) < 1 ) cycle
 
             relh=haux(i,j,kmax)*ihmax(i,j,surface)-0.5_rk
             if (relh > 0._rk .and. relh < 1._rk) then
@@ -230,7 +234,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
 
       do j=jmin,jmax
          do i=imin,imax
-            if (mask(i,j) < 1) cycle
+            !if (mask(i,j) /= 1) cycle
+            if (mask(i,j) < 1 ) cycle
 
             relh=haux(i,j,1)*ihmax(i,j,bottom)-0.5_rk
             if (relh > 0._rk .and. relh < 1._rk) then
@@ -256,7 +261,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
       irneigh = 1._rk/rneigh
       do j=jmin,jmax
          do i=imin,imax
-            if (mask(i,j) < 1) cycle
+            !if (mask(i,j) /= 1) cycle
+            if (mask(i,j) < 1 ) cycle
 
             relh(1)=haux(i,j,1)/haux(i,j,2)
             do k=2,kmax-1
@@ -287,7 +293,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
       idNN = 1025._rk/(9.81_rk*drho)/kmax
       do j=jmin,jmax
          do i=imin,imax
-            if (mask(i,j) < 1) cycle
+            !if (mask(i,j) /= 1) cycle
+            if (mask(i,j) < 1 ) cycle
 
             x = idNN*D(i,j)
             do k=1,kmax
@@ -308,7 +315,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
       idvel = 1._rk/dvel/kmax
       do j=jmin,jmax
          do i=imin,imax
-            if (mask(i,j) < 1) cycle
+            !if (mask(i,j) /= 1) cycle
+            if (mask(i,j) < 1 ) cycle
 
             x = idvel*D(i,j)
             do k=1,kmax
@@ -328,7 +336,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
       ihmin=1._rk/hmin
       do j=jmin,jmax
          do i=imin,imax
-            if (mask(i,j) < 1) cycle
+            !if (mask(i,j) /= 1) cycle
+            if (mask(i,j) < 1 ) cycle
 
             do k=1,kmax
                f=2._rk * (haux(i,j,k)*ihmin - 1._rk)
@@ -347,7 +356,8 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
 
       do j=jmin,jmax
          do i=imin,imax
-            if (mask(i,j) < 1) cycle
+            !if (mask(i,j) /= 1) cycle
+            if (mask(i,j) < 1 ) cycle
 
             ! havg=D(i,j)/kmax => hmin/havg = hmin*kmax/D(i,j)
             relh = 2._rk*(hmin*kmax/D(i,j) - 1._rk)
@@ -367,21 +377,27 @@ subroutine c_update_adaptive(nx, ny, nz, halox, haloy, &
 
    ! Calculate gamma
    gamma: block
-   real(c_double) :: iD(imin:imax,jmin:jmax)
+   real(c_double) :: iDo(imin:imax,jmin:jmax)
    do j=jmin,jmax
       do i=imin,imax
-         if (mask(i,j) < 1) cycle
-!KB         iD(i,j) = 1._rk/D(i,j)
-         iD(i,j) = 1._rk/(H(i,j)+zo(i,j))
+         !if (mask(i,j) /= 1) cycle
+         if (mask(i,j) < 1 ) cycle
+
+         iDo(i,j) = 1._rk/Do(i,j)
       end do
    end do
    ga(imin:imax,jmin:jmax,0) = -1._rk
    do k=1,kmax-1
       do j=jmin,jmax
          do i=imin,imax
-            if (mask(i,j) < 1) cycle
+            !if (mask(i,j) /= 1) cycle
+            if (mask(i,j) < 1 ) cycle
 
-            ga(i,j,k) = ga(i,j,k-1) + ho(i,j,k)*iD(i,j)
+            if (i == 54 .and. j == 33 ) then
+               write(67,*) sum(ho(i,j,:)),Do(i,j),D(i,j)
+            end if
+
+            ga(i,j,k) = ga(i,j,k-1) + ho(i,j,k)*iDo(i,j)
          end do
       end do
    end do
