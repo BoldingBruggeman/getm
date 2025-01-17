@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 # Create main project.
-project(pygetm VERSION 0.9.9 LANGUAGES Fortran C)
+project(pygetm VERSION 0.9.10 LANGUAGES Fortran C)
 
 # Specify position-independent code since we will build a shared library.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -10,7 +10,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Use solution folders in IDEs
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-if (MSVC)
+if (WIN32 AND "${CMAKE_Fortran_COMPILER_ID}" STREQUAL "Intel")
   add_compile_options(/libs:static)
 endif()
 
@@ -42,7 +42,6 @@ add_dependencies(pip_install otps2_wheel pygsw_wheel)
 add_subdirectory(../src/memory memory)
 add_subdirectory(../src/domain domain)
 add_subdirectory(../src/operators operators)
-add_subdirectory(../src/dynamics dynamics)
 
 add_library(cgetm
   src/wrapper.F90
@@ -56,7 +55,7 @@ add_library(cgetm
   src/vertical_adaptive.F90
 )
 
-target_link_libraries(cgetm getm_domain getm_operators getm_dynamics)
+target_link_libraries(cgetm getm_domain getm_operators)
 
 add_custom_command(OUTPUT _pygetm.c
   COMMENT "Creating ${CMAKE_CURRENT_BINARY_DIR}/_pygetm.c from ${CMAKE_CURRENT_SOURCE_DIR}/_pygetm.pyx"

@@ -3,11 +3,14 @@ module pygetm
    use iso_c_binding, only: c_ptr, c_int, c_double, c_char, c_loc, c_f_pointer, c_associated, C_NULL_CHAR, C_NULL_PTR
    use iso_fortran_env, only: real64
 
-   use getm_domain, only: type_getm_grid, g
+   use getm_domain, only: type_getm_grid
    use getm_operators, only: type_advection, type_vertical_diffusion
-   use getm_momentum, only: rho0
 
    implicit none
+
+   real(c_double), parameter, public :: rho0 = 1025._c_double
+   real(c_double), parameter, public :: kappa = 0.4_c_double
+   real(c_double), parameter, public :: g = 9.81_c_double
 
    type array
       real(c_double), allocatable :: rdata(:)
