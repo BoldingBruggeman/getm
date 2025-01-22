@@ -38,14 +38,14 @@ contains
 
             n1=min(1,mask(i-1,j))
             n2=min(1,mask(i+1,j))
-            n3=min(1,mask(j-1,j))
-            n4=min(1,mask(j+1,j))
+            n3=min(1,mask(i,j-1))
+            n4=min(1,mask(i,j+1))
             n5=n1+n2+n3+n4
-            var(i,j,1:kmax-1) = w*var(i,j,1:kmax-1)+(1._c_double-w) &
-                        *( n1*x(i-1,j,1:kmax-1) &
-                          +n2*x(i+1,j,1:kmax-1) &
-                          +n3*x(i,j-1,1:kmax-1) &
-                          +n4*x(i,j+1,1:kmax-1))/n5
+            var(i,j,1:kmax) = (1._c_double-w)*var(i,j,1:kmax) &
+                              +w*(n1*x(i-1,j,1:kmax) &
+                                 +n2*x(i+1,j,1:kmax) &
+                                 +n3*x(i,j-1,1:kmax) &
+                                 +n4*x(i,j+1,1:kmax))/n5
          end do
       end do
    end subroutine
@@ -67,7 +67,7 @@ contains
 #undef _D2_
 
       real(c_double) :: col(0:nz)
-      real(c_double) :: w1
+      real(c_double) :: wc,wn
       integer :: imin=1, jmin=1, imax, jmax, kmax
       integer :: i, j, k, n
 
@@ -76,7 +76,8 @@ contains
 
       if (nfilter < 1 .or. (w < 0._c_double .or. w > 1._c_double)) return
 
-      w1 = (1_c_double-w)/2
+      wc = 1._c_double-w
+      wn = w/2._c_double
       do n = 1, nfilter
          do j = jmin, jmax
             do i = imin, imax
@@ -85,10 +86,9 @@ contains
                !col(kmax) = var(i,j,kmax)
                !col(kmin) = var(i,j,kmin)
                col(1) = var(i,j,1)
-               do k = 2, kmax-2
-                  col(k) = w*col(k)+w1*(var(i,j,k-1)+var(i,j,k+1))
+               do k = 2, kmax-1
+                  col(k) = wc*var(i,j,k)+wn*(var(i,j,k-1)+var(i,j,k+1))
                end do
-               col(kmax-1) = var(i,j,kmax-1)
                var(i,j,1:kmax-1) = col(1:kmax-1)
             end do
          end do
