@@ -12,9 +12,9 @@ mpl.rcParams["lines.linewidth"] = 0.05
 
 nx = 100
 ny = 1
+nz = 25
 nz = 50
 nz = 10
-nz = 25
 
 x = np.linspace(0.0, 100000, nx + 1)
 y = np.linspace(0.0, 100, ny + 1)
@@ -62,7 +62,7 @@ vc = vertical_coordinates.Adaptive(
     gamma_surf=gamma_surf,
     Dgamma=Dgamma,
     csigma=0.001,
-    cgvc=-0.001,
+    cgvc=0.001,
     hpow=3,
     chsurf=-0.001,
     hsurf=1.5,
@@ -98,7 +98,7 @@ grid.ho[...] = grid.hn[...]
 
 fig, axs = plt.subplots(3, 2)
 first = True
-xp = 75
+xp = 50
 surf = []
 midd = []
 bott = []
@@ -154,9 +154,12 @@ if False:
 plt.show()
 
 mpl.rcParams["lines.linewidth"] = 0.5
-plt.title(f"layer heigh - hn - (x={xp})")
-plt.plot(surf, label='Surface')
-plt.plot(midd, label='Middle')
-plt.plot(bott, label='Bottom')
+plt.title(f"layer height (x={xp})")
+plt.xlabel(f"time [hours]")
+plt.ylabel(f"hn [m]")
+x=100*timestep*np.arange(len(surf))/3600
+plt.plot(x, surf, label='Surface')
+plt.plot(x, midd, label='Middle')
+plt.plot(x, bott, label='Bottom')
 plt.legend(loc="upper right")
 plt.show()
