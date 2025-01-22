@@ -6,7 +6,10 @@ module m_tridiagonal
 
    implicit none
 
+!#define _TIMING_
+#ifdef _TIMING_
    real(c_double) :: start_, stop_, time_=0._c_double
+#endif
 
 contains
 
@@ -54,7 +57,9 @@ subroutine c_tridiagonal(nx, ny, nz, halox, haloy, &
 !-----------------------------------------------------------------------
    imax=nx; jmax=ny; kmax=nz
 
+#ifdef _TIMING_
    call cpu_time(start_)
+#endif
 #ifdef _USE_3D_
    ! picked directly from Bjarnes code
    a2(:,:,kmax) = 1._c_double
@@ -101,14 +106,6 @@ subroutine c_tridiagonal(nx, ny, nz, halox, haloy, &
             write(89,*) i,j,k,var(i,j,kmax)
          end if
          !var(i,j,kmax) = 0._c_double
-#if 0
-         if (i == 50 .and. j == 1) then
-            do k=kmax,0,-1
-               !write(24,*) a1(i,j,k),a2(i,j,k),a3(i,j,k),a4(i,j,k)
-               write(24,*) nu(i,j,k),ru(k),qu(k),var(i,j,k)
-            end do
-         end if
-#endif
       end do
    end do
 
@@ -150,12 +147,14 @@ subroutine c_tridiagonal(nx, ny, nz, halox, haloy, &
       end do
    end do
 #endif
+#ifdef _TIMING_
    call cpu_time(stop_)
    time_ = time_+(stop_-start_)
 #ifdef _USE_3D_
    write(9,*) '3D ',time_
 #else
    write(9,*) '1D ',time_
+#endif
 #endif
 
 end subroutine c_tridiagonal
