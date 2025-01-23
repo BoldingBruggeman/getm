@@ -1438,12 +1438,7 @@ class InputManager:
                 i_bnd = grid.open_boundaries.i_glob
                 j_bnd = grid.open_boundaries.j_glob
                 value = isel(value, **{value.dims[-1]: i_bnd, value.dims[-2]: j_bnd})
-            elif (
-                source_lon is not None
-                and source_lat is not None
-                and source_lon.ndim > 0
-                and source_lat.ndim > 0
-            ):
+            elif np.ndim(source_lon) > 0 and np.ndim(source_lat) > 0:
                 # Spatially explicit input:
                 # interpolate horizontally to open boundary coordinates
                 if source_lon.ndim != 1:
@@ -1507,10 +1502,14 @@ class InputManager:
             # arbitrary lon, lat grid. In the latter case, we interpolate in space.
             assert array.all_values.shape[-2:] == local_shape
             target_slice = local_slice
-            if source_lon is None and source_lat is None and on_grid == OnGrid.NONE:
+
+            if on_grid != OnGrid.NONE:
+                # the input is already on-grid
+                value = _map_to_grid()
+            elif np.ndim(source_lon) == 0 and np.ndim(source_lat) == 0:
                 # time series for single location
                 value = value.expand_dims(("y", "x"), (value.ndim, value.ndim + 1))
-            elif on_grid == OnGrid.NONE:
+            else:
                 # interpolate horizontally to local array INCLUDING halos
                 lon = grid.lon.all_values[target_slice]
                 lat = grid.lat.all_values[target_slice]
@@ -1525,9 +1524,6 @@ class InputManager:
                     periodic_lon=periodic_lon,
                 )
                 value = horizontal_interpolation(value, lon, lat)
-            else:
-                # the input is already on-grid
-                value = _map_to_grid()
 
         if value.getm.time is not None:
             # The source data is time-dependent; during the simulation it will be
