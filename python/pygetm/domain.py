@@ -1023,7 +1023,7 @@ class Domain:
         istop_T = 1 + 2 * istop
         jstart_T = 1 + 2 * jstart
         jstop_T = 1 + 2 * jstop
-        self.mask_[jstart_T:jstop_T, istart_T:istop_T] = mask_value
+        self.mask[jstart_T:jstop_T, istart_T:istop_T] = mask_value
 
     def rotate(self) -> "Domain":
         """Return a copy of the domain rotated 90° clockwise"""
