@@ -239,7 +239,13 @@ def interfaces_to_supergrid_2d(
 
 
 def create_cartesian(
-    x: npt.ArrayLike, y: npt.ArrayLike, *, interfaces=False, **kwargs
+    x: npt.ArrayLike,
+    y: npt.ArrayLike,
+    *,
+    interfaces=False,
+    central_lon: Optional[float] = None,
+    central_lat: Optional[float] = None,
+    **kwargs,
 ) -> "Domain":
     """Create Cartesian domain from x and y coordinates.
 
@@ -259,6 +265,15 @@ def create_cartesian(
         nx, ny = x.shape[-1] - 1, y.shape[0] - 1
     else:
         nx, ny = x.shape[-1], y.shape[0]
+    if central_lon is not None and central_lat is not None:
+        relx = x - 0.5 * (x.max() - x.min())
+        rely = y - 0.5 * (y.max() - y.min())
+        m_per_degree = DEG2RAD * R_EARTH
+        lats = rely / m_per_degree + central_lat
+        lons = relx / m_per_degree / np.cos(DEG2RAD * lats) + central_lon
+        lons, lats = np.broadcast_arrays(lons, lats)
+        kwargs.setdefault("lon", lons)
+        kwargs.setdefault("lat", lats)
     return Domain(nx, ny, x=x, y=y, coordinate_type=CoordinateType.XY, **kwargs)
 
 
