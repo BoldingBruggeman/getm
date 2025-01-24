@@ -9,6 +9,7 @@ from typing import (
     List,
     Any,
     Callable,
+    Iterable,
     TYPE_CHECKING,
 )
 import logging
@@ -613,6 +614,26 @@ class Grid(_pygetm.Grid):
 
         return gatherer, interior_slice, global_shape
 
+    def _get_dims(self, ndim: int, z: bool, on_boundary: bool = False) -> Iterable[str]:
+        if ndim > 0:
+            if on_boundary:
+                yield f"bdy{self.postfix}"
+            if z:
+                yield "zi" if z == INTERFACES else "z"
+            if not on_boundary:
+                yield f"y{self.postfix}"
+                yield f"x{self.postfix}"
+
+    def _get_coords(
+        self, ndim: int, z: bool, on_boundary: bool = False
+    ) -> Iterable["Array"]:
+        if ndim >= 2 and not on_boundary:
+            for array in self.horizontal_coordinates:
+                yield array
+        if z:
+            z_src = self.open_boundaries if on_boundary else self
+            yield z_src.zf if z == INTERFACES else z_src.zc
+
 
 for membername in Grid._all_arrays:
     info = Grid._array_args.get(membername[1:], {})
@@ -1135,9 +1156,7 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             coords[f"y{self.grid.postfix}"] = self.grid.y.xarray
             coords[f"lon{self.grid.postfix}"] = self.grid.lon.xarray
             coords[f"lat{self.grid.postfix}"] = self.grid.lat.xarray
-        dims = ("y" + self.grid.postfix, "x" + self.grid.postfix)
-        if self.ndim == 3:
-            dims = ("zi" if self.z == INTERFACES else "z",) + dims
+        dims = self.grid._get_dims(self._ndim, self.z, self.on_boundary)
         values = self.values if not mask else self.ma
         _xarray = xr.DataArray(
             values, coords=coords, dims=dims, attrs=attrs, name=self.name

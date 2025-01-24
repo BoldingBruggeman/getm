@@ -103,7 +103,7 @@ class Base:
 class WrappedArray(Base):
     __slots__ = ("_name", "values")
 
-    def __init__(self, values: np.ndarray, name: str, dims: Tuple[str], **kwargs):
+    def __init__(self, values: np.ndarray, name: str, dims: Tuple[str, ...], **kwargs):
         super().__init__(
             name, values.shape, dims, values.dtype, time_varying=False, **kwargs
         )
@@ -295,17 +295,6 @@ class FieldCollection:
             updater()
 
 
-def grid2dims(grid: pygetm.core.Grid, z, on_boundary=False) -> Tuple[str, ...]:
-    dims = ()
-    if not on_boundary:
-        dims = (f"y{grid.postfix}", f"x{grid.postfix}")
-    if z:
-        dims = ("zi" if z == INTERFACES else "z",) + dims
-    if on_boundary:
-        dims = (f"bdy{grid.postfix}",) + dims
-    return dims
-
-
 class Field(Base):
     __slots__ = "collection", "array"
 
@@ -322,11 +311,11 @@ class Field(Base):
         if array.ndim >= 2 and not array.on_boundary:
             shape[-1] += 2 * array.grid.halox
             shape[-2] += 2 * array.grid.haloy
-        dims = grid2dims(array.grid, array.z, array.on_boundary) if shape else ()
+        dims = array.grid._get_dims(array.ndim, array.z, array.on_boundary)
         super().__init__(
             array.name,
             tuple(shape),
-            dims,
+            tuple(dims),
             dtype or array.dtype,
             array.fill_value,
             time_varying,
@@ -349,19 +338,11 @@ class Field(Base):
 
     @property
     def coords(self) -> Iterable[Base]:
-        if self.array.ndim >= 2 and not self.array.on_boundary:
-            for array in self.grid.horizontal_coordinates:
-                yield Field(array)
-            if self.z:
-                yield Field(self.grid.zf if self.z == INTERFACES else self.grid.zc)
-        elif self.z:
-            bdy = self.grid.open_boundaries
-            yield Field(bdy.zf if self.z == INTERFACES else bdy.zc)
+        for array in self.grid._get_coords(
+            self.ndim, self.array.z, self.array.on_boundary
+        ):
+            yield Field(array)
         yield from self.grid.extra_output_coordinates
-
-    @property
-    def z(self) -> bool:
-        return self.array.z
 
     @property
     def default_name(self) -> str:
@@ -379,7 +360,7 @@ class UnivariateTransform(Base):
         self,
         source: Base,
         shape: Optional[Tuple[int, ...]] = None,
-        dims: Optional[Tuple[str, ...]] = None,
+        dims: Optional[Iterable[str]] = None,
         dtype: Optional[DTypeLike] = None,
         expression: Optional[str] = None,
     ):
@@ -388,7 +369,7 @@ class UnivariateTransform(Base):
         super().__init__(
             expression or f"{self.__class__.__name__}({source.expression})",
             shape,
-            dims or source.dims,
+            source.dims if dims is None else dims,
             dtype or source.dtype,
             source.fill_value,
             source.time_varying,
@@ -566,7 +547,7 @@ class Regrid(UnivariateTransformWithData):
                 shape = (source.shape[0] + 1,) + source.shape[1:]
                 args = ", z=interfaces"
         self._slice = (np.newaxis, Ellipsis) if source.ndim < 3 else (Ellipsis,)
-        dims = grid2dims(grid, z)
+        dims = tuple(grid._get_dims(len(shape), z))
         expression = f"{self.__class__.__name__}({source.expression}{args})"
         self._grid = grid
         self._z = z
@@ -584,10 +565,9 @@ class Regrid(UnivariateTransformWithData):
 
     @property
     def coords(self) -> Iterable[Base]:
-        for array in self._grid.horizontal_coordinates:
+        for array in self._grid._get_coords(self.ndim, self._z):
             yield Field(array)
-        if self._z:
-            yield Field(self._grid.zf if self._z == INTERFACES else self._grid.zc)
+        yield from self._grid.extra_output_coordinates
 
     def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
         gatherer, local_slice, global_shape = self._source.get_gather_info()
