@@ -266,8 +266,8 @@ def create_cartesian(
     else:
         nx, ny = x.shape[-1], y.shape[0]
     if central_lon is not None and central_lat is not None:
-        relx = x - 0.5 * (x.max() - x.min())
-        rely = y - 0.5 * (y.max() - y.min())
+        relx = x - 0.5 * (x.min() + x.max())
+        rely = y - 0.5 * (y.min() + y.max())
         m_per_degree = DEG2RAD * R_EARTH
         lats = rely / m_per_degree + central_lat
         lons = relx / m_per_degree / np.cos(DEG2RAD * lats) + central_lon

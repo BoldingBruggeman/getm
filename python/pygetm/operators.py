@@ -3,7 +3,6 @@ from typing import Optional, Iterable, Callable
 import functools
 
 from . import _pygetm
-from . import domain
 from . import core
 from . import parallel
 from .constants import CENTERS, INTERFACES

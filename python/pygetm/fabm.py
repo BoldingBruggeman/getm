@@ -6,7 +6,6 @@ import numpy as np
 import cftime
 import pyfabm
 
-from . import domain
 from . import core
 from . import tracer
 from . import _pygetm
