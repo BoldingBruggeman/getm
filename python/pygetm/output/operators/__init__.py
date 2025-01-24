@@ -73,10 +73,13 @@ class Base:
         raise NotImplementedError
 
     def gather(self) -> "Base":
-        gatherer, local_slice, global_shape = self.get_gather_info()
+        factory = self.get_gatherer_factory()
+        gatherer, local_slice, global_shape = factory(
+            shape=self.shape, dtype=self.dtype, fill_value=self.fill_value
+        )
         return Gather(self, gatherer, local_slice, global_shape)
 
-    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
+    def get_gatherer_factory(self) -> Callable:
         return NotImplementedError
 
     @property
@@ -331,9 +334,9 @@ class Field(Base):
             out[slice_spec] = self.array.all_values
             return out
 
-    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
-        return self.array.grid.get_gather_info(
-            self.array.shape, self.array.on_boundary, self.dtype, self.fill_value
+    def get_gatherer_factory(self) -> Callable:
+        return functools.partial(
+            self.array.grid.get_gather_info, on_boundary=self.array.on_boundary
         )
 
     @property
@@ -397,8 +400,8 @@ class UnivariateTransform(Base):
     def default_name(self) -> str:
         return self._source.default_name
 
-    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
-        return self._source.get_gather_info()
+    def get_gatherer_factory(self) -> Callable:
+        return self._source.get_gatherer_factory()
 
 
 class UnivariateTransformWithData(UnivariateTransform):
@@ -569,10 +572,8 @@ class Regrid(UnivariateTransformWithData):
             yield Field(array)
         yield from self._grid.extra_output_coordinates
 
-    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
-        gatherer, local_slice, global_shape = self._source.get_gather_info()
-        global_shape = self.shape[:-2] + global_shape[-2:]
-        return gatherer, local_slice, global_shape
+    def get_gatherer_factory(self) -> Callable:
+        return functools.partial(self._grid.get_gather_info, on_boundary=False)
 
 
 class InterpZ(UnivariateTransformWithData):
@@ -605,7 +606,5 @@ class InterpZ(UnivariateTransformWithData):
                 c = WrappedArray(self.z_tgt, self.z_dim, (self.z_dim,))
             yield c
 
-    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
-        gatherer, local_slice, global_shape = self._source.get_gather_info()
-        global_shape = self.shape[:-2] + global_shape[-2:]
-        return gatherer, local_slice, global_shape
+    def get_gatherer_factory(self) -> Callable:
+        return self._source.get_gatherer_factory()
