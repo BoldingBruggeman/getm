@@ -611,8 +611,13 @@ class DistributedArray:
         owncaches = []
 
         def add_task(
-            recvtag: Neighbor, sendtag: Neighbor, outer: np.ndarray, inner: np.ndarray
+            recvtag: Neighbor,
+            sendtag: Neighbor,
+            outer_slice: Tuple[slice, slice],
+            inner_slice: Tuple[slice, slice],
         ):
+            outer = field[(Ellipsis,) + outer_slice]
+            inner = field[(Ellipsis,) + inner_slice]
             name = recvtag.name.lower()
             neighbor = getattr(tiling, name)
             assert isinstance(neighbor, int), (
@@ -660,50 +665,53 @@ class DistributedArray:
         add_task(
             Neighbor.BOTTOMLEFT,
             Neighbor.TOPRIGHT,
-            field[..., :haloy, :halox],
-            field[..., in_starty:in_stopy, in_startx:in_stopx],
+            (slice(0, haloy), slice(0, halox)),
+            (slice(in_starty, in_stopy), slice(in_startx, in_stopx)),
         )
         add_task(
             Neighbor.BOTTOM,
             Neighbor.TOP,
-            field[..., :haloy, halox : nx - halox],
-            field[..., in_starty:in_stopy, halox : nx - halox],
+            (slice(0, haloy), slice(halox, nx - halox)),
+            (slice(in_starty, in_stopy), slice(halox, nx - halox)),
         )
         add_task(
             Neighbor.BOTTOMRIGHT,
             Neighbor.TOPLEFT,
-            field[..., :haloy, nx - halox :],
-            field[..., in_starty:in_stopy, nx - in_stopx : nx - in_startx],
+            (slice(0, haloy), slice(nx - halox, nx)),
+            (slice(in_starty, in_stopy), slice(nx - in_stopx, nx - in_startx)),
         )
         add_task(
             Neighbor.LEFT,
             Neighbor.RIGHT,
-            field[..., haloy : ny - haloy, :halox],
-            field[..., haloy : ny - haloy, in_startx:in_stopx],
+            (slice(haloy, ny - haloy), slice(0, halox)),
+            (slice(haloy, ny - haloy), slice(in_startx, in_stopx)),
         )
         add_task(
             Neighbor.RIGHT,
             Neighbor.LEFT,
-            field[..., haloy : ny - haloy, nx - halox :],
-            field[..., haloy : ny - haloy, nx - in_stopx : nx - in_startx],
+            (slice(haloy, ny - haloy), slice(nx - halox, nx)),
+            (slice(haloy, ny - haloy), slice(nx - in_stopx, nx - in_startx)),
         )
         add_task(
             Neighbor.TOPLEFT,
             Neighbor.BOTTOMRIGHT,
-            field[..., ny - haloy :, :halox],
-            field[..., ny - in_stopy : ny - in_starty, in_startx:in_stopx],
+            (slice(ny - haloy, ny), slice(0, halox)),
+            (slice(ny - in_stopy, ny - in_starty), slice(in_startx, in_stopx)),
         )
         add_task(
             Neighbor.TOP,
             Neighbor.BOTTOM,
-            field[..., ny - haloy :, halox : nx - halox],
-            field[..., ny - in_stopy : ny - in_starty, halox : nx - halox],
+            (slice(ny - haloy, ny), slice(halox, nx - halox)),
+            (slice(ny - in_stopy, ny - in_starty), slice(halox, nx - halox)),
         )
         add_task(
             Neighbor.TOPRIGHT,
             Neighbor.BOTTOMLEFT,
-            field[..., ny - haloy :, nx - halox :],
-            field[..., ny - in_stopy : ny - in_starty, nx - in_stopx : nx - in_startx],
+            (slice(ny - haloy, ny), slice(nx - halox, nx)),
+            (
+                slice(ny - in_stopy, ny - in_starty),
+                slice(nx - in_stopx, nx - in_startx),
+            ),
         )
         if caches is None and share_caches:
             tiling._caches[key] = owncaches
