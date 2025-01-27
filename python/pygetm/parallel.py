@@ -584,6 +584,17 @@ GROUP2PARTS = {
 
 
 class DistributedArray:
+    # This seems a good candidate for using MPI's derived datatypes (DDT),
+    # which allow sending/receiving halos that are non-contiguous in memory
+    # without requiring data copying. However, experiments with DDTs (e.g.,
+    # <MPI data type>.Create_subarray) show that they perform *worse* than
+    # manually making contiguous copies of the data to be sent/received. This
+    # is in line with Nölp & Oden (https://doi.org/10.1007/s11227-023-05398-7).
+    # The likely reason is that the size of the contiguous dimension (x)
+    # of the subarrays is for all halos except top/bottom very small
+    # (halo size=2). MPI implementations do not seem to optimize well for this
+    # scenario. Therefore, with stick with persistent requests + manual
+    # copying for now, as recommended by Nölp & Oden.
     __slots__ = ["rank", "group2task", "halo2name"]
 
     def __init__(
