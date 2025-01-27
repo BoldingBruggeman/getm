@@ -593,7 +593,6 @@ class DistributedArray:
         halox: int,
         haloy: int,
         overlap: int = 0,
-        share_caches: bool = False,
     ):
         self.rank = tiling.rank
         self.group2task: List[
@@ -605,10 +604,6 @@ class DistributedArray:
             ]
         ] = [([], [], [], []) for _ in range(max(Neighbor) + 1)]
         self.halo2name = {}
-
-        key = (field.shape, halox, haloy, overlap, field.dtype)
-        caches = None if not share_caches else tiling._caches.get(key)
-        owncaches = []
 
         def add_task(
             recvtag: Neighbor,
@@ -626,16 +621,7 @@ class DistributedArray:
             )
             assert inner.shape == outer.shape, f"{inner.shape!r} vs {outer.shape!r}"
             if neighbor != -1 and inner.size > 0:
-                if caches:
-                    inner_cache, outer_cache = caches[len(owncaches)]
-                    assert inner.shape == inner_cache.shape
-                    assert outer.shape == outer_cache.shape
-                else:
-                    inner_cache, outer_cache = (
-                        np.empty_like(inner),
-                        np.empty_like(outer),
-                    )
-                owncaches.append((inner_cache, outer_cache))
+                inner_cache, outer_cache = (np.empty_like(inner), np.empty_like(outer))
                 send_req = mpi4py_autofree(
                     tiling.comm.Send_init(inner_cache, neighbor, sendtag)
                 )
@@ -713,8 +699,6 @@ class DistributedArray:
                 slice(nx - in_stopx, nx - in_startx),
             ),
         )
-        if caches is None and share_caches:
-            tiling._caches[key] = owncaches
 
     def update_halos(self, group: Neighbor = Neighbor.ALL):
         send_reqs, recv_reqs, send_data, recv_data = self.group2task[group]
