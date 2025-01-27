@@ -787,20 +787,23 @@ class Gather:
         sendbuf = np.ascontiguousarray(field, self.dtype)
         self.comm.Gather(sendbuf, self.recvbuf, root=self.root)
         if self.recvbuf is not None:
-            if out is None:
-                out = np.empty(
-                    self.recvbuf.shape[1:-2] + self.global_shape, dtype=self.dtype
-                )
-                if self.fill_value is not None:
-                    out.fill(self.fill_value)
-            assert out.shape[-2:] == self.global_shape, (
-                f"Global shape {out.shape[-2:]} differs"
-                f" from expected {self.global_shape}"
-            )
-            for source, global_slice in self.buffers:
-                out[slice_spec + global_slice] = source
-            return out
+            return self._write(out, slice_spec)
         return None
+
+    def _write(self, out, slice_spec) -> np.ndarray:
+        if out is None:
+            out = np.empty(
+                self.recvbuf.shape[1:-2] + self.global_shape, dtype=self.dtype
+            )
+            if self.fill_value is not None:
+                out.fill(self.fill_value)
+        assert out.shape[-2:] == self.global_shape, (
+            f"Global shape {out.shape[-2:]} differs"
+            f" from expected {self.global_shape}"
+        )
+        for source, global_slice in self.buffers:
+            out[slice_spec + global_slice] = source
+        return out
 
 
 class Scatter:
