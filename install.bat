@@ -6,7 +6,7 @@ set FC=x86_64-w64-mingw32-gfortran
 set CC=x86_64-w64-mingw32-gcc
 set CFLAGS=-DMS_WIN64
 
-pip install -v -e "%REPO_DIR%\python"
+pip install -v "%REPO_DIR%\python"
 if errorlevel 1 exit /b 1
 
 @SET PYGETM_DIR=

@@ -9,6 +9,7 @@ from typing import (
     List,
     Any,
     Callable,
+    Iterable,
     TYPE_CHECKING,
 )
 import logging
@@ -587,13 +588,11 @@ class Grid(_pygetm.Grid):
             interior_slice = (slice(None),) * len(shape)
         else:
             # field with trailing y, x dimensions
+            assert shape[-1] == self.nx_ and shape[-2] == self.ny_
             nx = self.tiling.nx_glob + self.overlap
             ny = self.tiling.ny_glob + self.overlap
             global_shape = shape[:-2] + (ny, nx)
-
-            xslice = slice(self.halox, shape[-1] + self.halox)
-            yslice = slice(self.haloy, shape[-2] + self.haloy)
-            interior_slice = (Ellipsis, yslice, xslice)
+            interior_slice = self._interior
 
         if self.tiling.n == 1:
             return gather_serial, interior_slice, global_shape
@@ -608,10 +607,34 @@ class Grid(_pygetm.Grid):
             )
         else:
             gatherer = parallel.Gather(
-                self.tiling, shape, dtype, fill_value=fill_value, overlap=self.overlap
+                self.tiling,
+                shape[:-2] + (self.ny, self.nx),
+                dtype,
+                fill_value=fill_value,
+                overlap=self.overlap,
             )
 
         return gatherer, interior_slice, global_shape
+
+    def _get_dims(self, ndim: int, z: bool, on_boundary: bool = False) -> Iterable[str]:
+        if ndim > 0:
+            if on_boundary:
+                yield f"bdy{self.postfix}"
+            if z:
+                yield "zi" if z == INTERFACES else "z"
+            if not on_boundary:
+                yield f"y{self.postfix}"
+                yield f"x{self.postfix}"
+
+    def _get_coords(
+        self, ndim: int, z: bool, on_boundary: bool = False
+    ) -> Iterable["Array"]:
+        if ndim >= 2 and not on_boundary:
+            for array in self.horizontal_coordinates:
+                yield array
+        if z:
+            z_src = self.open_boundaries if on_boundary else self
+            yield z_src.zf if z == INTERFACES else z_src.zc
 
 
 for membername in Grid._all_arrays:
@@ -780,10 +803,10 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
 
     def gather(self, out: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
         if self._gather is None:
-            gatherer, _, _ = self.grid.get_gather_info(
-                self.shape, self.on_boundary, self.dtype, self._fill_value
+            gatherer, interior_slice, _ = self.grid.get_gather_info(
+                self.all_values.shape, self.on_boundary, self.dtype, self._fill_value
             )
-            self._gather = functools.partial(gatherer, self.values)
+            self._gather = functools.partial(gatherer, self.all_values[interior_slice])
         return self._gather(out)
 
     def allgather(self) -> np.ndarray:
@@ -1119,11 +1142,6 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
         """
         if self._xarray is not None and not mask:
             return self._xarray
-        attrs = {}
-        for key in ("units", "long_name"):
-            value = getattr(self, key)
-            if value is not None:
-                attrs[key] = value
         coords = {}
         if not (
             self is self.grid.x
@@ -1135,12 +1153,10 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
             coords[f"y{self.grid.postfix}"] = self.grid.y.xarray
             coords[f"lon{self.grid.postfix}"] = self.grid.lon.xarray
             coords[f"lat{self.grid.postfix}"] = self.grid.lat.xarray
-        dims = ("y" + self.grid.postfix, "x" + self.grid.postfix)
-        if self.ndim == 3:
-            dims = ("zi" if self.z == INTERFACES else "z",) + dims
+        dims = self.grid._get_dims(self._ndim, self.z, self.on_boundary)
         values = self.values if not mask else self.ma
         _xarray = xr.DataArray(
-            values, coords=coords, dims=dims, attrs=attrs, name=self.name
+            values, coords=coords, dims=dims, attrs=self.attrs, name=self.name
         )
         if not mask:
             self._xarray = _xarray

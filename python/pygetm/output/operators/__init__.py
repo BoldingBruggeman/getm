@@ -41,19 +41,21 @@ class Base:
     def __init__(
         self,
         expression: str,
-        shape: Tuple[int, ...],
-        dims: Tuple[str, ...],
+        shape: Iterable[int],
+        dims: Iterable[str],
         dtype: DTypeLike,
         fill_value=None,
         time_varying: Union[TimeVarying, Literal[False]] = TimeVarying.MICRO,
         attrs: Mapping[str, Any] = {},
     ):
         self.expression = expression
-        self.dtype = dtype
-        self.shape = shape
-        self.ndim = len(shape)
-        assert self.ndim == len(dims), f"Expected {self.ndim} dimensions but got {dims}"
-        self.dims = dims
+        self.shape = tuple(shape)
+        self.ndim = len(self.shape)
+        self.dims = tuple(dims)
+        assert self.ndim == len(
+            self.dims
+        ), f"Expected {self.ndim} dimensions but got {self.dims}"
+        self.dtype = np.dtype(dtype)
         self.fill_value = fill_value
         self.attrs = attrs
         self.time_varying = time_varying
@@ -73,10 +75,11 @@ class Base:
         raise NotImplementedError
 
     def gather(self) -> "Base":
-        gatherer, local_slice, global_shape = self.get_gather_info()
-        return Gather(self, gatherer, local_slice, global_shape)
+        return Gather(self)
 
-    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
+    def _get_gather_info(
+        self, shape: Tuple[int, ...], dtype: np.dtype, fill_value: np.ndarray
+    ) -> Tuple[Callable, Tuple, Tuple[int, ...]]:
         return NotImplementedError
 
     @property
@@ -103,7 +106,7 @@ class Base:
 class WrappedArray(Base):
     __slots__ = ("_name", "values")
 
-    def __init__(self, values: np.ndarray, name: str, dims: Tuple[str], **kwargs):
+    def __init__(self, values: np.ndarray, name: str, dims: Tuple[str, ...], **kwargs):
         super().__init__(
             name, values.shape, dims, values.dtype, time_varying=False, **kwargs
         )
@@ -295,17 +298,6 @@ class FieldCollection:
             updater()
 
 
-def grid2dims(grid: pygetm.core.Grid, z, on_boundary=False) -> Tuple[str, ...]:
-    dims = ()
-    if not on_boundary:
-        dims = (f"y{grid.postfix}", f"x{grid.postfix}")
-    if z:
-        dims = ("zi" if z == INTERFACES else "z",) + dims
-    if on_boundary:
-        dims = (f"bdy{grid.postfix}",) + dims
-    return dims
-
-
 class Field(Base):
     __slots__ = "collection", "array"
 
@@ -322,11 +314,10 @@ class Field(Base):
         if array.ndim >= 2 and not array.on_boundary:
             shape[-1] += 2 * array.grid.halox
             shape[-2] += 2 * array.grid.haloy
-        dims = grid2dims(array.grid, array.z, array.on_boundary) if shape else ()
         super().__init__(
             array.name,
-            tuple(shape),
-            dims,
+            shape,
+            array.grid._get_dims(array.ndim, array.z, array.on_boundary),
             dtype or array.dtype,
             array.fill_value,
             time_varying,
@@ -342,26 +333,23 @@ class Field(Base):
             out[slice_spec] = self.array.all_values
             return out
 
-    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
+    def _get_gather_info(
+        self, shape: Tuple[int, ...], dtype: np.dtype, fill_value: np.ndarray
+    ) -> Tuple[Callable, Tuple, Tuple[int, ...]]:
         return self.array.grid.get_gather_info(
-            self.array.shape, self.array.on_boundary, self.dtype, self.fill_value
+            shape=shape,
+            on_boundary=self.array.on_boundary,
+            dtype=dtype,
+            fill_value=fill_value,
         )
 
     @property
     def coords(self) -> Iterable[Base]:
-        if self.array.ndim >= 2 and not self.array.on_boundary:
-            for array in self.grid.horizontal_coordinates:
-                yield Field(array)
-            if self.z:
-                yield Field(self.grid.zf if self.z == INTERFACES else self.grid.zc)
-        elif self.z:
-            bdy = self.grid.open_boundaries
-            yield Field(bdy.zf if self.z == INTERFACES else bdy.zc)
+        for array in self.grid._get_coords(
+            self.ndim, self.array.z, self.array.on_boundary
+        ):
+            yield Field(array)
         yield from self.grid.extra_output_coordinates
-
-    @property
-    def z(self) -> bool:
-        return self.array.z
 
     @property
     def default_name(self) -> str:
@@ -379,7 +367,7 @@ class UnivariateTransform(Base):
         self,
         source: Base,
         shape: Optional[Tuple[int, ...]] = None,
-        dims: Optional[Tuple[str, ...]] = None,
+        dims: Optional[Iterable[str]] = None,
         dtype: Optional[DTypeLike] = None,
         expression: Optional[str] = None,
     ):
@@ -388,7 +376,7 @@ class UnivariateTransform(Base):
         super().__init__(
             expression or f"{self.__class__.__name__}({source.expression})",
             shape,
-            dims or source.dims,
+            source.dims if dims is None else dims,
             dtype or source.dtype,
             source.fill_value,
             source.time_varying,
@@ -416,8 +404,10 @@ class UnivariateTransform(Base):
     def default_name(self) -> str:
         return self._source.default_name
 
-    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
-        return self._source.get_gather_info()
+    def _get_gather_info(
+        self, shape: Tuple[int, ...], dtype: np.dtype, fill_value: np.ndarray
+    ) -> Tuple[Callable, Tuple, Tuple[int, ...]]:
+        return self._source._get_gather_info(shape, dtype, fill_value)
 
 
 class UnivariateTransformWithData(UnivariateTransform):
@@ -440,7 +430,10 @@ class UnivariateTransformWithData(UnivariateTransform):
 class Gather(UnivariateTransform):
     __slots__ = "root_has_global_values", "_slice", "_gather"
 
-    def __init__(self, source: Base, gatherer, local_slice, global_shape):
+    def __init__(self, source: Base):
+        gatherer, local_slice, global_shape = source._get_gather_info(
+            source.shape, source.dtype, source.fill_value
+        )
         super().__init__(source, shape=global_shape, expression=source.expression)
         self.root_has_global_values = (
             isinstance(source, Field) and "_global_values" in source.array.attrs
@@ -565,12 +558,15 @@ class Regrid(UnivariateTransformWithData):
                 self.interpolate = functools.partial(pygetm._pygetm.interp_z, offset=1)
                 shape = (source.shape[0] + 1,) + source.shape[1:]
                 args = ", z=interfaces"
+        super().__init__(
+            source,
+            shape=shape,
+            dims=grid._get_dims(len(shape), z),
+            expression=f"{self.__class__.__name__}({source.expression}{args})",
+        )
         self._slice = (np.newaxis, Ellipsis) if source.ndim < 3 else (Ellipsis,)
-        dims = grid2dims(grid, z)
-        expression = f"{self.__class__.__name__}({source.expression}{args})"
         self._grid = grid
         self._z = z
-        super().__init__(source, shape=shape, dims=dims, expression=expression)
 
     def get(
         self, out: Optional[ArrayLike] = None, slice_spec: Tuple[int, ...] = ()
@@ -584,15 +580,16 @@ class Regrid(UnivariateTransformWithData):
 
     @property
     def coords(self) -> Iterable[Base]:
-        for array in self._grid.horizontal_coordinates:
+        for array in self._grid._get_coords(self.ndim, self._z):
             yield Field(array)
-        if self._z:
-            yield Field(self._grid.zf if self._z == INTERFACES else self._grid.zc)
+        yield from self._grid.extra_output_coordinates
 
-    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
-        gatherer, local_slice, global_shape = self._source.get_gather_info()
-        global_shape = self.shape[:-2] + global_shape[-2:]
-        return gatherer, local_slice, global_shape
+    def _get_gather_info(
+        self, shape: Tuple[int, ...], dtype: np.dtype, fill_value: np.ndarray
+    ) -> Tuple[Callable, Tuple, Tuple[int, ...]]:
+        return self._grid.get_gather_info(
+            shape=shape, on_boundary=False, dtype=dtype, fill_value=fill_value
+        )
 
 
 class InterpZ(UnivariateTransformWithData):
@@ -622,10 +619,5 @@ class InterpZ(UnivariateTransformWithData):
     def coords(self) -> Iterable[Base]:
         for c in super().coords:
             if c.attrs.get("axis") == "Z":
-                c = WrappedArray(self.z_tgt, self.z_dim, (self.z_dim,))
+                c = WrappedArray(self.z_tgt, self.z_dim, (self.z_dim,), attrs=c.attrs)
             yield c
-
-    def get_gather_info(self) -> Tuple[Callable, Tuple, Tuple]:
-        gatherer, local_slice, global_shape = self._source.get_gather_info()
-        global_shape = self.shape[:-2] + global_shape[-2:]
-        return gatherer, local_slice, global_shape
