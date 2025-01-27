@@ -7,12 +7,14 @@ import netCDF4
 import argparse
 import logging
 import urllib.request
+from typing import Optional
 
 import numpy as np
 
 from pygetm import pygsw
 from pygetm.util.nctools import copy_variable
 from pygetm.util.fill import Filler
+from pygetm.input import from_nc, horizontal_interpolation, limit_region
 
 URL = "https://www.nodc.noaa.gov/archive/arc0107/0162565/1.1/data/0-data/mapped/GLODAPv2.2016b_MappedClimatologies.tar.gz"
 
@@ -108,6 +110,64 @@ def add_density(path: str, logger: logging.Logger):
         ncvar[:, :, :] = res
 
 
+def regrid(
+    infile: str,
+    lon,
+    lat,
+    outfile: str,
+    *,
+    clamp: bool = False,
+    logger: Optional[logging.Logger] = None,
+):
+    logging.basicConfig(level=logging.INFO)
+    logger = logger or logging.getLogger()
+    lat_ip = lat
+    with netCDF4.Dataset(infile) as nc:
+        target_variables = [n for n, v in nc.variables.items() if v.ndim == 3]
+        if clamp:
+            lat_glodap = nc.variables["lat"][:]
+            lat_ip = np.clip(lat, lat_glodap.min(), lat_glodap.max())
+            if (lat != lat_ip).any():
+                logger.warning(
+                    f"Clipping requested latitude ({lat.min():.5f} - {lat.max():.5f})"
+                    f" to available GLODAP range ({lat_glodap.min()} - {lat_glodap.max()})"
+                )
+    logger.info(f"Interpolating variable and writing them to {outfile}...")
+    with netCDF4.Dataset(outfile, "w") as ncbath:
+        for name in target_variables:
+            values = from_nc(infile, name)
+            values = limit_region(values, -180.0, 180.0, -80.0, 89.5, periodic_lon=True)
+            if not ncbath.variables:
+                ncbath.createDimension("x", lon.shape[1])
+                ncbath.createDimension("y", lon.shape[0])
+                ncbath.createVariable("lon", float, ("y", "x"))[:, :] = lon
+                ncbath.createVariable("lat", float, ("y", "x"))[:, :] = lat
+                glodap_depth = values.coords["Depth"]
+                ncbath.createDimension("depth", len(glodap_depth))
+                ncdepth = ncbath.createVariable("depth", float, ("depth",))
+                ncdepth[:] = glodap_depth
+                ncdepth.positive = glodap_depth.attrs["positive"]
+            values_ip = horizontal_interpolation(values, lon, lat_ip)
+            values_ip = np.asarray(values_ip)
+            logger.info(f"  {name}: {values.long_name} ({values.units})...")
+            ncvar = ncbath.createVariable(
+                name, float, ("depth", "y", "x"), fill_value=-1
+            )
+            ncvar.long_name = values.long_name
+            ncvar.units = values.units
+            ncvar[:, :, :] = values_ip
+
+
+def download_and_process(
+    outfile: str, source: str = URL, logger: Optional[logging.Logger] = None
+):
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger()
+    download(outfile, logger=logger, source=source)
+    add_density(outfile, logger=logger)
+    fill(outfile, logger=logger)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -118,9 +178,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger()
-
-    download(args.outfile, logger=logger, source=args.source)
-    add_density(args.outfile, logger=logger)
-    fill(args.outfile, logger=logger)
+    download_and_process(args.outfile, args.source)
