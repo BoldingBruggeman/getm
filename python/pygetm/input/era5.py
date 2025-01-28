@@ -1,7 +1,8 @@
-from typing import Iterable, Optional, List
+from typing import Iterable, Optional, List, Mapping
 import multiprocessing
 import os
 import argparse
+import logging
 
 import yaml
 
@@ -31,14 +32,15 @@ def _download_year(
 ):
     c = cdsapi.Client(verify=1, progress=False, **cds_settings)
     request = {
+        "product_type": ["reanalysis"],
         "variable": variables,
-        "product_type": "reanalysis",
-        "format": "netcdf",
-        "year": f"{year:04}",
+        "year": [f"{year:04}"],
         "month": [f"{m:02}" for m in range(1, 13)],
         "day": [f"{d:02}" for d in range(1, 32)],
         "time": [f"{h:02}:00" for h in range(0, 24)],
         "grid": ["0.25/0.25"],
+        "data_format": "netcdf",
+        "download_format": "unarchived",
         "area": area,
     }
     r = c.retrieve("reanalysis-era5-single-levels", request)
@@ -52,11 +54,34 @@ def get(
     minlat: float,
     maxlat: float,
     start_year: int,
-    stop_year: int,
-    selected_variables: Iterable[str] = DEFAULT_VARIABLES,
+    stop_year: Optional[int] = None,
+    variables: Iterable[str] = DEFAULT_VARIABLES,
     target_dir: str = ".",
     cdsapirc: Optional[str] = None,
-):
+    logger: Optional[logging.Logger] = None,
+) -> Mapping[int, str]:
+    logging.basicConfig(level=logging.INFO)
+    logger = logger or logging.getLogger()
+
+    assert (
+        minlon >= -360.0 and maxlon <= 360.0
+    ), "Longitude must be between -360 and 360"
+    assert minlat >= -90.0 and maxlat <= 90.0, "Latitude must be between -360 and 360"
+
+    minlon -= minlon % 0.25
+    maxlon += -maxlon % 0.25
+    minlat -= minlat % 0.25
+    maxlat += -maxlat % 0.25
+    minlon = max(-360.0, minlon)
+    maxlon = min(360.0, maxlon)
+    logger.info(
+        f"Final area: longitude = {minlon} - {maxlon}, latitude = {minlat} - {maxlat}"
+    )
+
+    if stop_year is None:
+        stop_year = start_year
+    logger.info(f"Downloading {', '.join(variables)} for {start_year} - {stop_year}")
+
     area = [maxlat, minlon, minlat, maxlon]
     cds_settings = {}
     if cdsapirc:
@@ -64,10 +89,12 @@ def get(
             cds_settings.update(yaml.safe_load(f))
 
     pool = multiprocessing.Pool(processes=stop_year - start_year + 1)
-    selected_variables = [VARIABLES[key] for key in selected_variables]
+    selected_variables = [VARIABLES[key] for key in variables]
     results = []
-    for year in range(start_year, stop_year + 1):
+    years = list(range(start_year, stop_year + 1))
+    for year in years:
         path = os.path.join(target_dir, f"era5_{year}.nc")
+        logger.info(f"  {year}: {path}")
         results.append(
             pool.apply_async(
                 _download_year,
@@ -75,8 +102,10 @@ def get(
                 kwds=cds_settings,
             )
         )
-    for res in results:
-        path = res.get()
+    year2path = {}
+    for year, res in zip(years, results):
+        year2path[year] = res.get()
+    return year2path
 
 
 if __name__ == "__main__":
@@ -110,12 +139,12 @@ if __name__ == "__main__":
         vars.update(DEFAULT_VARIABLES)
 
     get(
-        args.minlon - (args.minlon % 0.25),
-        args.maxlon + (-args.maxlon % 0.25),
-        args.minlat - (args.minlat % 0.25),
-        args.maxlat + (-args.maxlat % 0.25),
+        args.minlon,
+        args.maxlon,
+        args.minlat,
+        args.maxlat,
         args.start_year,
         args.stop_year,
-        selected_variables=vars,
+        variables=vars,
         cdsapirc=args.cdsapirc,
     )
