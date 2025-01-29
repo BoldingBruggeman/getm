@@ -23,6 +23,7 @@ VARIABLES = {
     "tco3": "total_column_ozone",
     "tcwv": "total_column_water_vapour",
     "tclw": "total_column_cloud_liquid_water",
+    "siconc": "sea_ice_cover",
 }
 DEFAULT_VARIABLES = ("u10", "v10", "t2m", "d2m", "sp", "tcc", "tp")
 
