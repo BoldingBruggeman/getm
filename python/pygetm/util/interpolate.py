@@ -1,17 +1,18 @@
+from typing import Optional
 import numpy as np
-from numpy.typing import ArrayLike
+import numpy.typing as npt
 
 
 class Linear2DGridInterpolator:
     def __init__(
         self,
-        x: ArrayLike,
-        y: ArrayLike,
-        xp: ArrayLike,
-        yp: ArrayLike,
+        x: npt.ArrayLike,
+        y: npt.ArrayLike,
+        xp: npt.ArrayLike,
+        yp: npt.ArrayLike,
         preslice=(Ellipsis,),
         ndim_trailing: int = 0,
-        mask=None,
+        mask: Optional[npt.ArrayLike] = None,
     ):
         assert ndim_trailing >= 0
         xp = np.array(xp, dtype=float)
@@ -79,30 +80,42 @@ class Linear2DGridInterpolator:
         self.slice12 = (Ellipsis, ix_left, iy_right) + (slice(None),) * ndim_trailing
         self.slice21 = (Ellipsis, ix_right, iy_left) + (slice(None),) * ndim_trailing
         self.slice22 = (Ellipsis, ix_right, iy_right) + (slice(None),) * ndim_trailing
-
+        assert ix_left.min() >= 0
+        assert iy_left.min() >= 0
+        assert ix_right.max() < xp.size
+        assert iy_right.max() < yp.size
         if mask is not None:
-            # Force weights to zero for masked points and renormalize the weights
+            # Force weights to zero for masked points and renormalize weights
             # so their sum is 1
+            mask = np.asarray(mask)
+            assert (
+                mask.ndim >= 2 + ndim_trailing
+            ), f"Mask should have at least {2 + ndim_trailing} dimensions"
+            ndim_no_trail = mask.ndim - ndim_trailing
+            mask_xy_shape = mask.shape[ndim_no_trail - 2 : ndim_no_trail]
+            xy_shape = (self.nxp, self.nyp)
+            assert (
+                mask_xy_shape == xy_shape
+            ), f"Bad mask shape for x, y: {mask_xy_shape} while expected {xy_shape}"
             shape = (
-                mask.shape[: -ndim_trailing - 2] + x.shape + mask.shape[-ndim_trailing:]
+                mask.shape[: ndim_no_trail - 2] + x.shape + mask.shape[ndim_no_trail:]
             )
-            w11_full = np.empty(shape, dtype=self.w11.dtype)
-            w12_full = np.empty(shape, dtype=self.w12.dtype)
-            w21_full = np.empty(shape, dtype=self.w21.dtype)
-            w22_full = np.empty(shape, dtype=self.w22.dtype)
-            w11_full[...] = self.w11
-            w12_full[...] = self.w12
-            w21_full[...] = self.w21
-            w22_full[...] = self.w22
-            w11_full[mask[self.slice11]] = 0.0
-            w12_full[mask[self.slice12]] = 0.0
-            w21_full[mask[self.slice21]] = 0.0
-            w22_full[mask[self.slice22]] = 0.0
-            norm = 1.0 / (w11_full + w12_full + w21_full + w22_full)
-            self.w11 = w11_full * norm
-            self.w12 = w12_full * norm
-            self.w21 = w21_full * norm
-            self.w22 = w22_full * norm
+            if self.w11.shape != shape:
+                # Mask also covers prepended or appended dimensions
+                # Expand weights to handle that
+                self.w11 = np.array(np.broadcast_to(self.w11, shape))
+                self.w12 = np.array(np.broadcast_to(self.w12, shape))
+                self.w21 = np.array(np.broadcast_to(self.w21, shape))
+                self.w22 = np.array(np.broadcast_to(self.w22, shape))
+            self.w11[mask[self.slice11]] = 0.0
+            self.w12[mask[self.slice12]] = 0.0
+            self.w21[mask[self.slice21]] = 0.0
+            self.w22[mask[self.slice22]] = 0.0
+            norm = 1.0 / (self.w11 + self.w12 + self.w21 + self.w22)
+            self.w11 *= norm
+            self.w12 *= norm
+            self.w21 *= norm
+            self.w22 *= norm
 
         self.idim1 = -2 - ndim_trailing
         self.idim2 = -1 - ndim_trailing
