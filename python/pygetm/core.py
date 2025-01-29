@@ -1143,16 +1143,11 @@ class Array(_pygetm.Array, numpy.lib.mixins.NDArrayOperatorsMixin):
         if self._xarray is not None and not mask:
             return self._xarray
         coords = {}
-        if not (
-            self is self.grid.x
-            or self is self.grid.y
-            or self is self.grid.lon
-            or self is self.grid.lat
-        ):
-            coords[f"x{self.grid.postfix}"] = self.grid.x.xarray
-            coords[f"y{self.grid.postfix}"] = self.grid.y.xarray
-            coords[f"lon{self.grid.postfix}"] = self.grid.lon.xarray
-            coords[f"lat{self.grid.postfix}"] = self.grid.lat.xarray
+        possible_c = (self.grid.x, self.grid.y, self.grid.lon, self.grid.lat)
+        if not any(c is self for c in possible_c):
+            for c in possible_c:
+                if c is not None:
+                    coords[c.name] = c.xarray
         dims = self.grid._get_dims(self._ndim, self.z, self.on_boundary)
         values = self.values if not mask else self.ma
         _xarray = xr.DataArray(
