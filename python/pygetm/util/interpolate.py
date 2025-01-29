@@ -61,6 +61,7 @@ class Linear2DGridInterpolator:
         self.w12 = wx_left * (1.0 - wy_left)
         self.w21 = (1.0 - wx_left) * wy_left
         self.w22 = (1.0 - wx_left) * (1.0 - wy_left)
+        assert np.allclose(self.w11 + self.w12 + self.w21 + self.w22, 1.0, 1e-14)
 
         # Ensure weights are broadcastable to shape of data array
         wshape = x.shape + (1,) * ndim_trailing
@@ -80,10 +81,7 @@ class Linear2DGridInterpolator:
         self.slice12 = (Ellipsis, ix_left, iy_right) + (slice(None),) * ndim_trailing
         self.slice21 = (Ellipsis, ix_right, iy_left) + (slice(None),) * ndim_trailing
         self.slice22 = (Ellipsis, ix_right, iy_right) + (slice(None),) * ndim_trailing
-        assert ix_left.min() >= 0
-        assert iy_left.min() >= 0
-        assert ix_right.max() < xp.size
-        assert iy_right.max() < yp.size
+
         if mask is not None:
             # Force weights to zero for masked points and renormalize weights
             # so their sum is 1
@@ -97,25 +95,61 @@ class Linear2DGridInterpolator:
             assert (
                 mask_xy_shape == xy_shape
             ), f"Bad mask shape for x, y: {mask_xy_shape} while expected {xy_shape}"
-            shape = (
+            target_shape = (
                 mask.shape[: ndim_no_trail - 2] + x.shape + mask.shape[ndim_no_trail:]
             )
-            if self.w11.shape != shape:
-                # Mask also covers prepended or appended dimensions
-                # Expand weights to handle that
-                self.w11 = np.array(np.broadcast_to(self.w11, shape))
-                self.w12 = np.array(np.broadcast_to(self.w12, shape))
-                self.w21 = np.array(np.broadcast_to(self.w21, shape))
-                self.w22 = np.array(np.broadcast_to(self.w22, shape))
-            self.w11[mask[self.slice11]] = 0.0
-            self.w12[mask[self.slice12]] = 0.0
-            self.w21[mask[self.slice21]] = 0.0
-            self.w22[mask[self.slice22]] = 0.0
-            norm = 1.0 / (self.w11 + self.w12 + self.w21 + self.w22)
-            self.w11 *= norm
-            self.w12 *= norm
-            self.w21 *= norm
-            self.w22 *= norm
+            use_nn = (
+                mask[self.slice11]
+                | mask[self.slice12]
+                | mask[self.slice21]
+                | mask[self.slice22]
+            )
+            if use_nn.any():
+                import scipy.spatial
+
+                # Build kd-tree for nearest-neighbor lookup, using only unmasked points
+                source_coords = np.indices(mask.shape)[:, ~mask]
+                tree = scipy.spatial.KDTree(source_coords.T)
+
+                ix = ix_right - wx_left
+                iy = iy_right - wy_left
+                sl = (Ellipsis,) + (np.newaxis,) * ndim_trailing
+                target_indices = np.indices(target_shape)
+                target_coords = []
+                for i in range(len(target_shape) - 2 - ndim_trailing):
+                    target_coords.append(target_indices[i])
+                target_coords.append(np.broadcast_to(ix[sl], target_shape))
+                target_coords.append(np.broadcast_to(iy[sl], target_shape))
+                for i in range(ndim_trailing):
+                    target_coords.append(target_indices[-ndim_trailing + i])
+                target_coords = np.array(target_coords, dtype=float)
+
+                _, inearest = tree.query(target_coords[:, use_nn].T, workers=-1)
+
+                for k in ("slice11", "slice12", "slice21", "slice22"):
+                    s = getattr(self, k)
+
+                    # Broadcast original slices
+                    slc_indices = []
+                    for i in range(len(target_shape) - 2 - ndim_trailing):
+                        slc_indices.append(target_indices[i])
+                    ix = np.broadcast_to(s[-2 - ndim_trailing][sl], target_shape)
+                    iy = np.broadcast_to(s[-1 - ndim_trailing][sl], target_shape)
+                    slc_indices.extend([ix, iy])
+                    for i in range(ndim_trailing):
+                        slc_indices.append(target_indices[-ndim_trailing + i])
+
+                    # Substitute nearest
+                    for i in range(len(slc_indices)):
+                        slc_indices[i] = np.array(slc_indices[i])
+                        slc_indices[i][use_nn] = source_coords[i, inearest]
+
+                    setattr(self, k, (Ellipsis,) + tuple(slc_indices))
+
+            assert not mask[self.slice11].any()
+            assert not mask[self.slice12].any()
+            assert not mask[self.slice21].any()
+            assert not mask[self.slice22].any()
 
         self.idim1 = -2 - ndim_trailing
         self.idim2 = -1 - ndim_trailing
