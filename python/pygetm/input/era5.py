@@ -93,6 +93,7 @@ def get(
     selected_variables = [VARIABLES[key] for key in variables]
     results = []
     years = list(range(start_year, stop_year + 1))
+    os.makedirs(target_dir, exist_ok=True)
     for year in years:
         path = os.path.join(target_dir, f"era5_{year}.nc")
         logger.info(f"  {year}: {path}")
