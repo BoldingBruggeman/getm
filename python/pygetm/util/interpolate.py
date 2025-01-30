@@ -165,7 +165,13 @@ class Linear2DGridInterpolator:
 
 
 class LinearVectorized1D:
-    def __init__(self, x, xp, axis=0, fill_value=np.nan):
+    def __init__(
+        self,
+        x: npt.ArrayLike,
+        xp: npt.ArrayLike,
+        axis: int = 0,
+        fill_value: float = np.nan,
+    ):
         x = np.asarray(x)
         xp = np.asarray(xp)
         assert x.ndim == 1
@@ -173,12 +179,21 @@ class LinearVectorized1D:
         xp_slice = [slice(None)] * xp.ndim
         final_shape = list(xp.shape)
         final_shape[axis] = x.size
-        ix_right = np.empty(final_shape, dtype=int)
+        ix_left = np.empty(final_shape, dtype=np.intp)
         for ix, cur_x in enumerate(x):
             xp_slice[axis] = ix
-            ix_right[tuple(xp_slice)] = (xp <= cur_x).sum(axis=axis)
-        ix_left = np.maximum(ix_right - 1, 0)
-        ix_right = np.minimum(ix_right, xp.shape[axis] - 1)
+            ix_left_cur = (xp < cur_x).sum(axis=axis) - 1
+            ix_left_cur += (xp == cur_x).any(axis=axis)
+            ix_left[tuple(xp_slice)] = ix_left_cur
+        if (np.diff(xp, axis=axis) >= 0.0).all():
+            # Source coordinate is monotonically INcreasing
+            ix_right = np.minimum(ix_left + 1, xp.shape[axis] - 1)
+            ix_left = np.maximum(ix_left, 0)
+        else:
+            # Source coordinate is monotonically DEcreasing
+            ix_right = xp.shape[axis] - 1 - ix_left
+            ix_left = np.maximum(ix_right - 1, 0)
+            ix_right = np.minimum(ix_right, xp.shape[axis] - 1)
         valid = ix_left != ix_right
         xp_right = np.take_along_axis(xp, ix_right, axis=axis)
         xp_left = np.take_along_axis(xp, ix_left, axis=axis)
@@ -186,8 +201,8 @@ class LinearVectorized1D:
         x_shape = [1] * xp.ndim
         x_shape[axis] = x.size
         x_bc = x.reshape(x_shape)
-        w_left = np.true_divide(xp_right - x_bc, dxp, where=valid)
-        np.putmask(w_left, ~valid, 1.0)
+        w_left = np.ones(xp_right.shape)
+        np.divide(xp_right - x_bc, dxp, out=w_left, where=valid)
         self.ix_left = ix_left
         self.ix_right = ix_right
         self.w_left = w_left
@@ -195,7 +210,7 @@ class LinearVectorized1D:
         self.valid = valid
         self.fill_value = fill_value
 
-    def __call__(self, yp):
+    def __call__(self, yp) -> np.ndarray:
         yp = np.asarray(yp)
         yp_left = np.take_along_axis(yp, self.ix_left, axis=self.axis)
         yp_right = np.take_along_axis(yp, self.ix_right, axis=self.axis)
