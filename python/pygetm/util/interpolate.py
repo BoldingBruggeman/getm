@@ -1,17 +1,18 @@
+from typing import Optional
 import numpy as np
-from numpy.typing import ArrayLike
+import numpy.typing as npt
 
 
 class Linear2DGridInterpolator:
     def __init__(
         self,
-        x: ArrayLike,
-        y: ArrayLike,
-        xp: ArrayLike,
-        yp: ArrayLike,
+        x: npt.ArrayLike,
+        y: npt.ArrayLike,
+        xp: npt.ArrayLike,
+        yp: npt.ArrayLike,
         preslice=(Ellipsis,),
         ndim_trailing: int = 0,
-        mask=None,
+        mask: Optional[npt.ArrayLike] = None,
     ):
         assert ndim_trailing >= 0
         xp = np.array(xp, dtype=float)
@@ -60,6 +61,7 @@ class Linear2DGridInterpolator:
         self.w12 = wx_left * (1.0 - wy_left)
         self.w21 = (1.0 - wx_left) * wy_left
         self.w22 = (1.0 - wx_left) * (1.0 - wy_left)
+        assert np.allclose(self.w11 + self.w12 + self.w21 + self.w22, 1.0, 1e-14)
 
         # Ensure weights are broadcastable to shape of data array
         wshape = x.shape + (1,) * ndim_trailing
@@ -81,28 +83,73 @@ class Linear2DGridInterpolator:
         self.slice22 = (Ellipsis, ix_right, iy_right) + (slice(None),) * ndim_trailing
 
         if mask is not None:
-            # Force weights to zero for masked points and renormalize the weights
+            # Force weights to zero for masked points and renormalize weights
             # so their sum is 1
-            shape = (
-                mask.shape[: -ndim_trailing - 2] + x.shape + mask.shape[-ndim_trailing:]
+            mask = np.asarray(mask)
+            assert (
+                mask.ndim >= 2 + ndim_trailing
+            ), f"Mask should have at least {2 + ndim_trailing} dimensions"
+            ndim_no_trail = mask.ndim - ndim_trailing
+            mask_xy_shape = mask.shape[ndim_no_trail - 2 : ndim_no_trail]
+            xy_shape = (self.nxp, self.nyp)
+            assert (
+                mask_xy_shape == xy_shape
+            ), f"Bad mask shape for x, y: {mask_xy_shape} while expected {xy_shape}"
+            target_shape = (
+                mask.shape[: ndim_no_trail - 2] + x.shape + mask.shape[ndim_no_trail:]
             )
-            w11_full = np.empty(shape, dtype=self.w11.dtype)
-            w12_full = np.empty(shape, dtype=self.w12.dtype)
-            w21_full = np.empty(shape, dtype=self.w21.dtype)
-            w22_full = np.empty(shape, dtype=self.w22.dtype)
-            w11_full[...] = self.w11
-            w12_full[...] = self.w12
-            w21_full[...] = self.w21
-            w22_full[...] = self.w22
-            w11_full[mask[self.slice11]] = 0.0
-            w12_full[mask[self.slice12]] = 0.0
-            w21_full[mask[self.slice21]] = 0.0
-            w22_full[mask[self.slice22]] = 0.0
-            norm = 1.0 / (w11_full + w12_full + w21_full + w22_full)
-            self.w11 = w11_full * norm
-            self.w12 = w12_full * norm
-            self.w21 = w21_full * norm
-            self.w22 = w22_full * norm
+            use_nn = (
+                mask[self.slice11]
+                | mask[self.slice12]
+                | mask[self.slice21]
+                | mask[self.slice22]
+            )
+            if use_nn.any():
+                import scipy.spatial
+
+                # Build kd-tree for nearest-neighbor lookup, using only unmasked points
+                source_coords = np.indices(mask.shape)[:, ~mask]
+                tree = scipy.spatial.KDTree(source_coords.T)
+
+                ix = ix_right - wx_left
+                iy = iy_right - wy_left
+                sl = (Ellipsis,) + (np.newaxis,) * ndim_trailing
+                target_indices = np.indices(target_shape)
+                target_coords = []
+                for i in range(len(target_shape) - 2 - ndim_trailing):
+                    target_coords.append(target_indices[i])
+                target_coords.append(np.broadcast_to(ix[sl], target_shape))
+                target_coords.append(np.broadcast_to(iy[sl], target_shape))
+                for i in range(ndim_trailing):
+                    target_coords.append(target_indices[-ndim_trailing + i])
+                target_coords = np.array(target_coords, dtype=float)
+
+                _, inearest = tree.query(target_coords[:, use_nn].T, workers=-1)
+
+                for k in ("slice11", "slice12", "slice21", "slice22"):
+                    s = getattr(self, k)
+
+                    # Broadcast original slices
+                    slc_indices = []
+                    for i in range(len(target_shape) - 2 - ndim_trailing):
+                        slc_indices.append(target_indices[i])
+                    ix = np.broadcast_to(s[-2 - ndim_trailing][sl], target_shape)
+                    iy = np.broadcast_to(s[-1 - ndim_trailing][sl], target_shape)
+                    slc_indices.extend([ix, iy])
+                    for i in range(ndim_trailing):
+                        slc_indices.append(target_indices[-ndim_trailing + i])
+
+                    # Substitute nearest
+                    for i in range(len(slc_indices)):
+                        slc_indices[i] = np.array(slc_indices[i])
+                        slc_indices[i][use_nn] = source_coords[i, inearest]
+
+                    setattr(self, k, (Ellipsis,) + tuple(slc_indices))
+
+            assert not mask[self.slice11].any()
+            assert not mask[self.slice12].any()
+            assert not mask[self.slice21].any()
+            assert not mask[self.slice22].any()
 
         self.idim1 = -2 - ndim_trailing
         self.idim2 = -1 - ndim_trailing
@@ -118,7 +165,13 @@ class Linear2DGridInterpolator:
 
 
 class LinearVectorized1D:
-    def __init__(self, x, xp, axis=0, fill_value=np.nan):
+    def __init__(
+        self,
+        x: npt.ArrayLike,
+        xp: npt.ArrayLike,
+        axis: int = 0,
+        fill_value: float = np.nan,
+    ):
         x = np.asarray(x)
         xp = np.asarray(xp)
         assert x.ndim == 1
@@ -126,12 +179,21 @@ class LinearVectorized1D:
         xp_slice = [slice(None)] * xp.ndim
         final_shape = list(xp.shape)
         final_shape[axis] = x.size
-        ix_right = np.empty(final_shape, dtype=int)
+        ix_left = np.empty(final_shape, dtype=np.intp)
         for ix, cur_x in enumerate(x):
             xp_slice[axis] = ix
-            ix_right[tuple(xp_slice)] = (xp <= cur_x).sum(axis=axis)
-        ix_left = np.maximum(ix_right - 1, 0)
-        ix_right = np.minimum(ix_right, xp.shape[axis] - 1)
+            ix_left_cur = (xp < cur_x).sum(axis=axis) - 1
+            ix_left_cur += (xp == cur_x).any(axis=axis)
+            ix_left[tuple(xp_slice)] = ix_left_cur
+        if (np.diff(xp, axis=axis) >= 0.0).all():
+            # Source coordinate is monotonically INcreasing
+            ix_right = np.minimum(ix_left + 1, xp.shape[axis] - 1)
+            ix_left = np.maximum(ix_left, 0)
+        else:
+            # Source coordinate is monotonically DEcreasing
+            ix_right = xp.shape[axis] - 1 - ix_left
+            ix_left = np.maximum(ix_right - 1, 0)
+            ix_right = np.minimum(ix_right, xp.shape[axis] - 1)
         valid = ix_left != ix_right
         xp_right = np.take_along_axis(xp, ix_right, axis=axis)
         xp_left = np.take_along_axis(xp, ix_left, axis=axis)
@@ -139,8 +201,8 @@ class LinearVectorized1D:
         x_shape = [1] * xp.ndim
         x_shape[axis] = x.size
         x_bc = x.reshape(x_shape)
-        w_left = np.true_divide(xp_right - x_bc, dxp, where=valid)
-        np.putmask(w_left, ~valid, 1.0)
+        w_left = np.ones(xp_right.shape)
+        np.divide(xp_right - x_bc, dxp, out=w_left, where=valid)
         self.ix_left = ix_left
         self.ix_right = ix_right
         self.w_left = w_left
@@ -148,7 +210,7 @@ class LinearVectorized1D:
         self.valid = valid
         self.fill_value = fill_value
 
-    def __call__(self, yp):
+    def __call__(self, yp) -> np.ndarray:
         yp = np.asarray(yp)
         yp_left = np.take_along_axis(yp, self.ix_left, axis=self.axis)
         yp_right = np.take_along_axis(yp, self.ix_right, axis=self.axis)

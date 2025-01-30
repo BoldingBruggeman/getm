@@ -503,6 +503,7 @@ class Domain:
             nx, ny, coordinate_type, self.logger.getChild("rivers")
         )
         self.default_output_transforms = []
+        self.extra_output_coordinates = []
         self.input_grid_mappers = []
 
         if self.comm.rank != 0:
@@ -722,6 +723,7 @@ class Domain:
             self._populate_grid(grid)
             grid.input_manager = input_manager
             grid.default_output_transforms = self.default_output_transforms
+            grid.extra_output_coordinates = self.extra_output_coordinates
             grid.input_grid_mappers = [m(grid=grid) for m in self.input_grid_mappers]
             return grid
 
