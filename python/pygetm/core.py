@@ -63,7 +63,7 @@ class Rotator:
 
 
 class BoundaryGatherer:
-    def __init__(self, comm, open_boundaries, shape, dtype):
+    def __init__(self, comm, open_boundaries, shape: Tuple[int, ...], dtype):
         self.np_bdy = self.indices = self.work1 = self.work2 = self.count = None
 
         # Gather the number of open boundary points in each subdomain
@@ -82,7 +82,7 @@ class BoundaryGatherer:
             assert frozenset(self.indices) == frozenset(range(open_boundaries.np_glob))
             self.work1 = np.empty((self.np_bdy.sum(),) + shape, dtype=dtype)
             self.work2 = np.empty((open_boundaries.np_glob,) + shape, dtype=dtype)
-            self.count = self.np_bdy * self.work2[0].size
+            self.count = self.np_bdy * np.prod(shape)
 
         self._Gatherv = comm.Gatherv
 
